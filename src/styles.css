@@ -302,6 +302,9 @@ input, textarea, select { outline: none; }
 .shape-btn { flex: 1; padding: 6px 4px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); font-size: 11px; color: var(--muted); }
 .shape-btn.on { background: var(--accent-soft); border-color: var(--accent-soft-2); color: var(--accent); font-weight: 600; }
 .env-section input[type='range'] { width: 100%; accent-color: var(--accent); }
+.sound-menu input[type='range'] { width: 100%; accent-color: var(--accent); }
+.sound-note { margin: 0; font-size: 11px; line-height: 1.4; color: var(--muted-2); }
+.sound-note a { color: var(--muted); }
 .off-plate { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--orange); background: var(--orange-soft); border-radius: 5px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
 .tex-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
 .tex-wrap { position: relative; display: block; }

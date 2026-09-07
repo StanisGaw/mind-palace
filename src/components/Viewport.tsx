@@ -4,7 +4,7 @@ import { GROUND_SHAPES } from '../lib/ground';
 import { BUILTIN_TEXTURES, textureThumb } from '../three/textures';
 import { addCustomTexture, loadCustomTextures, removeCustomTexture, type CustomTexture } from '../lib/textureStore';
 import { allLandscapes, removeLandscape, saveLandscape, type LandscapePreset } from '../lib/landscapes';
-import type { Scenery, Weather } from '../types';
+import type { Scenery, SoundLevels, Weather } from '../types';
 import { useCurrentPalace, useStore } from '../store';
 import { SceneManager } from '../three/SceneManager';
 import { I } from './Icons';
@@ -104,7 +104,8 @@ export function Viewport() {
       </div>
 
       {/* góra-prawo: otoczenie */}
-      <div className="hud hud-top-right" style={{ top: 16, right: 16 }}>
+      <div className="hud hud-top-right" style={{ top: 16, right: 16, display: 'flex', gap: 8 }}>
+        <SoundMenu />
         <EnvironmentMenu />
       </div>
 
@@ -292,6 +293,74 @@ function EnvironmentMenu() {
           {!palace.interior && <GroundSection />}
           <TextureSection />
           {!palace.interior && <LandscapeSection />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const SOUND_LAYERS: { id: keyof SoundLevels; name: string }[] = [
+  { id: 'rain', name: 'Deszcz' },
+  { id: 'storm', name: 'Burza' },
+  { id: 'snow', name: 'Śnieg' },
+  { id: 'wind', name: 'Wiatr' },
+  { id: 'animals', name: 'Zwierzęta' },
+  { id: 'crickets', name: 'Świerszcze' },
+];
+
+/** Suwaki głośności dźwięków otoczenia; każda warstwa gra niezależnie od ustawionej pogody. */
+function SoundMenu() {
+  const sound = useStore((s) => s.sound);
+  const setSound = useStore((s) => s.setSound);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener('mousedown', h);
+    return () => window.removeEventListener('mousedown', h);
+  }, [open]);
+  const playing = sound.master > 0 && SOUND_LAYERS.some((l) => sound[l.id] > 0);
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button className={'toggle' + (playing ? ' on' : '')} onClick={() => setOpen((o) => !o)} title="Dźwięki otoczenia">
+        <I.Sound width={13} height={13} /> Dźwięki
+        <I.ChevronDown width={12} height={12} />
+      </button>
+      {open && (
+        <div className="env-menu sound-menu">
+          <label>
+            <span>Głośność ogólna: {pct(sound.master)}</span>
+            <input type="range" min={0} max={1} step={0.01} value={sound.master} onChange={(e) => setSound({ master: Number(e.target.value) })} />
+          </label>
+          <div className="env-section">
+            <span className="env-title">Warstwy</span>
+            {SOUND_LAYERS.map((l) => (
+              <label key={l.id}>
+                <span>
+                  {l.name}: {pct(sound[l.id])}
+                </span>
+                <input type="range" min={0} max={1} step={0.01} value={sound[l.id]} onChange={(e) => setSound({ [l.id]: Number(e.target.value) })} />
+              </label>
+            ))}
+            <button
+              className="btn small"
+              onClick={() => setSound({ rain: 0, storm: 0, snow: 0, wind: 0, animals: 0, crickets: 0 })}
+              disabled={!SOUND_LAYERS.some((l) => sound[l.id] > 0)}
+            >
+              Wycisz wszystkie warstwy
+            </button>
+          </div>
+          <p className="sound-note">
+            Świerszcze grają głośniej nocą, a we wnętrzach dźwięki są stłumione. Nagrania pochodzą z Wikimedia Commons{' '}
+            <a href={`${import.meta.env.BASE_URL}sounds/CREDITS.txt`} target="_blank" rel="noreferrer">
+              (autorzy i licencje)
+            </a>
+            .
+          </p>
         </div>
       )}
     </div>

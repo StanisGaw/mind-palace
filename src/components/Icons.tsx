@@ -38,5 +38,6 @@ export const I = {
   Vr: (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><rect x="2" y="7" width="20" height="11" rx="3" /><path d="M9 18l1.5-3h3L15 18" /><circle cx="8" cy="12" r="1.5" /><circle cx="16" cy="12" r="1.5" /></svg>),
   X: (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M6 6l12 12M18 6L6 18" /></svg>),
   Back: (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M15 6l-6 6 6 6" /></svg>),
+  Sound: (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M4 9v6h4l5 4V5L8 9z" /><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11" /></svg>),
   Door: (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M5 21V4a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v17" /><path d="M3 21h18" /><circle cx="13" cy="12.5" r="1" fill="currentColor" stroke="none" /></svg>),
 };
