@@ -1,6 +1,7 @@
 ---
 name: eq-grill
 description: Doprecyzowanie niejasnego zadania w Mneme przed planowaniem — wyłapuje sprzeczne odczytania, ustala zakres i kryteria odbioru. Użyj, gdy prośba jest ogólna albo dotyczy wielu funkcji naraz.
+user-invocable: true
 ---
 
 # Doprecyzowanie zadania

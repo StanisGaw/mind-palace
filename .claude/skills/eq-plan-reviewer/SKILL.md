@@ -1,6 +1,7 @@
 ---
 name: eq-plan-reviewer
 description: Sprawdzenie planu wdrożenia w Mneme przed rozpoczęciem pracy — kompletność migracji, zgodność z warstwami, sposób weryfikacji. Użyj po napisaniu planu, przed pierwszą zmianą w kodzie.
+user-invocable: true
 ---
 
 # Przegląd planu

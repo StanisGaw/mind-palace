@@ -1,6 +1,7 @@
 ---
 name: eq-diagnose
 description: Uporządkowana diagnoza trudnych błędów w Mneme — sceny 3D, fizyki, trybów kamery i zapisu danych. Użyj przy błędzie wizualnym, zawieszeniu sceny albo regresji wydajności.
+user-invocable: true
 ---
 
 # Diagnoza

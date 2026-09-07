@@ -1,6 +1,7 @@
 ---
 name: eq-planner
 description: Plan wdrożenia funkcji w Mneme — etapy od najmniej ryzykownego, z migracją danych i sposobem sprawdzenia każdego kroku. Użyj przed większą zmianą obejmującą kilka warstw.
+user-invocable: true
 ---
 
 # Planowanie

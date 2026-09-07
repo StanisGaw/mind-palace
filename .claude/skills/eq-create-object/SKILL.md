@@ -1,6 +1,7 @@
 ---
 name: eq-create-object
 description: Dodanie nowego elementu do biblioteki Mneme — wpis w katalogu, model proceduralny, bryła kolizji i ewentualne światło lub cząsteczki. Użyj, gdy trzeba dodać nowy budynek, roślinę, mebel, lampę lub element krajobrazu.
+user-invocable: true
 ---
 
 # Nowy element biblioteki

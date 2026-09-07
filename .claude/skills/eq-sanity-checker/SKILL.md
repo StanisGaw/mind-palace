@@ -1,6 +1,7 @@
 ---
 name: eq-sanity-checker
 description: Szybka kontrola po wprowadzeniu zmian w Mneme — typy, budowanie, granice warstw i zwalnianie zasobów Three.js. Uruchom przed pełnym przeglądem kodu.
+user-invocable: true
 ---
 
 # Szybka kontrola

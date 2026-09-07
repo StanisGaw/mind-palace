@@ -1,6 +1,7 @@
 ---
 name: eq-implementer
 description: Wdrożenie zatwierdzonego planu w Mneme — kolejność zmian, reużycie istniejących funkcji, sprawdzenie po każdym etapie. Użyj, gdy plan jest gotowy i zaczynasz pisać kod.
+user-invocable: true
 ---
 
 # Wdrożenie

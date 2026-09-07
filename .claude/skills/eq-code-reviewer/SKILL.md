@@ -1,6 +1,7 @@
 ---
 name: eq-code-reviewer
 description: Przegląd zmian w Mneme pod kątem poprawności logicznej i konwencji projektu — wycieki zasobów, tryby kamery, migracje, teksty interfejsu. Użyj po wdrożeniu, przed commitem.
+user-invocable: true
 ---
 
 # Przegląd kodu

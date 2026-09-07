@@ -1,6 +1,7 @@
 ---
 name: eq-retrospective
 description: Wnioski z sesji nad Mneme — wyłapuje powtarzające się poprawki użytkownika i luki w skillach, proponuje zmiany w bazie wiedzy. Użyj po dłuższej sesji z wieloma korektami.
+user-invocable: true
 ---
 
 # Wnioski z sesji

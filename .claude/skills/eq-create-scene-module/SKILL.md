@@ -1,6 +1,7 @@
 ---
 name: eq-create-scene-module
 description: Nowy moduł sceny 3D w Mneme (efekt, system cząsteczek, warstwa świata) z poprawnym cyklem życia i podpięciem do SceneManager. Użyj przy dodawaniu większego elementu wizualnego.
+user-invocable: true
 ---
 
 # Nowy moduł sceny

@@ -1,6 +1,7 @@
 ---
 name: eq-handoff
 description: Podsumowanie sesji pracy nad Mneme dla następnej sesji — stan prac, decyzje, pułapki i następny krok. Użyj, kończąc dłuższą sesję albo przekazując zadanie.
+user-invocable: true
 ---
 
 # Przekazanie sesji

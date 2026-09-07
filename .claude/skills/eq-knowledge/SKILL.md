@@ -1,6 +1,7 @@
 ---
 name: eq-knowledge
 description: Baza wiedzy o projekcie Mneme — stack, warstwy, nazewnictwo, pułapki Three.js i sposób weryfikacji zmian. Wczytaj przed planowaniem, wdrażaniem i przeglądem kodu.
+user-invocable: true
 ---
 
 # Wiedza o projekcie Mneme

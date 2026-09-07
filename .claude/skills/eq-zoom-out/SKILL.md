@@ -1,6 +1,7 @@
 ---
 name: eq-zoom-out
 description: Mapa projektu Mneme z lotu ptaka — moduły, przepływ danych i miejsca styku. Użyj, wchodząc w nieznany obszar kodu albo przed dużą zmianą.
+user-invocable: true
 ---
 
 # Spojrzenie z góry

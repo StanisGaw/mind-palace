@@ -1,6 +1,7 @@
 ---
 name: eq-pr-agent
 description: Operacje gitowe w Mneme — gałęzie, commity tematyczne po polsku, push i pull requesty. Użyj, gdy trzeba zapisać pracę w repozytorium.
+user-invocable: true
 ---
 
 # Git
