@@ -1,0 +1,2141 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
+import { StereoEffect } from 'three/examples/jsm/effects/StereoEffect.js';
+import { useStore, descendants } from '../store';
+import type { CameraKind, Palace, PalaceObject, ViewMode } from '../types';
+import { AMBIENCES, catalogItem, hasInterior } from '../catalog';
+import { buildModel, disposeObject, modelHeight, EMITTER_ANCHORS, DOORS, GATE_SPAWN } from './builders';
+import { makeTextPanel, disposeTextPanel } from './text';
+import { WeatherSystem } from './weather';
+import { PuffEmitter, type Updatable } from './particles';
+import { buildTerrain, type Terrain } from './terrain';
+import { buildRoom, type Room } from './interior';
+import { Physics, FOOT_OFFSET, type StaticShape } from './physics';
+import { ROOMS, colliderKind, spawnKind } from '../catalog';
+import { clampToGround, clipSegment, groundExtent, groundPolygon, insideGround } from '../lib/ground';
+import { getTexture } from './textures';
+import { Wildlife, type SpawnInfo, type WorldInfo } from './wildlife';
+import { loadCustomTextures } from '../lib/textureStore';
+import type { GroundSpec } from '../types';
+
+interface Entry {
+  id: string;
+  type: string;
+  group: THREE.Group; // wrapper (pozycja / rotacja / skala)
+  model: THREE.Group;
+  height: number;
+  footprint: number;
+  label: CSS2DObject | null;
+  labelEl: HTMLDivElement | null;
+  labelKey: string;
+  panel: THREE.Mesh | null;
+  panelKey: string;
+  transformKey: string;
+  emitter: Updatable | null;
+}
+
+interface Tween {
+  t: number;
+  dur: number;
+  fromPos: THREE.Vector3;
+  toPos: THREE.Vector3;
+  fromTarget: THREE.Vector3;
+  toTarget: THREE.Vector3;
+  onDone?: () => void;
+}
+
+const EYE = 1.6;
+const TOP_VIEW_FOV = 18; // wąski kąt = obraz niemal ortograficzny
+const tmpV = new THREE.Vector3();
+const tmpV2 = new THREE.Vector3();
+const tmpV3 = new THREE.Vector3();
+const tmpQ = new THREE.Quaternion();
+const tmpE = new THREE.Euler();
+const UP = new THREE.Vector3(0, 1, 0);
+
+/** Największa skala pozioma — do pierścieni, odległości i kolizji kołowych. */
+function hs(e: { group: THREE.Group }): number {
+  return Math.max(e.group.scale.x, e.group.scale.z);
+}
+
+function yawOf(q: THREE.Quaternion): number {
+  tmpV.set(0, 0, -1).applyQuaternion(q);
+  return Math.atan2(-tmpV.x, -tmpV.z);
+}
+
+export class SceneManager {
+  readonly container: HTMLElement;
+  readonly renderer: THREE.WebGLRenderer;
+  readonly labelRenderer: CSS2DRenderer;
+  readonly scene = new THREE.Scene();
+  readonly camera: THREE.PerspectiveCamera;
+  readonly rig = new THREE.Group();
+  readonly orbit: OrbitControls;
+  readonly gizmo: TransformControls;
+  private gizmoDragging = false;
+  private stereo: StereoEffect | null = null;
+  private entries = new Map<string, Entry>();
+  private ground!: THREE.Mesh;
+  private slab!: THREE.Mesh;
+  private grid!: THREE.LineSegments;
+  private pathLine: THREE.Line | null = null;
+  private pathDots = new THREE.Group();
+  private selRing: THREE.Mesh;
+  private hoverRing: THREE.Mesh;
+  private hemi: THREE.HemisphereLight;
+  private sun: THREE.DirectionalLight;
+  private ambient: THREE.AmbientLight;
+  private weather = new WeatherSystem(this.scene);
+  readonly wildlife = new Wildlife(this.scene);
+  private wildlifeTick = 0;
+  private cachedWorld: WorldInfo | null = null;
+  private terrain: Terrain | null = null;
+  private terrainKey = '';
+  private room: Room | null = null;
+  private roomKey = '';
+  private bounds = { hx: 11.6, hz: 11.6 };
+  private walkArea: GroundSpec | null = null;
+  private lastEntrySeq = 0;
+  private lastPalaceId = '';
+  private doorCheck = 0;
+  private lastGroundKey = '';
+  private groundTint = '#cfd6c4';
+  private lastTextureKey = '';
+  private physics: Physics | null = null;
+  private physicsLoading = false;
+  private physicsDirty = true;
+  private jumpBuffer = 0;
+  private physicsDebug: THREE.LineSegments | null = null;
+  private readonly debugPhysics = typeof location !== 'undefined' && location.search.includes('physdebug=1');
+  private debugTick = 0;
+  /** Dodatek wysokości dla rigu: 0 gdy kamera ma własny wzrost, EYE w XR bez podłogi. */
+  private headOffset = 0;
+  private lastClick: { id: string; t: number } | null = null;
+  private pickedExitDoor = false;
+  // podgląd stawiania
+  private ghost: THREE.Group | null = null;
+  private ghostRing: THREE.Mesh | null = null;
+  private ghostType = '';
+  ghostRot = 0;
+  private ghostPos = new THREE.Vector3();
+  private ghostAnchor: string | undefined;
+  private placeDown: { x: number; y: number } | null = null;
+  private baseLight = { hemi: 1.1, ambient: 0.35, sun: 2.4 };
+  private ambienceFog = { color: '#eceeea', near: 40, far: 120 };
+  private envKey = '';
+  private tween: Tween | null = null;
+  private topView = false;
+  private savedCam: { pos: THREE.Vector3; target: THREE.Vector3; fov: number } | null = null;
+  private clock = new THREE.Clock();
+  private unsub: () => void;
+  private mode: ViewMode = 'editor';
+  private lastPalace: Palace | null = null;
+  private lastFlySeq = 0;
+  private lastCamSeq = 0;
+  private lastFocus = 0;
+  private lastReviewKey = '';
+  private raycaster = new THREE.Raycaster();
+  private pointer = new THREE.Vector2();
+  private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private ro: ResizeObserver;
+  private disposed = false;
+
+  // interakcja edytora
+  private drag: { id: string; offset: THREE.Vector3; startX: number; startY: number; moved: boolean; mode: 'move' | 'rotate'; startRot: number } | null = null;
+  private downInfo: { x: number; y: number; hit: string | null } | null = null;
+
+  // pierwsza osoba
+  private keys = new Set<string>();
+  joystick = { x: 0, y: 0 };
+  private yaw = 0;
+  private pitch = 0;
+  private touchLook: { id: number; x: number; y: number; moved: boolean } | null = null;
+  private fpVel = new THREE.Vector3();
+  private xrMove = new THREE.Vector2();
+  private snapTurnArmed = false;
+  private touchHold = false;
+  private touchStart = 0;
+
+  // VR
+  private xrSession: XRSession | null = null;
+  private xrFloor = true;
+  private deviceOrient: { alpha: number; beta: number; gamma: number; orient: number; active: boolean } = { alpha: 0, beta: 0, gamma: 0, orient: 0, active: false };
+  private onOrientation = (e: DeviceOrientationEvent) => {
+    if (e.alpha == null) return;
+    this.deviceOrient.alpha = THREE.MathUtils.degToRad(e.alpha);
+    this.deviceOrient.beta = THREE.MathUtils.degToRad(e.beta ?? 0);
+    this.deviceOrient.gamma = THREE.MathUtils.degToRad(e.gamma ?? 0);
+    this.deviceOrient.orient = THREE.MathUtils.degToRad(((screen.orientation?.angle ?? (window as unknown as { orientation?: number }).orientation) ?? 0) as number);
+    this.deviceOrient.active = true;
+  };
+
+  constructor(container: HTMLElement) {
+    this.container = container;
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.NoToneMapping;
+    renderer.xr.enabled = true;
+    renderer.domElement.style.display = 'block';
+    renderer.domElement.style.touchAction = 'none';
+    container.appendChild(renderer.domElement);
+    this.renderer = renderer;
+
+    this.labelRenderer = new CSS2DRenderer();
+    this.labelRenderer.domElement.className = 'labels-layer';
+    container.appendChild(this.labelRenderer.domElement);
+
+    this.camera = new THREE.PerspectiveCamera(38, 1, 0.1, 400);
+    this.camera.position.set(0, EYE, 0);
+    this.rig.add(this.camera);
+    this.scene.add(this.rig);
+    this.rig.position.set(0, 0, 0);
+    // w edytorze kamera jest "wolna": trzymamy ją w rigu w (0,0,0) o zerowej rotacji
+    this.rig.rotation.set(0, 0, 0);
+    this.camera.position.set(15, 13, 15);
+    this.camera.lookAt(0, 0, 0);
+
+    this.orbit = new OrbitControls(this.camera, renderer.domElement);
+    this.orbit.enableDamping = true;
+    this.orbit.dampingFactor = 0.08;
+    this.orbit.maxPolarAngle = 1.45;
+    this.orbit.minDistance = 3;
+    this.orbit.maxDistance = 70;
+    this.orbit.screenSpacePanning = false;
+    this.orbit.target.set(0, 0.5, 0);
+
+    // uchwyt transformacji (strzałki / pierścień) — tylko w edytorze przy narzędziu Przesuń/Obróć
+    this.gizmo = new TransformControls(this.camera, renderer.domElement);
+    this.gizmo.size = 0.85;
+    this.gizmo.enabled = false;
+    this.gizmo.rotationSnap = Math.PI / 24;
+    this.scene.add(this.gizmo.getHelper());
+    this.gizmo.addEventListener('dragging-changed', (ev) => {
+      const dragging = !!(ev as unknown as { value: boolean }).value;
+      this.gizmoDragging = dragging;
+      this.orbit.enabled = !dragging && this.mode === 'editor';
+      if (dragging) useStore.getState().pushUndo();
+    });
+    this.gizmo.addEventListener('objectChange', () => this.onGizmoChange());
+    this.gizmo.addEventListener('mouseUp', () => this.snapAnchorUnder());
+
+    // światła
+    this.hemi = new THREE.HemisphereLight('#ffffff', '#b9c2ad', 1.1);
+    this.scene.add(this.hemi);
+    this.ambient = new THREE.AmbientLight('#ffffff', 0.35);
+    this.scene.add(this.ambient);
+    this.sun = new THREE.DirectionalLight('#fff6e6', 2.4);
+    this.sun.position.set(12, 20, 8);
+    this.sun.castShadow = true;
+    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.02;
+    this.scene.add(this.sun);
+    this.scene.add(this.sun.target);
+
+    // pierścienie zaznaczenia
+    this.selRing = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.0, 40), new THREE.MeshBasicMaterial({ color: '#2f5a3c', transparent: true, opacity: 0.9, depthWrite: false }));
+    this.selRing.rotation.x = -Math.PI / 2;
+    this.selRing.position.y = 0.02;
+    this.selRing.visible = false;
+    this.scene.add(this.selRing);
+    this.hoverRing = new THREE.Mesh(new THREE.RingGeometry(0.9, 0.97, 40), new THREE.MeshBasicMaterial({ color: '#7f8c7a', transparent: true, opacity: 0.55, depthWrite: false }));
+    this.hoverRing.rotation.x = -Math.PI / 2;
+    this.hoverRing.position.y = 0.015;
+    this.hoverRing.visible = false;
+    this.scene.add(this.hoverRing);
+    this.scene.add(this.pathDots);
+
+    this.buildGround({ width: 24, depth: 24, shape: 'rect' });
+
+    // zdarzenia
+    const el = renderer.domElement;
+    container.addEventListener('pointerdown', this.onPointerDown, true);
+    window.addEventListener('pointermove', this.onPointerMove, { passive: false });
+    window.addEventListener('pointerup', this.onPointerUp);
+    window.addEventListener('pointercancel', this.onPointerUp);
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
+    el.addEventListener('mousemove', this.onMouseMoveLocked);
+    document.addEventListener('pointerlockchange', this.onLockChange);
+    window.addEventListener('blur', () => this.keys.clear());
+    container.addEventListener('contextmenu', this.onContextMenu);
+    container.addEventListener('wheel', this.onWheel, { capture: true, passive: false });
+
+    this.ro = new ResizeObserver(() => this.resize());
+    this.ro.observe(container);
+    this.resize();
+
+    // kontrolery XR
+    for (let i = 0; i < 2; i++) {
+      const c = renderer.xr.getController(i);
+      c.addEventListener('select', () => this.onVrSelect(c));
+      c.addEventListener('squeezestart', () => this.jump());
+      this.rig.add(c);
+    }
+
+    // stan
+    const st = useStore.getState();
+    this.applyPalace(st.palace(), true);
+    this.applySelection(st.selectedId, st.hoverId);
+    this.unsub = useStore.subscribe((s, prev) => this.onState(s, prev));
+
+    renderer.setAnimationLoop((_, frame) => this.frame(frame));
+  }
+
+  // ---------- teren ----------
+  private buildGround(spec: GroundSpec) {
+    if (this.ground) {
+      this.scene.remove(this.ground, this.slab, this.grid);
+      this.ground.geometry.dispose();
+      this.slab.geometry.dispose();
+      this.grid.geometry.dispose();
+      (this.grid.material as THREE.Material).dispose();
+    }
+    const size = groundExtent(spec);
+    const poly = groundPolygon(spec);
+    const shape = new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, z)));
+    const amb = AMBIENCES.find((a) => a.id === (this.lastPalace?.settings.ambience ?? 'garden')) ?? AMBIENCES[0];
+
+    const topGeo = new THREE.ShapeGeometry(shape);
+    topGeo.rotateX(-Math.PI / 2);
+    this.ground = new THREE.Mesh(topGeo, new THREE.MeshStandardMaterial({ color: amb.ground, roughness: 1 }));
+    this.ground.receiveShadow = true;
+    this.ground.userData.ground = true;
+    this.scene.add(this.ground);
+
+    const slabGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.6, bevelEnabled: false });
+    slabGeo.rotateX(Math.PI / 2); // wyciągnięcie idzie wzdłuż +Z, po obrocie schodzi w dół
+    this.slab = new THREE.Mesh(slabGeo, new THREE.MeshStandardMaterial({ color: '#b7bba9', roughness: 1, side: THREE.DoubleSide }));
+    this.slab.position.y = -0.01;
+    this.slab.receiveShadow = true;
+    this.scene.add(this.slab);
+
+    // siatka rysowana liniami przyciętymi do obrysu planszy
+    const pts: number[] = [];
+    const half = Math.ceil(size / 2) + 1;
+    for (let i = -half; i <= half; i++) {
+      for (const seg of [
+        clipSegment([i, -half - 1], [i, half + 1], poly),
+        clipSegment([-half - 1, i], [half + 1, i], poly),
+      ]) {
+        if (!seg) continue;
+        pts.push(seg[0][0], 0, seg[0][1], seg[1][0], 0, seg[1][1]);
+      }
+    }
+    const gridGeo = new THREE.BufferGeometry();
+    gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    this.grid = new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: '#9aa391', transparent: true, opacity: 0.45 }));
+    this.grid.position.y = 0.012;
+    this.scene.add(this.grid);
+
+    const shadowHalf = size / 2 + 2;
+    this.sun.shadow.camera.left = -shadowHalf;
+    this.sun.shadow.camera.right = shadowHalf;
+    this.sun.shadow.camera.top = shadowHalf;
+    this.sun.shadow.camera.bottom = -shadowHalf;
+    this.sun.shadow.camera.near = 1;
+    this.sun.shadow.camera.far = 80;
+    this.sun.shadow.camera.updateProjectionMatrix();
+  }
+
+  private applyAmbience(id: string) {
+    const amb = AMBIENCES.find((a) => a.id === id) ?? AMBIENCES[0];
+    this.scene.background = new THREE.Color(amb.sky);
+    this.groundTint = amb.ground;
+    const night = id === 'night';
+    this.baseLight = { hemi: night ? 0.35 : 1.1, ambient: night ? 0.15 : 0.35, sun: night ? 0.5 : 2.4 };
+    // dalsza mgła, żeby pierścień krajobrazu był widoczny i miękko znikał na horyzoncie
+    const size = this.lastPalace ? groundExtent(this.lastPalace.settings.ground) : 24;
+    this.ambienceFog = { color: amb.fog, near: size * 1.6, far: size * 6 + 60 };
+    this.sun.color.set(night ? '#9fb4ff' : '#fff6e6');
+    this.hemi.color.set(night ? '#6d7aa8' : '#ffffff');
+    (this.grid.material as THREE.LineBasicMaterial).opacity = night ? 0.2 : 0.45;
+    this.applyLighting();
+  }
+
+  private rebuildTerrain(p: Palace) {
+    if (this.terrain) {
+      this.scene.remove(this.terrain.group);
+      this.terrain.dispose();
+      this.terrain = null;
+    }
+    this.terrain = buildTerrain(p.settings.ground, p.settings.scenery, p.settings.seed);
+    if (this.terrain) this.scene.add(this.terrain.group);
+  }
+
+  /** Nakłada teksturę na płytę albo podłogę wnętrza; brak tekstury = sam kolor klimatu. */
+  private applyGroundTexture(p: Palace) {
+    const id = p.settings.groundTexture;
+    const custom = id?.startsWith('c_') ? loadCustomTextures().find((t) => t.id === id) : undefined;
+    const tex = id ? getTexture(id, custom?.dataUrl) : null;
+    const target = (p.interior ? this.room?.floor : this.ground) as THREE.Mesh | undefined;
+    if (!target) return;
+    const mat = target.material as THREE.MeshStandardMaterial;
+    if (tex) {
+      const size = groundExtent(p.settings.ground);
+      const t = tex.clone();
+      t.needsUpdate = true;
+      t.repeat.set(Math.max(2, Math.round(size / 3)), Math.max(2, Math.round(size / 3)));
+      mat.map?.dispose();
+      mat.map = t;
+      // kolor klimatu działa jak delikatne zabarwienie tekstury
+      mat.color.set('#ffffff').lerp(new THREE.Color(this.groundTint), 0.35);
+    } else {
+      mat.map?.dispose();
+      mat.map = null;
+      mat.color.set(this.groundTint);
+    }
+    mat.needsUpdate = true;
+  }
+
+  /** Łączy bazowe światło klimatu z modyfikatorami pogody (przyciemnienie, mgła, błysk). */
+  private applyLighting() {
+    const f = this.weather.lightFactor;
+    const flash = this.weather.flash;
+    this.hemi.intensity = this.baseLight.hemi * f + flash * 1.6;
+    this.ambient.intensity = this.baseLight.ambient * f + flash * 0.5;
+    this.sun.intensity = this.baseLight.sun * f + flash * 1.2;
+    const fog = this.weather.fog ?? this.ambienceFog;
+    if (!this.scene.fog || !(this.scene.fog instanceof THREE.Fog)) this.scene.fog = new THREE.Fog(fog.color, fog.near, fog.far);
+    else {
+      this.scene.fog.color.set(fog.color);
+      this.scene.fog.near = fog.near;
+      this.scene.fog.far = fog.far;
+    }
+  }
+
+  // ---------- synchronizacja stanu ----------
+  private onState(s: ReturnType<typeof useStore.getState>, prev: ReturnType<typeof useStore.getState>) {
+    const p = s.palace();
+    if (p !== this.lastPalace) this.applyPalace(p, false);
+    if (s.selectedId !== prev.selectedId || s.hoverId !== prev.hoverId) this.applySelection(s.selectedId, s.hoverId);
+    if (s.tool !== prev.tool || s.review !== prev.review) this.syncGizmo();
+    if (s.placing?.type !== prev.placing?.type) this.setGhost(s.placing?.type ?? null);
+    if (s.viewMode !== prev.viewMode) this.setMode(s.viewMode);
+    if (s.fly && s.fly.seq !== this.lastFlySeq) {
+      this.lastFlySeq = s.fly.seq;
+      this.flyTo(s.fly.objectId);
+    }
+    if (s.cameraCmd && s.cameraCmd.seq !== this.lastCamSeq) {
+      this.lastCamSeq = s.cameraCmd.seq;
+      this.cameraCommand(s.cameraCmd.kind);
+    }
+    if (s.focusRequest !== this.lastFocus) {
+      this.lastFocus = s.focusRequest;
+      this.cameraCommand('fit');
+    }
+    if (s.sceneEntry && s.sceneEntry.seq !== this.lastEntrySeq) {
+      this.lastEntrySeq = s.sceneEntry.seq;
+      this.applySceneEntry(s.sceneEntry.kind, s.sceneEntry.objectId);
+    }
+    const rk = s.review ? `${s.review.index}|${s.review.revealed}|${s.review.finished}` : '';
+    if (rk !== this.lastReviewKey) {
+      this.lastReviewKey = rk;
+      this.refreshPanels(p);
+      this.refreshLabels(p);
+    }
+  }
+
+  private applyPalace(p: Palace, first: boolean) {
+    this.lastPalace = p;
+    const sceneChanged = p.id !== this.lastPalaceId;
+    this.lastPalaceId = p.id;
+    this.applyEnvironment(p, sceneChanged);
+    if (sceneChanged) this.physicsDirty = true;
+    this.syncObjects(p);
+    if (this.physics && this.physicsDirty && this.mode !== 'editor') this.rebuildPhysics();
+    this.syncPath(p);
+    this.refreshLabels(p);
+    this.refreshPanels(p);
+    this.syncWildlife();
+    if (first) this.cameraCommand('fit', true);
+  }
+
+  /** Buduje otoczenie sceny: wnętrze budynku albo plansza z terenem i pogodą. */
+  private applyEnvironment(p: Palace, sceneChanged: boolean) {
+    const isInterior = !!p.interior;
+    const roomKey = isInterior ? `${p.id}|${p.interior!.buildingType}` : '';
+    if (roomKey !== this.roomKey) {
+      this.roomKey = roomKey;
+      if (this.room) {
+        this.scene.remove(this.room.group);
+        this.room.dispose();
+        this.room = null;
+      }
+      if (isInterior) {
+        const type = p.interior!.buildingType;
+        this.room = buildRoom(ROOMS[type] ?? ROOMS.house, type);
+        this.room.ceiling.visible = this.mode !== 'editor';
+        this.scene.add(this.room.group);
+      }
+    }
+
+    if (isInterior) {
+      this.ground.visible = false;
+      this.slab.visible = false;
+      this.grid.visible = false;
+      if (this.terrain) this.terrain.group.visible = false;
+      if (this.envKey !== 'interior') {
+        this.envKey = 'interior';
+        this.weather.apply('clear', p.settings.ambience, groundExtent(p.settings.ground), false);
+        this.scene.background = new THREE.Color('#242a26');
+        this.baseLight = { hemi: 0.5, ambient: 0.45, sun: 0.25 };
+        this.ambienceFog = { color: '#242a26', near: 30, far: 90 };
+        this.hemi.color.set('#cfd6e2');
+        this.sun.color.set('#fff2dd');
+        this.applyLighting();
+      }
+      const texKeyIn = `in|${p.settings.groundTexture ?? ''}|${this.roomKey}`;
+      if (texKeyIn !== this.lastTextureKey) {
+        this.lastTextureKey = texKeyIn;
+        this.applyGroundTexture(p);
+      }
+      this.bounds = { hx: this.room?.bounds.hx ?? 5, hz: this.room?.bounds.hz ?? 5 };
+      this.walkArea = { width: this.bounds.hx * 2 + 0.8, depth: this.bounds.hz * 2 + 0.8, shape: 'rect' };
+      return;
+    }
+
+    // scena zewnętrzna
+    this.ground.visible = true;
+    this.slab.visible = true;
+    const groundKey = `${p.settings.ground.shape}|${p.settings.ground.width}|${p.settings.ground.depth}`;
+    if (this.lastGroundKey !== groundKey) {
+      this.buildGround(p.settings.ground);
+      this.lastGroundKey = groundKey;
+      this.lastTextureKey = '';
+    }
+    const terrainKey = `${p.settings.scenery}|${p.settings.seed}|${groundKey}`;
+    if (terrainKey !== this.terrainKey) {
+      this.terrainKey = terrainKey;
+      this.rebuildTerrain(p);
+    }
+    if (this.terrain) this.terrain.group.visible = true;
+    const envKey = `out|${p.settings.ambience}|${p.settings.weather}|${groundKey}`;
+    if (envKey !== this.envKey) {
+      this.envKey = envKey;
+      this.weather.apply(p.settings.weather, p.settings.ambience, groundExtent(p.settings.ground), true);
+      this.weather.setCloudsVisible(!this.topView);
+      this.applyAmbience(p.settings.ambience);
+    }
+    this.grid.visible = p.settings.grid;
+    const texKey = `out|${p.settings.groundTexture ?? ''}|${groundKey}|${p.settings.ambience}`;
+    if (texKey !== this.lastTextureKey) {
+      this.lastTextureKey = texKey;
+      this.applyGroundTexture(p);
+    }
+    this.walkArea = p.settings.ground;
+    const h = groundExtent(p.settings.ground) / 2 - 0.4;
+    this.bounds = { hx: p.settings.ground.width / 2 - 0.4, hz: p.settings.ground.depth / 2 - 0.4 };
+    void h;
+    void sceneChanged;
+  }
+
+  /**
+   * Ustawia kamerę po przejściu drzwiami.
+   * Wejście: tuż za progiem, twarzą w głąb pomieszczenia.
+   * Wyjście: przed drzwiami budynku, twarzą na zewnątrz (plecami do drzwi).
+   */
+  private applySceneEntry(kind: 'enter' | 'exit', objectId: string) {
+    if (kind === 'enter') {
+      const spawn = this.room?.spawn;
+      if (!spawn) {
+        this.cameraCommand('center');
+        return;
+      }
+      if (this.mode === 'editor') {
+        // w edytorze patrzymy na pokój od strony drzwi, żeby widzieć to samo co gracz
+        this.lookAtRoomFromDoor();
+      } else {
+        this.placeRig({ x: spawn.pos.x, z: spawn.pos.z, yaw: spawn.yaw });
+      }
+      return;
+    }
+    // wyjście: stajemy przed drzwiami budynku, twarzą od niego
+    const e = objectId ? this.entries.get(objectId) : undefined;
+    const o = objectId ? this.lastPalace?.objects.find((x) => x.id === objectId) : undefined;
+    if (!e || !o) {
+      this.cameraCommand('center');
+      return;
+    }
+    const spec = DOORS[o.type]?.outside ?? [0, 0, 3];
+    const world = e.group.localToWorld(tmpV.set(spec[0], spec[1], spec[2]));
+    if (this.mode === 'editor') {
+      // kamera nad punktem przed drzwiami, skierowana na budynek
+      const target = new THREE.Vector3(e.group.position.x, Math.min(e.height * o.scale[1] * 0.5, 2.5), e.group.position.z);
+      const back = new THREE.Vector3(world.x - target.x, 0, world.z - target.z).normalize().multiplyScalar(11);
+      this.tween = {
+        t: 0,
+        dur: 0.8,
+        fromPos: this.camera.position.clone(),
+        toPos: target.clone().add(new THREE.Vector3(back.x, 8, back.z)),
+        fromTarget: this.orbit.target.clone(),
+        toTarget: target,
+      };
+      return;
+    }
+    // drzwi są w lokalnym +Z modelu, więc na zewnątrz patrzymy w kierunku +Z budynku
+    this.placeRig({ x: this.clampX(world.x), z: this.clampZ(world.z), yaw: o.rotationY + Math.PI });
+  }
+
+  /** Kadr edytora ustawiony jak spojrzenie od drzwi w głąb pokoju. */
+  private lookAtRoomFromDoor() {
+    const p = this.lastPalace;
+    if (!p) return;
+    const size = groundExtent(p.settings.ground);
+    const center = new THREE.Vector3(0, 0.5, 0);
+    const dist = Math.max(size * 0.78, 6) * 2.1;
+    const dir = new THREE.Vector3(0.45, 1.5, 1).normalize();
+    this.tween = {
+      t: 0,
+      dur: 0.7,
+      fromPos: this.camera.position.clone(),
+      toPos: center.clone().add(dir.multiplyScalar(dist)),
+      fromTarget: this.orbit.target.clone(),
+      toTarget: center,
+    };
+  }
+
+  private syncObjects(p: Palace) {
+    const seen = new Set<string>();
+    for (const o of p.objects) {
+      seen.add(o.id);
+      let e = this.entries.get(o.id);
+      if (e && e.type !== o.type) {
+        this.removeEntry(e);
+        e = undefined;
+      }
+      if (!e) {
+        const model = buildModel(o.type);
+        const group = new THREE.Group();
+        group.add(model);
+        group.userData.objectId = o.id;
+        group.traverse((c) => (c.userData.objectId = o.id));
+        this.scene.add(group);
+        const item = catalogItem(o.type);
+        e = { id: o.id, type: o.type, group, model, height: modelHeight(model), footprint: item.footprint, label: null, labelEl: null, labelKey: '', panel: null, panelKey: '', transformKey: '', emitter: null };
+        if (item.emitter) {
+          const anchor = EMITTER_ANCHORS[o.type] ?? [0, e.height, 0];
+          e.emitter =
+            item.emitter === 'smoke'
+              ? new PuffEmitter({ count: 22, origin: anchor, radius: 0.4, rise: 1.9, life: 3.8, scaleFrom: 0.3, scaleTo: 1.15, color: '#b3aca6', opacity: 0.34, drift: [0.4, 0.14] })
+              : new PuffEmitter({ count: 16, origin: anchor, radius: 0.4, rise: 0.45, life: 1.6, scaleFrom: 0.12, scaleTo: 0.42, color: '#ffffff', opacity: 0.26 });
+          e.emitter.object.userData.noPick = true;
+          e.group.add(e.emitter.object);
+        }
+        this.entries.set(o.id, e);
+      }
+      const scaleKey = o.scale.join(':');
+      const tk = `${o.position.join(',')}|${o.rotationY}|${scaleKey}`;
+      if (tk !== e.transformKey) {
+        const prevScaleKey = e.transformKey.split('|')[2] ?? '';
+        const isNew = e.transformKey === '';
+        e.transformKey = tk;
+        e.group.position.set(o.position[0], o.position[1], o.position[2]);
+        e.group.rotation.y = o.rotationY;
+        e.group.scale.set(o.scale[0], o.scale[1], o.scale[2]);
+        if (this.physics) {
+          // sama zmiana położenia nie wymaga przeliczania siatki kolizji
+          if (!isNew && prevScaleKey === scaleKey && this.physics.moveStatic(o.id, e.group.position, o.rotationY)) {
+            // gotowe
+          } else this.physics.setStatic(o.id, this.shapeFor(e), e.group.position, o.rotationY, e.group.scale);
+        } else this.physicsDirty = true;
+      }
+    }
+    for (const [id, e] of this.entries) if (!seen.has(id)) this.removeEntry(e);
+  }
+
+  private removeEntry(e: Entry) {
+    if (e.label) {
+      e.group.remove(e.label);
+      e.label.element.remove();
+      e.label = null;
+      e.labelEl = null;
+    }
+    if (e.emitter) {
+      e.emitter.dispose();
+      e.emitter = null;
+    }
+    this.physics?.removeStatic(e.id);
+    this.scene.remove(e.group);
+    disposeObject(e.group);
+    if (e.panel) {
+      this.scene.remove(e.panel);
+      disposeTextPanel(e.panel);
+      e.panel = null;
+    }
+    this.entries.delete(e.id);
+  }
+
+  private syncPath(p: Palace) {
+    if (this.pathLine) {
+      this.scene.remove(this.pathLine);
+      this.pathLine.geometry.dispose();
+      (this.pathLine.material as THREE.Material).dispose();
+      this.pathLine = null;
+    }
+    this.pathDots.clear();
+    const byId = new Map(p.objects.map((o) => [o.id, o]));
+    const pts = p.path.map((id) => byId.get(id)).filter((o): o is PalaceObject => !!o).map((o) => new THREE.Vector3(o.position[0], o.position[1] + 0.04, o.position[2]));
+    if (pts.length >= 2) {
+      const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.3);
+      const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(pts.length * 24));
+      const m = new THREE.LineDashedMaterial({ color: '#c4703f', dashSize: 0.35, gapSize: 0.22, linewidth: 1 });
+      const line = new THREE.Line(geo, m);
+      line.computeLineDistances();
+      this.pathLine = line;
+      this.scene.add(line);
+    }
+    for (const pt of pts) {
+      const dot = new THREE.Mesh(new THREE.CircleGeometry(0.16, 20), new THREE.MeshBasicMaterial({ color: '#c4703f' }));
+      dot.rotation.x = -Math.PI / 2;
+      dot.position.copy(pt).setY(pt.y - 0.01);
+      this.pathDots.add(dot);
+    }
+    const show = p.settings.showPath;
+    if (this.pathLine) this.pathLine.visible = show;
+    this.pathDots.visible = show;
+  }
+
+  private refreshLabels(p: Palace) {
+    const review = useStore.getState().review;
+    for (const o of p.objects) {
+      const e = this.entries.get(o.id);
+      if (!e) continue;
+      const idx = p.path.indexOf(o.id);
+      const hasNote = !!o.note;
+      const cur = review?.stops[review.index];
+      const current = !!cur && cur.objectId === o.id && cur.palaceId === p.id;
+      const key = hasNote ? `${idx}|${o.name}|${current}|${this.mode}` : '';
+      if (key === e.labelKey) continue;
+      e.labelKey = key;
+      if (e.label) {
+        e.group.remove(e.label);
+        e.label.element.remove();
+        e.label = null;
+        e.labelEl = null;
+      }
+      if (!hasNote || this.mode !== 'editor') continue;
+      const el = document.createElement('div');
+      el.className = 'obj-label' + (current ? ' current' : '');
+      el.innerHTML = `${idx >= 0 ? `<span class="num">${idx + 1}</span>` : '<span class="num dot"></span>'}<span class="txt"></span>`;
+      (el.querySelector('.txt') as HTMLSpanElement).textContent = o.name;
+      el.addEventListener('pointerdown', (ev) => {
+        ev.stopPropagation();
+        useStore.getState().select(o.id);
+      });
+      const lbl = new CSS2DObject(el);
+      lbl.position.set(0, e.height + 0.5 / Math.max(o.scale[1], 0.01), 0);
+      e.group.add(lbl);
+      e.label = lbl;
+      e.labelEl = el;
+    }
+  }
+
+  /** Panele tekstowe 3D (widok z oczu / VR). */
+  private refreshPanels(p: Palace) {
+    const st = useStore.getState();
+    const review = st.review;
+    const show3d = this.mode !== 'editor';
+    for (const o of p.objects) {
+      const e = this.entries.get(o.id);
+      if (!e) continue;
+      const idx = p.path.indexOf(o.id);
+      const cur = review?.stops[review.index];
+      const current = !!cur && cur.objectId === o.id && cur.palaceId === p.id;
+      const revealed = current && review?.revealed;
+      let key = '';
+      if (show3d && o.note) key = `${o.name}|${idx}|${current}|${revealed}|${o.note.title}|${o.note.body.length}|${o.note.updatedAt}`;
+      if (key === e.panelKey) continue;
+      e.panelKey = key;
+      if (e.panel) {
+        this.scene.remove(e.panel);
+        disposeTextPanel(e.panel);
+        e.panel = null;
+      }
+      if (!key || !o.note) continue;
+      let panel: THREE.Mesh;
+      if (current) {
+        const text = revealed
+          ? `${o.note.body}\n\nKliknij / naciśnij, aby przejść dalej.`
+          : `Co tu zostawiłeś?\n\nKliknij / naciśnij, aby odsłonić notatkę.`;
+        panel = makeTextPanel(text, { title: revealed ? `${idx >= 0 ? idx + 1 + '. ' : ''}${o.name} — ${o.note.title}` : `${idx >= 0 ? idx + 1 + '. ' : ''}${o.name}`, width: 2.2, fontSize: 30, bg: revealed ? 'rgba(255,253,246,0.96)' : 'rgba(47,90,60,0.94)', color: revealed ? '#20302a' : '#f4f7ef' });
+      } else {
+        panel = makeTextPanel(o.note.title, { title: `${idx >= 0 ? idx + 1 + '. ' : ''}${o.name}`, width: 1.3, fontSize: 34, align: 'center', maxLines: 2 });
+      }
+      panel.userData.objectId = o.id;
+      panel.userData.current = current;
+      this.scene.add(panel);
+      e.panel = panel;
+    }
+  }
+
+  private applySelection(sel: string | null, hover: string | null) {
+    const place = (ring: THREE.Mesh, id: string | null) => {
+      const e = id ? this.entries.get(id) : undefined;
+      if (!e) {
+        ring.visible = false;
+        return;
+      }
+      ring.visible = this.mode === 'editor';
+      ring.position.x = e.group.position.x;
+      ring.position.z = e.group.position.z;
+      ring.position.y = e.group.position.y + (ring === this.selRing ? 0.02 : 0.015);
+      const r = (e.footprint + 0.5) * hs(e);
+      ring.scale.setScalar(r);
+    };
+    place(this.selRing, sel);
+    place(this.hoverRing, hover && hover !== sel ? hover : null);
+    this.syncGizmo();
+    // podświetlenie
+    for (const [id, e] of this.entries) {
+      const on = id === sel;
+      e.model.traverse((c) => {
+        const m = c as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mat = m.material as THREE.MeshStandardMaterial;
+        if (on && !m.userData.hl) {
+          m.userData.orig = mat;
+          const clone = mat.clone();
+          clone.emissive = new THREE.Color('#2f5a3c');
+          clone.emissiveIntensity = 0.18;
+          m.material = clone;
+          m.userData.hl = true;
+        } else if (!on && m.userData.hl) {
+          (m.material as THREE.Material).dispose();
+          m.material = m.userData.orig;
+          m.userData.hl = false;
+        }
+      });
+    }
+  }
+
+  // ---------- tryby ----------
+  /** Fizyka ładuje się dopiero przy pierwszym wejściu w tryb chodzenia (osobna paczka WASM). */
+  private ensurePhysics() {
+    if (this.physics || this.physicsLoading) {
+      if (this.physics && this.physicsDirty) this.rebuildPhysics();
+      return;
+    }
+    this.physicsLoading = true;
+    Physics.load()
+      .then((p) => {
+        this.physicsLoading = false;
+        if (this.disposed) {
+          p.dispose();
+          return;
+        }
+        this.physics = p;
+        this.rebuildPhysics();
+      })
+      .catch((err) => {
+        this.physicsLoading = false;
+        console.error(err);
+        useStore.getState().showToast('Nie udało się wczytać fizyki — chodzenie działa w trybie uproszczonym.');
+      });
+  }
+
+  /** Odbudowuje świat fizyki dla bieżącej sceny. */
+  /** Podgląd brył kolizji: ?physdebug=1 w adresie. */
+  private updatePhysicsDebug() {
+    if (!this.physics) return;
+    if (!this.physicsDebug) {
+      const geo = new THREE.BufferGeometry();
+      const m = new THREE.LineBasicMaterial({ vertexColors: true, depthTest: false });
+      this.physicsDebug = new THREE.LineSegments(geo, m);
+      this.physicsDebug.frustumCulled = false;
+      this.physicsDebug.renderOrder = 20;
+      this.scene.add(this.physicsDebug);
+    }
+    const b = this.physics.debugBuffers();
+    const geo = this.physicsDebug.geometry;
+    geo.setAttribute('position', new THREE.BufferAttribute(b.vertices, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(b.colors.length / 4 * 3).map((_, i) => b.colors[Math.floor(i / 3) * 4 + (i % 3)]), 3));
+  }
+
+  private rebuildPhysics() {
+    const ph = this.physics;
+    const p = this.lastPalace;
+    if (!ph || !p) return;
+    ph.reset();
+    if (p.interior) {
+      ph.setRoom(this.room?.colliders ?? null);
+    } else {
+      ph.setGroundShape(groundPolygon(p.settings.ground), 0.6);
+      ph.setTerrain(this.terrain?.mesh ?? null);
+    }
+    for (const [id, e] of this.entries) {
+      const o = p.objects.find((x) => x.id === id);
+      if (!o) continue;
+      ph.setStatic(id, this.shapeFor(e), e.group.position, o.rotationY, e.group.scale);
+    }
+    ph.createCharacter(this.rig.position);
+    this.physicsDirty = false;
+  }
+
+  private shapeFor(e: Entry): StaticShape {
+    const kind = colliderKind(e.type);
+    if (kind === 'cylinder') return { kind, cylinder: { r: Math.max(e.footprint * 0.3, 0.2), h: e.height } };
+    return { kind, object: e.model };
+  }
+
+  /** Zapisuje do stanu pozycję i obrót ustawione uchwytem. */
+  private onGizmoChange() {
+    const obj = this.gizmo.object as THREE.Group | undefined;
+    const id = obj?.userData.objectId as string | undefined;
+    if (!id) return;
+    const y = Math.max(0, obj!.position.y);
+    obj!.position.y = y;
+    useStore.getState().updateObject(id, { position: [obj!.position.x, y, obj!.position.z], rotationY: obj!.rotation.y }, { undo: false });
+  }
+
+  /** Półprzezroczysty podgląd elementu wybranego z biblioteki. */
+  private setGhost(type: string | null) {
+    if (this.ghostType === (type ?? '')) return;
+    this.ghostType = type ?? '';
+    if (this.ghost) {
+      this.scene.remove(this.ghost);
+      disposeObject(this.ghost);
+      this.ghost.traverse((c) => {
+        const m = c as THREE.Mesh;
+        const mat = m.material as THREE.Material | undefined;
+        if (mat && m.userData.ghostMat) mat.dispose();
+      });
+      this.ghost = null;
+    }
+    if (this.ghostRing) {
+      this.scene.remove(this.ghostRing);
+      this.ghostRing.geometry.dispose();
+      (this.ghostRing.material as THREE.Material).dispose();
+      this.ghostRing = null;
+    }
+    this.renderer.domElement.style.cursor = type ? 'crosshair' : '';
+    if (!type) return;
+
+    const model = buildModel(type);
+    model.traverse((c) => {
+      const light = c as THREE.PointLight;
+      if (light.isPointLight) light.intensity = 0;
+      const m = c as THREE.Mesh;
+      if (!m.isMesh) return;
+      const src = m.material as THREE.MeshStandardMaterial;
+      const clone = src.clone();
+      clone.transparent = true;
+      clone.opacity = 0.55;
+      clone.depthWrite = false;
+      m.material = clone;
+      m.userData.ghostMat = true;
+      m.castShadow = false;
+      m.receiveShadow = false;
+    });
+    const g = new THREE.Group();
+    g.add(model);
+    this.ghost = g;
+    this.scene.add(g);
+
+    const fp = catalogItem(type).footprint;
+    this.ghostRing = new THREE.Mesh(
+      new THREE.RingGeometry(fp + 0.2, fp + 0.36, 48),
+      new THREE.MeshBasicMaterial({ color: '#3f7550', transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    this.ghostRing.rotation.x = -Math.PI / 2;
+    this.scene.add(this.ghostRing);
+    this.ghostRot = 0;
+    this.updateGhost();
+  }
+
+  /** Ustawia ducha pod kursorem i sprawdza, czy miejsce jest wolne. */
+  private updateGhost() {
+    if (!this.ghost || !this.ghostRing) return;
+    const found = this.placementPoint(new Set());
+    if (!found) return;
+    const p = found.pos.clone();
+    this.ghostAnchor = found.anchorId;
+    const st = useStore.getState();
+    const snap = st.palace().settings.grid ? 0.5 : 0.05;
+    // na obiekcie stawiamy dokładnie tam, gdzie wskazuje kursor — bez przyciągania do siatki
+    if (!found.anchorId) {
+      const onPlate = !this.walkArea || insideGround(this.walkArea, p.x, p.z);
+      if (onPlate) {
+        p.x = Math.round(p.x / snap) * snap;
+        p.z = Math.round(p.z / snap) * snap;
+        p.y = 0;
+      }
+      // poza płytą zostaje wysokość terenu z punktu trafienia
+    }
+    this.ghostPos.copy(p);
+    this.ghost.position.copy(p);
+    this.ghost.rotation.y = this.ghostRot;
+    this.ghostRing.position.set(p.x, p.y + 0.03, p.z);
+    // na obiekcie okrąg jest niebieski (kotwiczenie), na ziemi zielony, a czerwony przy nachodzeniu
+    const fp = catalogItem(this.ghostType).footprint;
+    let blocked = false;
+    if (!this.ghostAnchor) {
+      for (const e of this.entries.values()) {
+        if (Math.hypot(e.group.position.x - p.x, e.group.position.z - p.z) < fp * 0.6 + e.footprint * hs(e) * 0.6) {
+          blocked = true;
+          break;
+        }
+      }
+    }
+    (this.ghostRing.material as THREE.MeshBasicMaterial).color.set(this.ghostAnchor ? '#2b6ea8' : blocked ? '#b4483d' : '#3f7550');
+  }
+
+  /** Stawia obiekt w miejscu podglądu. */
+  private commitPlacement(keepPlacing: boolean) {
+    const st = useStore.getState();
+    const type = this.ghostType;
+    if (!type) return;
+    st.addObject(type, [this.ghostPos.x, this.ghostPos.y, this.ghostPos.z], this.ghostRot, this.ghostAnchor);
+    if (!keepPlacing) st.setPlacing(null);
+  }
+
+  /** Po ręcznym przesunięciu w pionie sprawdza, czy obiekt stoi na czymś. */
+  private snapAnchorUnder() {
+    const obj = this.gizmo.object as THREE.Group | undefined;
+    const id = obj?.userData.objectId as string | undefined;
+    if (!id) return;
+    const st = useStore.getState();
+    const o = st.palace().objects.find((x) => x.id === id);
+    if (!o) return;
+    const exclude = new Set<string>([id, ...descendants(st.palace().objects, id).map((x) => x.id)]);
+    const from = new THREE.Vector3(obj!.position.x, obj!.position.y + 0.2, obj!.position.z);
+    const ray = new THREE.Raycaster(from, new THREE.Vector3(0, -1, 0), 0, 3);
+    const targets: THREE.Object3D[] = [];
+    for (const [eid, e] of this.entries) if (!exclude.has(eid) && colliderKind(e.type) !== 'none') targets.push(e.group);
+    const hit = ray.intersectObjects(targets, true).find((h) => !h.object.userData.noPick && h.object.userData.objectId);
+    const anchorId = hit && Math.abs(hit.point.y - obj!.position.y) < 0.2 ? (hit.object.userData.objectId as string) : undefined;
+    if (anchorId !== o.anchorId) st.updateObject(id, { anchorId }, { undo: false });
+  }
+
+  /** Dopina albo odpina uchwyt zależnie od trybu, narzędzia i zaznaczenia. */
+  private syncGizmo() {
+    const st = useStore.getState();
+    const sel = st.selectedId;
+    const e = sel ? this.entries.get(sel) : undefined;
+    const wanted = this.mode === 'editor' && !!e && !st.review && !st.placing && st.tool !== 'select';
+    if (!wanted) {
+      if (this.gizmo.object) this.gizmo.detach();
+      this.gizmo.enabled = false;
+      this.gizmo.getHelper().visible = false;
+      return;
+    }
+    this.gizmo.enabled = true;
+    this.gizmo.getHelper().visible = true;
+    if (this.gizmo.object !== e!.group) this.gizmo.attach(e!.group);
+    if (st.tool === 'rotate') {
+      this.gizmo.mode = 'rotate';
+      this.gizmo.showX = false;
+      this.gizmo.showZ = false;
+      this.gizmo.showY = true;
+    } else {
+      this.gizmo.mode = 'translate';
+      this.gizmo.showX = true;
+      this.gizmo.showY = true;
+      this.gizmo.showZ = true;
+    }
+    this.gizmo.translationSnap = this.lastPalace?.settings.grid ? 0.5 : null;
+  }
+
+  private setMode(mode: ViewMode) {
+    const prevMode = this.mode;
+    if (mode !== 'editor' && this.topView) this.leaveTopView(true);
+    if (mode === 'vr') {
+      this.mode = 'vr';
+      if (this.room) this.room.ceiling.visible = true;
+      this.ensurePhysics();
+      this.orbit.enabled = false;
+      this.labelRenderer.domElement.style.display = 'none';
+      this.enterVR().catch((err) => {
+        console.error(err);
+        useStore.getState().showToast('Nie udało się uruchomić VR: ' + (err as Error).message);
+        useStore.getState().setViewMode('fp');
+      });
+      if (prevMode === 'editor') this.editorToFp();
+      this.refreshLabels(this.lastPalace!);
+      this.refreshPanels(this.lastPalace!);
+      this.applySelection(useStore.getState().selectedId, null);
+      return;
+    }
+    if (prevMode === 'vr') this.exitVR();
+    if (mode === 'fp') {
+      if (prevMode === 'editor') this.editorToFp();
+      this.ensurePhysics();
+      this.orbit.enabled = false;
+      this.labelRenderer.domElement.style.display = 'none';
+    } else {
+      if (prevMode !== 'editor') this.fpToEditor();
+      this.orbit.enabled = true;
+      this.labelRenderer.domElement.style.display = '';
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
+    this.mode = mode;
+    this.syncGizmo();
+    this.syncWildlife();
+    if (this.room) this.room.ceiling.visible = mode !== 'editor';
+    this.refreshLabels(this.lastPalace!);
+    this.refreshPanels(this.lastPalace!);
+    this.applySelection(useStore.getState().selectedId, null);
+  }
+
+  /**
+   * Miejsce, w którym zaczyna się spacer: wnętrze → przy drzwiach pokoju,
+   * plansza → przy bramie wejściowej, a gdy jej nie ma → środek południowej krawędzi.
+   */
+  private spawnPose(): { x: number; z: number; yaw: number } {
+    const p = this.lastPalace;
+    if (p?.interior && this.room) {
+      return { x: this.room.spawn.pos.x, z: this.room.spawn.pos.z, yaw: this.room.spawn.yaw };
+    }
+    const gate = p?.objects.find((o) => o.type === 'gate');
+    const e = gate ? this.entries.get(gate.id) : undefined;
+    if (gate && e) {
+      const w = e.group.localToWorld(tmpV.set(GATE_SPAWN[0], GATE_SPAWN[1], GATE_SPAWN[2]));
+      return { x: this.clampX(w.x), z: this.clampZ(w.z), yaw: gate.rotationY };
+    }
+    const [ex, ez] = this.walkArea ? clampToGround(this.walkArea, 0, 1e4, 0.8) : [0, this.bounds.hz - 0.8];
+    return { x: ex, z: ez, yaw: 0 };
+  }
+
+  /** Stawia gracza w zadanym miejscu i ustawia kamerę pierwszej osoby. */
+  private placeRig(pose: { x: number; z: number; yaw: number }) {
+    this.rig.position.set(pose.x, 0, pose.z);
+    this.yaw = pose.yaw;
+    this.pitch = -0.05;
+    this.rig.rotation.set(0, this.yaw, 0);
+    if (!this.renderer.xr.isPresenting && !this.stereo) {
+      this.camera.position.set(0, EYE, 0);
+      this.camera.rotation.set(this.pitch, 0, 0);
+      this.camera.fov = 70;
+      this.camera.updateProjectionMatrix();
+    }
+    this.tween = null;
+    // kapsuła fizyki musi trafić w to samo miejsce, inaczej gracz wróciłby do starej pozycji
+    this.physics?.teleport(tmpV3.set(pose.x, 0, pose.z));
+  }
+
+  private editorToFp() {
+    this.placeRig(this.spawnPose());
+  }
+
+  private fpToEditor() {
+    const fwd = tmpV.set(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
+    const target = this.rig.position.clone().add(fwd.multiplyScalar(4)).setY(0.5);
+    const camPos = target.clone().add(new THREE.Vector3(-fwd.x, 0, -fwd.z).normalize().multiplyScalar(11)).setY(9);
+    this.rig.position.set(0, 0, 0);
+    this.rig.rotation.set(0, 0, 0);
+    this.camera.position.copy(camPos);
+    this.camera.rotation.set(0, 0, 0);
+    this.camera.fov = 38;
+    this.camera.updateProjectionMatrix();
+    this.orbit.target.copy(target);
+    this.orbit.update();
+  }
+
+  /** Najbliższy punkt na planszy (we wnętrzu prostokąt pokoju, na zewnątrz obrys płyty). */
+  private clampXZ(x: number, z: number): [number, number] {
+    const g = this.walkArea;
+    if (!g) return [THREE.MathUtils.clamp(x, -this.bounds.hx, this.bounds.hx), THREE.MathUtils.clamp(z, -this.bounds.hz, this.bounds.hz)];
+    return clampToGround(g, x, z, 0.4);
+  }
+  private clampX(x: number) {
+    return this.clampXZ(x, 0)[0];
+  }
+  private clampZ(z: number) {
+    return this.clampXZ(0, z)[1];
+  }
+
+  // ---------- VR ----------
+  private async enterVR() {
+    const st = useStore.getState();
+    const xr = (navigator as Navigator & { xr?: XRSystem }).xr;
+    let supported = false;
+    if (xr) {
+      try {
+        supported = await xr.isSessionSupported('immersive-vr');
+      } catch {
+        supported = false;
+      }
+    }
+    if (xr && supported) {
+      const session = await xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] });
+      this.xrSession = session;
+      let floor = true;
+      try {
+        await session.requestReferenceSpace('local-floor');
+      } catch {
+        floor = false;
+      }
+      this.xrFloor = floor;
+      this.renderer.xr.setReferenceSpaceType(floor ? 'local-floor' : 'local');
+      this.camera.position.set(0, 0, 0);
+      this.camera.rotation.set(0, 0, 0);
+      this.headOffset = floor ? 0 : EYE;
+      session.addEventListener('end', () => {
+        this.xrSession = null;
+        this.headOffset = 0;
+        this.rig.position.y = 0;
+        this.camera.position.set(0, EYE, 0);
+        if (useStore.getState().viewMode === 'vr') useStore.getState().setViewMode('fp');
+        useStore.getState().setVrActive(false);
+      });
+      await this.renderer.xr.setSession(session);
+      st.setVrActive(true);
+      this.placeRig(this.spawnPose());
+      st.showToast('Podejdź do obiektu i naciśnij, aby odsłonić notatkę.');
+      return;
+    }
+    // Fallback: stereo + czujniki telefonu
+    const DOE = (window as unknown as { DeviceOrientationEvent?: { requestPermission?: () => Promise<string> } }).DeviceOrientationEvent;
+    if (DOE && typeof DOE.requestPermission === 'function') {
+      try {
+        const res = await DOE.requestPermission();
+        if (res !== 'granted') throw new Error('brak zgody na czujniki');
+      } catch (e) {
+        throw new Error('Brak dostępu do czujników ruchu (' + (e as Error).message + ')');
+      }
+    }
+    window.addEventListener('deviceorientation', this.onOrientation, true);
+    this.deviceOrient.active = false;
+    this.stereo = new StereoEffect(this.renderer);
+    this.stereo.setEyeSeparation(0.064);
+    this.resize();
+    try {
+      await this.container.requestFullscreen?.();
+      await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape');
+    } catch {
+      /* ignoruj */
+    }
+    st.setVrActive(true);
+    this.placeRig(this.spawnPose());
+  }
+
+  private exitVR() {
+    if (this.xrSession) {
+      this.xrSession.end().catch(() => undefined);
+      this.xrSession = null;
+    }
+    if (this.stereo) {
+      this.stereo = null;
+      window.removeEventListener('deviceorientation', this.onOrientation, true);
+      this.camera.rotation.set(this.pitch, 0, 0);
+      this.rig.rotation.set(0, this.yaw, 0);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined);
+      try {
+        (screen.orientation as ScreenOrientation & { unlock?: () => void }).unlock?.();
+      } catch {
+        /* ignoruj */
+      }
+      this.resize();
+    }
+    useStore.getState().setVrActive(false);
+  }
+
+  /** Naciśnięcie spustu w goglach: to samo co kliknięcie w trybie z oczu. */
+  private onVrSelect(controller?: THREE.Object3D) {
+    if (this.useDoor()) return;
+    let id: string | null = null;
+    if (controller) {
+      // promień biegnie wzdłuż osi kontrolera
+      this.raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+      this.raycaster.ray.direction.set(0, 0, -1).transformDirection(controller.matrixWorld);
+      id = this.pickRay();
+    } else {
+      id = this.pick(new THREE.Vector2(0, 0));
+    }
+    this.fpInteract(id);
+  }
+
+  // ---------- kamera ----------
+  private flyTo(objectId: string) {
+    // w goglach nie przenosimy gracza — sam podchodzi do kolejnego przystanku
+    if (this.mode === 'vr') return;
+    const o = this.lastPalace?.objects.find((x) => x.id === objectId);
+    const e = this.entries.get(objectId);
+    if (!o || !e) return;
+    const objPos = new THREE.Vector3(o.position[0], 0, o.position[2]);
+    if (this.mode === 'editor') {
+      const target = objPos.clone().setY(Math.min(e.height * o.scale[1] * 0.45, 2));
+      const offset = this.camera.position.clone().sub(this.orbit.target);
+      const dist = THREE.MathUtils.clamp(offset.length(), 9, 14);
+      offset.normalize().multiplyScalar(dist);
+      if (offset.y < 4) offset.y = 4;
+      this.tween = { t: 0, dur: 0.9, fromPos: this.camera.position.clone(), toPos: target.clone().add(offset), fromTarget: this.orbit.target.clone(), toTarget: target };
+      return;
+    }
+    // widok z oczu / VR: stań przed obiektem, twarzą do niego
+    const from = this.rig.position.clone().setY(0);
+    let dir = from.sub(objPos);
+    if (dir.length() < 0.3) dir = new THREE.Vector3(0, 0, 1);
+    dir.setY(0).normalize();
+    const dist = (e.footprint + 1.2) * hs(e) + 1.2;
+    const pos = objPos.clone().add(dir.multiplyScalar(dist));
+    const [rx, rz] = this.resolveCollisions(pos.x, pos.z, objectId, 0.9);
+    const [fx, fz] = this.clampXZ(rx, rz);
+    pos.x = fx;
+    pos.z = fz;
+    const look = objPos.clone().sub(pos);
+    const desiredYaw = Math.atan2(-look.x, -look.z);
+    this.rig.position.x = pos.x;
+    this.rig.position.z = pos.z;
+    this.physics?.teleport(new THREE.Vector3(pos.x, this.rig.position.y - this.headOffset, pos.z));
+    if (this.renderer.xr.isPresenting || this.stereo) {
+      // kompensacja obrotu głowy
+      const headQ = this.renderer.xr.isPresenting ? this.renderer.xr.getCamera().getWorldQuaternion(tmpQ) : this.camera.getWorldQuaternion(tmpQ);
+      const headYaw = yawOf(headQ) - this.rig.rotation.y;
+      this.rig.rotation.y = desiredYaw - headYaw;
+      this.yaw = this.rig.rotation.y;
+    } else {
+      this.yaw = desiredYaw;
+      this.pitch = -0.08;
+      this.rig.rotation.y = this.yaw;
+      this.camera.rotation.set(this.pitch, 0, 0);
+    }
+  }
+
+  /** Wysokość kamery w rzucie z góry, tak by cała plansza mieściła się w kadrze. */
+  private topViewHeight(): number {
+    const size = this.lastPalace ? groundExtent(this.lastPalace.settings.ground) : 24;
+    const half = size / 2 + 2;
+    const halfFov = THREE.MathUtils.degToRad(TOP_VIEW_FOV / 2);
+    return half / Math.tan(halfFov) / Math.min(1, this.camera.aspect);
+  }
+
+  private enterTopView() {
+    if (this.topView) return;
+    this.savedCam = { pos: this.camera.position.clone(), target: this.orbit.target.clone(), fov: this.camera.fov };
+    this.topView = true;
+    this.orbit.enableRotate = false;
+    this.orbit.enableDamping = false;
+    this.orbit.screenSpacePanning = true;
+    this.orbit.mouseButtons.LEFT = THREE.MOUSE.PAN;
+    this.orbit.maxDistance = 400;
+    this.camera.fov = TOP_VIEW_FOV;
+    this.camera.updateProjectionMatrix();
+    useStore.getState().setTopView(true);
+    this.weather.setCloudsVisible(false);
+    this.tween = {
+      t: 0,
+      dur: 0.7,
+      fromPos: this.camera.position.clone(),
+      toPos: new THREE.Vector3(0, this.topViewHeight(), 0.001),
+      fromTarget: this.orbit.target.clone(),
+      toTarget: new THREE.Vector3(0, 0, 0),
+      // blokada kąta dopiero po dolocie, inaczej kamera skoczyłaby w pion natychmiast
+      onDone: () => {
+        if (!this.topView) return;
+        this.orbit.minPolarAngle = 0;
+        this.orbit.maxPolarAngle = 0;
+      },
+    };
+  }
+
+  private leaveTopView(instant = false) {
+    if (!this.topView) return;
+    this.topView = false;
+    this.orbit.maxPolarAngle = 1.45;
+    this.orbit.minPolarAngle = 0;
+    this.orbit.enableRotate = true;
+    this.orbit.enableDamping = true;
+    this.orbit.enabled = !this.gizmoDragging;
+    this.orbit.screenSpacePanning = false;
+    this.orbit.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+    this.orbit.maxDistance = 70;
+    this.camera.fov = 38;
+    this.camera.updateProjectionMatrix();
+    useStore.getState().setTopView(false);
+    this.weather.setCloudsVisible(true);
+    const saved = this.savedCam;
+    this.savedCam = null;
+    if (!saved) return;
+    if (instant) {
+      this.camera.position.copy(saved.pos);
+      this.orbit.target.copy(saved.target);
+      this.orbit.update();
+      this.tween = null;
+      return;
+    }
+    this.tween = { t: 0, dur: 0.6, fromPos: this.camera.position.clone(), toPos: saved.pos, fromTarget: this.orbit.target.clone(), toTarget: saved.target };
+  }
+
+  private cameraCommand(kind: CameraKind, instant = false) {
+    if (this.mode !== 'editor') {
+      if (this.mode === 'vr') return; // w goglach nie przestawiamy gracza samoczynnie
+      if (kind === 'fit' || kind === 'reset' || kind === 'center') this.placeRig(this.spawnPose());
+      return;
+    }
+    if (kind === 'topView') {
+      if (this.topView) this.leaveTopView();
+      else this.enterTopView();
+      return;
+    }
+    if (this.topView) {
+      // każde inne polecenie kamery wychodzi z rzutu z góry
+      this.leaveTopView(true);
+    }
+    if (kind === 'zoomIn' || kind === 'zoomOut') {
+      const off = this.camera.position.clone().sub(this.orbit.target);
+      const f = kind === 'zoomIn' ? 0.78 : 1.28;
+      const len = THREE.MathUtils.clamp(off.length() * f, this.orbit.minDistance, this.orbit.maxDistance);
+      off.setLength(len);
+      this.tween = { t: 0, dur: 0.35, fromPos: this.camera.position.clone(), toPos: this.orbit.target.clone().add(off), fromTarget: this.orbit.target.clone(), toTarget: this.orbit.target.clone() };
+      return;
+    }
+    const p = this.lastPalace;
+    let center = new THREE.Vector3(0, 0.5, 0);
+    let radius = (p ? groundExtent(p.settings.ground) : 24) / 2;
+    if (kind !== 'reset' && p && p.objects.length > 0) {
+      const box = new THREE.Box3();
+      for (const o of p.objects) box.expandByPoint(new THREE.Vector3(o.position[0], 0, o.position[2]));
+      box.expandByScalar(2.5);
+      box.getCenter(center);
+      center.y = 0.5;
+      radius = Math.max(box.getSize(tmpV).length() / 2, 6);
+    }
+    const isInteriorScene = !!p?.interior;
+    // we wnętrzu kadrujemy cały pokój, nie tylko postawione w nim przedmioty
+    if (isInteriorScene) radius = Math.max(radius, (p ? groundExtent(p.settings.ground) : 12) * 0.78);
+    const dist = radius * 2.1;
+    // 'center' i 'reset' wracają do domyślnego rzutu izometrycznego, 'fit' zachowuje bieżący kierunek
+    const isInterior = !!p?.interior;
+    const dir = kind === 'fit' ? this.camera.position.clone().sub(this.orbit.target).normalize() : new THREE.Vector3(1, isInterior ? 1.5 : 0.85, 1).normalize();
+    if (dir.y < 0.4) dir.y = 0.6;
+    dir.normalize();
+    const toPos = center.clone().add(dir.multiplyScalar(dist));
+    if (instant) {
+      this.camera.position.copy(toPos);
+      this.orbit.target.copy(center);
+      this.orbit.update();
+      return;
+    }
+    this.tween = { t: 0, dur: 0.7, fromPos: this.camera.position.clone(), toPos, fromTarget: this.orbit.target.clone(), toTarget: center };
+  }
+
+  // ---------- interakcja ----------
+  private setPointer(ev: { clientX: number; clientY: number }) {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  }
+
+  private pick(ndc?: THREE.Vector2): string | null {
+    this.raycaster.setFromCamera(ndc ?? this.pointer, this.camera);
+    return this.pickRay();
+  }
+
+  /** Wybór obiektu wzdłuż aktualnie ustawionego promienia. */
+  private pickRay(): string | null {
+    this.pickedExitDoor = false;
+    const targets: THREE.Object3D[] = [...this.entries.values()].filter((e) => e.group.visible).map((e) => e.group);
+    if (this.mode !== 'editor') targets.push(...this.wildlife.pickables());
+    if (this.room) targets.push(this.room.exitDoor);
+    const hits = this.raycaster.intersectObjects(targets, true);
+    for (const h of hits) {
+      if (h.object.userData.exitDoor) {
+        this.pickedExitDoor = true;
+        return null;
+      }
+      const id = h.object.userData.objectId as string | undefined;
+      if (id) return id;
+    }
+    return null;
+  }
+
+  /**
+   * Punkt, w którym stanie stawiany obiekt: wierzch obiektu pod kursorem (wtedy kotwiczymy)
+   * albo płaszczyzna ziemi.
+   */
+  private placementPoint(excludeIds: Set<string>): { pos: THREE.Vector3; anchorId?: string } | null {
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const targets: THREE.Object3D[] = [];
+    for (const [id, e] of this.entries) {
+      if (excludeIds.has(id) || colliderKind(e.type) === 'none') continue;
+      targets.push(e.group);
+    }
+    const hits = this.raycaster.intersectObjects(targets, true);
+    for (const h of hits) {
+      if (h.object.userData.noPick) continue;
+      const id = h.object.userData.objectId as string | undefined;
+      if (!id || excludeIds.has(id)) continue;
+      const e = this.entries.get(id);
+      if (!e) continue;
+      const box = new THREE.Box3().setFromObject(e.model);
+      return { pos: new THREE.Vector3(h.point.x, box.max.y, h.point.z), anchorId: id };
+    }
+    // płyta i teren wokół niej — obiekty można stawiać także poza obszarem chodzenia
+    const surfaces: THREE.Object3D[] = [];
+    if (this.ground.visible) surfaces.push(this.ground);
+    if (this.terrain?.group.visible) surfaces.push(this.terrain.mesh);
+    if (surfaces.length > 0) {
+      const sh = this.raycaster.intersectObjects(surfaces, false);
+      if (sh.length > 0) return { pos: sh[0].point.clone() };
+    }
+    const gp = new THREE.Vector3();
+    if (!this.groundPoint(gp)) return null;
+    return { pos: gp };
+  }
+
+  private groundPoint(out: THREE.Vector3): boolean {
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    return !!this.raycaster.ray.intersectPlane(this.groundPlane, out);
+  }
+
+  private isUiTarget(ev: Event) {
+    const t = ev.target as HTMLElement | null;
+    return !!t && t !== this.renderer.domElement && !this.labelRenderer.domElement.contains(t);
+  }
+
+  private onPointerDown = (ev: PointerEvent) => {
+    if (this.isUiTarget(ev)) return;
+    const st = useStore.getState();
+    if (this.mode === 'vr') {
+      if (this.stereo) {
+        this.touchHold = true;
+        this.touchStart = performance.now();
+      }
+      return;
+    }
+    if (this.mode === 'fp') {
+      if (ev.pointerType === 'touch') {
+        const r = this.renderer.domElement.getBoundingClientRect();
+        if (ev.clientX - r.left > r.width * 0.35) this.touchLook = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, moved: false };
+        return;
+      }
+      if (document.pointerLockElement === this.renderer.domElement) {
+        const id = this.pick(new THREE.Vector2(0, 0));
+        this.fpInteract(id);
+      } else {
+        this.renderer.domElement.requestPointerLock?.();
+      }
+      return;
+    }
+    // edytor: tryb stawiania przechwytuje wszystkie kliknięcia
+    if (this.ghost) {
+      ev.stopPropagation();
+      ev.preventDefault();
+      this.setPointer(ev);
+      this.updateGhost();
+      if (ev.button === 2) {
+        useStore.getState().setPlacing(null);
+        return;
+      }
+      this.placeDown = { x: ev.clientX, y: ev.clientY };
+      return;
+    }
+    if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+    this.setPointer(ev);
+    // kliknięcie w uchwyt obsługuje TransformControls (nasz listener jest w fazie przechwytywania)
+    if (this.gizmo.enabled) {
+      // pointerHover oczekuje współrzędnych znormalizowanych; deklaracja w @types/three mówi PointerEvent
+      this.gizmo.pointerHover({ x: this.pointer.x, y: this.pointer.y, button: ev.button } as unknown as PointerEvent);
+      if (this.gizmo.axis) {
+        this.downInfo = null;
+        return;
+      }
+    }
+    const hit = this.pick();
+    this.downInfo = { x: ev.clientX, y: ev.clientY, hit };
+    const tool = st.tool;
+    // narzędzie „Zaznacz" tylko zaznacza — przesuwanie jest w narzędziach Przesuń/Obróć
+    const targetId = tool === 'select' ? null : hit ?? st.selectedId;
+    if (targetId && !st.review) {
+      const e = this.entries.get(targetId);
+      if (!e) return;
+      ev.stopPropagation();
+      ev.preventDefault();
+      const gp = new THREE.Vector3();
+      this.groundPoint(gp);
+      const offset = e.group.position.clone().sub(gp);
+      this.drag = { id: targetId, offset, startX: ev.clientX, startY: ev.clientY, moved: false, mode: tool === 'rotate' ? 'rotate' : 'move', startRot: e.group.rotation.y };
+      if (hit) st.select(hit);
+      this.renderer.domElement.style.cursor = 'grabbing';
+    }
+  };
+
+  private onPointerMove = (ev: PointerEvent) => {
+    if (this.mode === 'fp' && this.touchLook && ev.pointerId === this.touchLook.id) {
+      const dx = ev.clientX - this.touchLook.x;
+      const dy = ev.clientY - this.touchLook.y;
+      this.touchLook.x = ev.clientX;
+      this.touchLook.y = ev.clientY;
+      if (Math.abs(dx) + Math.abs(dy) > 2) this.touchLook.moved = true;
+      this.look(dx * 0.006, dy * 0.006);
+      return;
+    }
+    if (this.mode !== 'editor' || this.gizmoDragging) return;
+    if (this.ghost) {
+      if (ev.pointerType === 'mouse' || this.placeDown) {
+        this.setPointer(ev);
+        this.updateGhost();
+      }
+      return;
+    }
+    if (this.drag) {
+      const st = useStore.getState();
+      const e = this.entries.get(this.drag.id);
+      if (!e) return;
+      const dist = Math.hypot(ev.clientX - this.drag.startX, ev.clientY - this.drag.startY);
+      if (!this.drag.moved && dist > 4) {
+        this.drag.moved = true;
+        st.pushUndo();
+      }
+      if (!this.drag.moved) return;
+      ev.preventDefault();
+      if (this.drag.mode === 'rotate') {
+        const rot = this.drag.startRot - (ev.clientX - this.drag.startX) * 0.01;
+        st.updateObject(this.drag.id, { rotationY: Math.round(rot / (Math.PI / 24)) * (Math.PI / 24) }, { undo: false });
+        return;
+      }
+      this.setPointer(ev);
+      // przeciągany obiekt (i to, co na nim stoi) nie może być własną podstawą
+      const exclude = new Set<string>([this.drag.id, ...descendants(st.palace().objects, this.drag.id).map((o) => o.id)]);
+      const found = this.placementPoint(exclude);
+      if (!found) return;
+      const snap = st.palace().settings.grid ? 0.5 : 0.05;
+      const onPlate = !this.walkArea || insideGround(this.walkArea, found.pos.x, found.pos.z);
+      const x = found.anchorId || !onPlate ? found.pos.x : Math.round(found.pos.x / snap) * snap;
+      const z = found.anchorId || !onPlate ? found.pos.z : Math.round(found.pos.z / snap) * snap;
+      st.updateObject(this.drag.id, { position: [x, found.pos.y, z], anchorId: found.anchorId }, { undo: false });
+      this.selRing.position.set(x, found.pos.y + 0.02, z);
+      return;
+    }
+    if (ev.pointerType === 'mouse' && !this.isUiTarget(ev)) {
+      this.setPointer(ev);
+      const id = this.pick();
+      const tool = useStore.getState().tool;
+      useStore.getState().setHover(id);
+      this.renderer.domElement.style.cursor = id ? (tool === 'select' ? 'pointer' : 'grab') : '';
+    }
+  };
+
+  private onPointerUp = (ev: PointerEvent) => {
+    if (this.mode === 'vr') {
+      if (this.stereo && this.touchHold) {
+        this.touchHold = false;
+        if (performance.now() - this.touchStart < 250) this.onVrSelect();
+      }
+      return;
+    }
+    if (this.mode === 'fp') {
+      if (this.touchLook && ev.pointerId === this.touchLook.id) {
+        if (!this.touchLook.moved) {
+          this.setPointer(ev);
+          this.fpInteract(this.pick());
+        }
+        this.touchLook = null;
+      }
+      return;
+    }
+    if (this.mode !== 'editor') return;
+    const st = useStore.getState();
+    if (this.ghost && this.placeDown) {
+      const moved = Math.hypot(ev.clientX - this.placeDown.x, ev.clientY - this.placeDown.y);
+      const isTouch = ev.pointerType === 'touch';
+      this.placeDown = null;
+      if (isTouch || moved < 6) this.commitPlacement(ev.shiftKey);
+      return;
+    }
+    if (this.drag) {
+      this.drag = null;
+      this.renderer.domElement.style.cursor = '';
+      this.downInfo = null;
+      return;
+    }
+    if (this.downInfo) {
+      const moved = Math.hypot(ev.clientX - this.downInfo.x, ev.clientY - this.downInfo.y) > 5;
+      if (!moved && !this.isUiTarget(ev)) {
+        const hit = this.downInfo.hit;
+        if (hit) {
+          const now = performance.now();
+          const dbl = this.lastClick && this.lastClick.id === hit && now - this.lastClick.t < 350;
+          this.lastClick = { id: hit, t: now };
+          const type = this.lastPalace?.objects.find((o) => o.id === hit)?.type;
+          if (dbl && type && hasInterior(type)) {
+            this.lastClick = null;
+            st.enterInterior(hit);
+          } else st.select(hit);
+        } else if (!st.review) st.select(null);
+      }
+      this.downInfo = null;
+    }
+  };
+
+  private fpInteract(id: string | null) {
+    const st = useStore.getState();
+    // zaczepienie zwierzęcia: reaguje, a jeśli punkt ma notatkę, obsługujemy ją dalej jak zwykle
+    if (id) this.wildlife.poke(id);
+    // najpierw drzwi: kliknięcie w budynek lub w skrzydło drzwi wnętrza
+    const dp = st.doorPrompt;
+    if (dp && (id === null || id === dp.objectId || this.pickedExitDoor)) {
+      if (id === dp.objectId || this.pickedExitDoor) {
+        this.useDoor();
+        return;
+      }
+    }
+    if (st.review) {
+      const cur = st.review.stops[st.review.index];
+      if (!id || id === cur.objectId) {
+        if (st.review.finished) return;
+        if (!st.review.revealed) st.reveal();
+        else st.nextStop();
+        return;
+      }
+    }
+    st.select(id);
+  }
+
+  private look(dx: number, dy: number) {
+    this.yaw -= dx;
+    this.pitch = THREE.MathUtils.clamp(this.pitch - dy, -1.3, 1.3);
+    this.rig.rotation.y = this.yaw;
+    this.camera.rotation.set(this.pitch, 0, 0);
+  }
+
+  private onMouseMoveLocked = (ev: MouseEvent) => {
+    if (this.mode !== 'fp' || document.pointerLockElement !== this.renderer.domElement) return;
+    this.look(ev.movementX * 0.0022, ev.movementY * 0.0022);
+  };
+
+  private onContextMenu = (ev: MouseEvent) => {
+    if (this.ghost) ev.preventDefault();
+  };
+
+  /** W trybie stawiania kółko obraca podgląd zamiast przybliżać widok. */
+  private onWheel = (ev: WheelEvent) => {
+    if (!this.ghost) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    this.ghostRot += Math.sign(ev.deltaY) * (Math.PI / 12);
+    this.updateGhost();
+  };
+
+  private onLockChange = () => {
+    useStore.setState({ toast: null });
+    this.container.classList.toggle('pointer-locked', document.pointerLockElement === this.renderer.domElement);
+  };
+
+  private isTyping() {
+    const a = document.activeElement as HTMLElement | null;
+    return !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable);
+  }
+
+  private onKeyDown = (ev: KeyboardEvent) => {
+    if (this.isTyping()) return;
+    this.keys.add(ev.code);
+    const st = useStore.getState();
+    const meta = ev.ctrlKey || ev.metaKey;
+    if (meta && ev.code === 'KeyZ') {
+      ev.preventDefault();
+      if (ev.shiftKey) st.redo();
+      else st.undo();
+      return;
+    }
+    if (meta && ev.code === 'KeyY') {
+      ev.preventDefault();
+      st.redo();
+      return;
+    }
+    if (meta && ev.code === 'KeyD' && st.selectedId) {
+      ev.preventDefault();
+      st.duplicateObject(st.selectedId);
+      return;
+    }
+    if (this.ghost) {
+      if (ev.code === 'KeyR') {
+        ev.preventDefault();
+        this.ghostRot += Math.PI / 12;
+        this.updateGhost();
+        return;
+      }
+      if (ev.code === 'Escape') {
+        st.setPlacing(null);
+        return;
+      }
+    }
+    if (this.mode === 'editor') {
+      if ((ev.code === 'Delete' || ev.code === 'Backspace') && st.selectedId && !st.review) {
+        ev.preventDefault();
+        st.removeObject(st.selectedId);
+      }
+      if (ev.code === 'KeyV') st.setTool('select');
+      if (ev.code === 'KeyM') st.setTool('move');
+      if (ev.code === 'KeyR' && !meta) st.setTool('rotate');
+      if (ev.code === 'KeyF') st.camera('center');
+      if (ev.code === 'KeyT') st.camera('topView');
+    }
+    if (ev.code === 'KeyF' && this.mode === 'fp') {
+      if (this.useDoor()) {
+        ev.preventDefault();
+        return;
+      }
+    }
+    if (ev.code === 'Escape') {
+      if (st.review && this.mode !== 'vr') st.endReview();
+      else st.select(null);
+    }
+    // Spacja to zawsze skok; w spacerze do przodu przechodzimy Enterem albo kliknięciem
+    if (ev.code === 'Space' && this.mode !== 'editor') {
+      ev.preventDefault();
+      this.jump();
+    }
+    if (ev.code === 'Enter' && this.mode === 'fp' && st.review) {
+      ev.preventDefault();
+      if (!st.review.revealed) st.reveal();
+      else st.nextStop();
+    }
+  };
+
+  private onKeyUp = (ev: KeyboardEvent) => {
+    this.keys.delete(ev.code);
+  };
+
+  // ---------- pętla ----------
+  private frame(frame?: XRFrame) {
+    if (this.disposed) return;
+    const dt = Math.min(this.clock.getDelta(), 0.05);
+    const presenting = this.renderer.xr.isPresenting;
+
+    if (this.mode === 'editor') {
+      if (this.tween) {
+        const tw = this.tween;
+        tw.t += dt;
+        const k = Math.min(tw.t / tw.dur, 1);
+        const s = k * k * (3 - 2 * k);
+        this.camera.position.lerpVectors(tw.fromPos, tw.toPos, s);
+        this.orbit.target.lerpVectors(tw.fromTarget, tw.toTarget, s);
+        if (k >= 1) {
+          this.tween = null;
+          tw.onDone?.();
+        }
+      }
+      this.orbit.update();
+    } else if (this.mode === 'fp' || this.mode === 'vr') {
+      if (this.jumpBuffer > 0) this.jumpBuffer = Math.max(0, this.jumpBuffer - dt);
+      if (presenting) this.readXrInput();
+      this.updateFp(dt);
+      if (this.debugPhysics && ++this.debugTick % 10 === 0) this.updatePhysicsDebug();
+      if (this.stereo && this.deviceOrient.active) this.applyDeviceOrientation();
+    }
+
+    if (this.mode !== 'editor' && ++this.doorCheck % 6 === 0) this.updateDoorPrompt();
+
+    // we wnętrzu w edytorze chowamy ściany od strony kamery (widok jak do domku dla lalek)
+    if (this.room) {
+      const inEditor = this.mode === 'editor';
+      for (const wmesh of this.room.walls) {
+        if (!inEditor) {
+          wmesh.visible = true;
+          continue;
+        }
+        const n = wmesh.userData.wallNormal as [number, number];
+        const dir = tmpV.set(this.camera.position.x, 0, this.camera.position.z);
+        wmesh.visible = n[0] * dir.x + n[1] * dir.z < 0.5;
+      }
+    }
+
+    // pogoda (raz na klatkę, także gdy stereo renderuje scenę dwukrotnie)
+    const camWorldPos = presenting ? this.renderer.xr.getCamera().getWorldPosition(tmpV3) : this.camera.getWorldPosition(tmpV3);
+    const hadFlash = this.weather.flash;
+    this.weather.update(dt, camWorldPos);
+    if (hadFlash !== this.weather.flash) this.applyLighting();
+    for (const e of this.entries.values()) e.emitter?.update(dt, camWorldPos);
+    if (this.mode !== 'editor' && this.wildlife.creatures.length > 0) {
+      // świat przeliczamy rzadziej niż ruch zwierząt — obiekty i tak stoją w miejscu
+      if (++this.wildlifeTick % 30 === 0) this.cachedWorld = this.worldInfo();
+      this.wildlife.update(dt, this.rig.position, this.cachedWorld ?? (this.cachedWorld = this.worldInfo()));
+    }
+
+    // billboardy paneli
+    if (this.mode !== 'editor') {
+      const camWorld = presenting ? this.renderer.xr.getCamera().getWorldPosition(tmpV2) : this.camera.getWorldPosition(tmpV2);
+      for (const e of this.entries.values()) {
+        if (!e.panel) continue;
+        const gp = this.wildlife.positionOf(e.id) ?? e.group.position;
+        if (e.panel.userData.current) {
+          const dir = tmpV.set(camWorld.x - gp.x, 0, camWorld.z - gp.z);
+          if (dir.lengthSq() < 0.01) dir.set(0, 0, 1);
+          dir.normalize();
+          const d = (e.footprint + 0.5) * hs(e);
+          e.panel.position.set(gp.x + dir.x * d, Math.max(EYE + 0.15, gp.y + 0.6), gp.z + dir.z * d);
+        } else {
+          e.panel.position.set(gp.x, gp.y + e.height * e.group.scale.y + 0.6, gp.z);
+        }
+        tmpE.set(0, Math.atan2(camWorld.x - e.panel.position.x, camWorld.z - e.panel.position.z), 0);
+        e.panel.quaternion.setFromEuler(tmpE);
+      }
+    }
+
+    void frame;
+    if (this.stereo && !presenting) {
+      this.stereo.render(this.scene, this.camera);
+    } else {
+      this.renderer.render(this.scene, this.camera);
+      if (this.mode === 'editor') this.labelRenderer.render(this.scene, this.camera);
+    }
+  }
+
+  /** Opis otoczenia dla zwierząt: przeszkody, miejsca do siadania i ukształtowanie terenu. */
+  private worldInfo(): WorldInfo {
+    const obstacles: WorldInfo['obstacles'] = [];
+    const perches: WorldInfo['perches'] = [];
+    for (const e of this.entries.values()) {
+      if (spawnKind(e.type)) continue;
+      const r = e.footprint * 0.8 * hs(e);
+      obstacles.push({ x: e.group.position.x, z: e.group.position.z, r });
+      const top = e.group.position.y + e.height * e.group.scale.y;
+      if (e.type === 'tree' || e.type === 'cypress' || e.type === 'palm') perches.push({ x: e.group.position.x, y: top * 0.75, z: e.group.position.z, kind: 'tree' });
+      else if (hasInterior(e.type)) perches.push({ x: e.group.position.x, y: top * 0.9, z: e.group.position.z, kind: 'roof' });
+      else if (e.type === 'bench' || e.type === 'rock') perches.push({ x: e.group.position.x, y: top, z: e.group.position.z, kind: 'seat' });
+    }
+    return {
+      obstacles,
+      perches,
+      heightAt: (x, z) => {
+        if (this.walkArea && insideGround(this.walkArea, x, z)) return 0;
+        return this.terrain?.heightAt(x, z) ?? 0;
+      },
+      clamp: (x, z) => this.clampXZ(x, z),
+    };
+  }
+
+  /** W edytorze widać markery, w trybie chodzenia — żywe zwierzęta. */
+  private syncWildlife() {
+    const p = this.lastPalace;
+    if (!p) return;
+    const live = this.mode !== 'editor';
+    const spawns: SpawnInfo[] = [];
+    for (const o of p.objects) {
+      const kind = spawnKind(o.type);
+      if (!kind) continue;
+      const e = this.entries.get(o.id);
+      if (e) e.group.visible = !live;
+      if (live) spawns.push({ id: o.id, kind, pos: new THREE.Vector3(o.position[0], o.position[1], o.position[2]) });
+    }
+    this.wildlife.sync(spawns, this.worldInfo());
+  }
+
+  /** Szuka drzwi w zasięgu ręki i publikuje podpowiedź do interfejsu. */
+  private updateDoorPrompt() {
+    const st = useStore.getState();
+    const p = this.lastPalace;
+    if (!p) return;
+    const pos = this.rig.position;
+    const fwd = tmpV2.set(0, 0, -1).applyAxisAngle(UP, this.renderer.xr.isPresenting || this.stereo ? yawOf(this.camera.getWorldQuaternion(tmpQ)) : this.rig.rotation.y);
+    if (p.interior) {
+      const door = this.room?.exitDoor;
+      if (!door) return st.setDoorPrompt(null);
+      const dw = door.getWorldPosition(tmpV);
+      const dist = Math.hypot(dw.x - pos.x, dw.z - pos.z);
+      st.setDoorPrompt(dist < 2.6 ? { kind: 'exit', label: 'Wyjdź na zewnątrz' } : null);
+      return;
+    }
+    let best: { id: string; name: string; d: number } | null = null;
+    for (const [id, e] of this.entries) {
+      if (!hasInterior(e.type)) continue;
+      const spec = DOORS[e.type]?.local ?? [0, 0, 1];
+      const dw = e.group.localToWorld(tmpV.set(spec[0], spec[1], spec[2]));
+      const dx = dw.x - pos.x;
+      const dz = dw.z - pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 2.6) continue;
+      // drzwi muszą być mniej więcej przed graczem
+      if ((dx / (d || 1)) * fwd.x + (dz / (d || 1)) * fwd.z < 0.2) continue;
+      const o = p.objects.find((x) => x.id === id);
+      if (!o) continue;
+      if (!best || d < best.d) best = { id, name: o.name, d };
+    }
+    st.setDoorPrompt(best ? { kind: 'enter', objectId: best.id, label: `Wejdź do: ${best.name}` } : null);
+  }
+
+  /** Wchodzi lub wychodzi drzwiami, na których stoi podpowiedź. */
+  useDoor(): boolean {
+    const st = useStore.getState();
+    const dp = st.doorPrompt;
+    if (!dp) return false;
+    if (dp.kind === 'exit') st.exitInterior();
+    else if (dp.objectId) st.enterInterior(dp.objectId);
+    return true;
+  }
+
+  /** Joystick lewego kontrolera przesuwa, prawy obraca skokowo o 30°. */
+  private readXrInput() {
+    const session = this.renderer.xr.getSession();
+    if (!session) return;
+    this.xrMove.set(0, 0);
+    let turn = 0;
+    for (const src of session.inputSources) {
+      const gp = src.gamepad;
+      if (!gp) continue;
+      const ax = gp.axes.length >= 4 ? [gp.axes[2] ?? 0, gp.axes[3] ?? 0] : [gp.axes[0] ?? 0, gp.axes[1] ?? 0];
+      const dead = (v: number) => (Math.abs(v) < 0.2 ? 0 : v);
+      if (src.handedness === 'right') turn = dead(ax[0]);
+      else this.xrMove.set(dead(ax[0]), dead(ax[1]));
+    }
+    // obrót skokowy z histerezą, żeby jedno wychylenie dało jeden obrót
+    if (Math.abs(turn) > 0.6 && !this.snapTurnArmed) {
+      this.snapTurnArmed = true;
+      const a = Math.sign(turn) * -(Math.PI / 6);
+      const head = this.renderer.xr.getCamera().getWorldPosition(tmpV2);
+      this.rig.rotation.y += a;
+      const dx = this.rig.position.x - head.x;
+      const dz = this.rig.position.z - head.z;
+      this.rig.position.x = head.x + dx * Math.cos(a) + dz * Math.sin(a);
+      this.rig.position.z = head.z - dx * Math.sin(a) + dz * Math.cos(a);
+      this.yaw = this.rig.rotation.y;
+      this.physics?.teleport(tmpV3.set(this.rig.position.x, this.rig.position.y - this.headOffset, this.rig.position.z));
+    } else if (Math.abs(turn) < 0.3) this.snapTurnArmed = false;
+  }
+
+  private updateFp(dt: number) {
+    const k = this.keys;
+    let mx = this.joystick.x + this.xrMove.x;
+    let mz = this.joystick.y + this.xrMove.y;
+    if (this.touchHold) mz -= 1; // Cardboard: idziemy tam, gdzie patrzymy
+    if (k.has('KeyW') || k.has('ArrowUp')) mz -= 1;
+    if (k.has('KeyS') || k.has('ArrowDown')) mz += 1;
+    if (k.has('KeyA') || k.has('ArrowLeft')) mx -= 1;
+    if (k.has('KeyD') || k.has('ArrowRight')) mx += 1;
+    if (k.has('KeyQ')) this.look(-1.6 * dt, 0);
+    if (k.has('KeyE')) this.look(1.6 * dt, 0);
+    const len = Math.hypot(mx, mz);
+    if (len > 1) {
+      mx /= len;
+      mz /= len;
+    }
+    const speed = (k.has('ShiftLeft') || k.has('ShiftRight') ? 6.5 : 3.6);
+    const target = tmpV.set(mx, 0, mz).multiplyScalar(speed);
+    // kierunek względem obrotu rigu (VR: względem głowy)
+    // w goglach i w trybie stereo idziemy tam, gdzie patrzy głowa
+    const headDriven = this.stereo || this.renderer.xr.isPresenting;
+    const yaw = headDriven
+      ? yawOf(this.renderer.xr.isPresenting ? this.renderer.xr.getCamera().getWorldQuaternion(tmpQ) : this.camera.getWorldQuaternion(tmpQ))
+      : this.rig.rotation.y;
+    target.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+    this.fpVel.lerp(target, 1 - Math.exp(-dt * 12));
+
+    if (this.physics?.hasCharacter) {
+      const jump = this.jumpBuffer > 0;
+      if (jump) this.jumpBuffer = 0;
+      const step = Math.min(dt, 0.033); // krótszy krok: cienkie deski nie są przenikane przy biegu
+      const r = this.physics.stepCharacter(this.fpVel, step, jump);
+      const [cx, cz] = this.clampXZ(r.pos.x, r.pos.z);
+      // granica planszy jest poza fizyką — po przycięciu trzeba przestawić też ciało
+      if (Math.abs(cx - r.pos.x) > 1e-4 || Math.abs(cz - r.pos.z) > 1e-4) this.physics.teleport(tmpV3.set(cx, r.pos.y, cz));
+      this.rig.position.set(cx, r.pos.y + this.headOffset, cz);
+      return;
+    }
+
+    // rezerwowe kolizje kołowe, dopóki fizyka się nie wczyta
+    if (this.fpVel.lengthSq() < 1e-6) return;
+    const [nx, nz] = this.clampXZ(this.rig.position.x + this.fpVel.x * dt, this.rig.position.z + this.fpVel.z * dt);
+    const [px, pz] = this.resolveCollisions(nx, nz);
+    const [fx, fz] = this.clampXZ(px, pz);
+    this.rig.position.x = fx;
+    this.rig.position.z = fz;
+  }
+
+  /** Skok — także z przycisku na telefonie. */
+  jump() {
+    this.jumpBuffer = 0.15;
+  }
+
+  /** Wypycha punkt (x,z) poza obrysy obiektów. */
+  private resolveCollisions(x: number, z: number, ignoreId?: string, margin = 0.35): [number, number] {
+    let px = x;
+    let pz = z;
+    for (let iter = 0; iter < 3; iter++) {
+      for (const e of this.entries.values()) {
+        if (e.id === ignoreId) continue;
+        const r = e.footprint * 0.75 * hs(e) + margin;
+        const dx = px - e.group.position.x;
+        const dz = pz - e.group.position.z;
+        let d = Math.hypot(dx, dz);
+        if (d < r) {
+          if (d < 1e-4) {
+            px = e.group.position.x + r;
+            continue;
+          }
+          px = e.group.position.x + (dx / d) * r;
+          pz = e.group.position.z + (dz / d) * r;
+        }
+      }
+    }
+    return [px, pz];
+  }
+
+  private applyDeviceOrientation() {
+    const { alpha, beta, gamma, orient } = this.deviceOrient;
+    const zee = new THREE.Vector3(0, 0, 1);
+    const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+    tmpE.set(beta, alpha, -gamma, 'YXZ');
+    this.camera.quaternion.setFromEuler(tmpE);
+    this.camera.quaternion.multiply(q1);
+    this.camera.quaternion.multiply(tmpQ.setFromAxisAngle(zee, -orient));
+  }
+
+  resize() {
+    const w = this.container.clientWidth || 1;
+    const h = this.container.clientHeight || 1;
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    if (!this.renderer.xr.isPresenting) {
+      if (this.stereo) this.stereo.setSize(w, h);
+      else this.renderer.setSize(w, h, false);
+      this.renderer.domElement.style.width = '100%';
+      this.renderer.domElement.style.height = '100%';
+    }
+    this.labelRenderer.setSize(w, h);
+  }
+
+  dispose() {
+    this.disposed = true;
+    this.unsub();
+    this.renderer.setAnimationLoop(null);
+    this.exitVR();
+    this.ro.disconnect();
+    this.container.removeEventListener('pointerdown', this.onPointerDown, true);
+    window.removeEventListener('pointermove', this.onPointerMove);
+    window.removeEventListener('pointerup', this.onPointerUp);
+    window.removeEventListener('pointercancel', this.onPointerUp);
+    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
+    document.removeEventListener('pointerlockchange', this.onLockChange);
+    this.container.removeEventListener('contextmenu', this.onContextMenu);
+    this.container.removeEventListener('wheel', this.onWheel, { capture: true } as EventListenerOptions);
+    this.setGhost(null);
+    for (const e of [...this.entries.values()]) this.removeEntry(e);
+    this.weather.dispose();
+    this.wildlife.dispose();
+    if (this.terrain) {
+      this.scene.remove(this.terrain.group);
+      this.terrain.dispose();
+      this.terrain = null;
+    }
+    if (this.room) {
+      this.scene.remove(this.room.group);
+      this.room.dispose();
+      this.room = null;
+    }
+    this.physics?.dispose();
+    this.physics = null;
+    this.gizmo.detach();
+    // TransformControls.dispose() w three 0.169 woła this.traverse(), którego ta klasa nie ma —
+    // odłączamy zdarzenia i sprzątamy geometrie uchwytu samodzielnie
+    this.gizmo.disconnect();
+    const helper = this.gizmo.getHelper();
+    helper.traverse((c) => {
+      const m = c as THREE.Mesh;
+      if (m.geometry) m.geometry.dispose();
+      const mat = m.material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
+      else mat?.dispose();
+    });
+    this.scene.remove(helper);
+    this.orbit.dispose();
+    this.renderer.dispose();
+    this.renderer.domElement.remove();
+    this.labelRenderer.domElement.remove();
+  }
+}
