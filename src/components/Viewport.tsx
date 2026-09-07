@@ -44,6 +44,15 @@ export function Viewport() {
     };
   }, []);
 
+  // iPhone nie udostępnia pełnego ekranu dla elementów — wtedy widok rozciągamy stylami
+  const nativeFullscreen = typeof document !== 'undefined' && document.fullscreenEnabled;
+
+  const enterFullscreen = () => {
+    const el = wrapRef.current;
+    if (!el || !nativeFullscreen || document.fullscreenElement) return;
+    el.requestFullscreen?.().catch(() => undefined);
+  };
+
   const toggleFullscreen = () => {
     const el = wrapRef.current;
     if (!el) return;
@@ -54,7 +63,15 @@ export function Viewport() {
   const modeChip = viewMode === 'editor' ? 'Tryb tworzenia' : viewMode === 'fp' ? 'Widok z oczu' : 'Wirtualna rzeczywistość';
 
   return (
-    <section ref={wrapRef} className={'viewport' + (vrActive ? ' vr-active' : '') + (viewMode === 'fp' ? ' fp-mode' : '')}>
+    <section
+      ref={wrapRef}
+      className={
+        'viewport' +
+        (vrActive ? ' vr-active' : '') +
+        (vrActive && !nativeFullscreen ? ' vr-cover' : '') +
+        (viewMode === 'fp' ? ' fp-mode' : '')
+      }
+    >
       <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
 
       {/* góra-lewo: tryb */}
@@ -70,7 +87,16 @@ export function Viewport() {
           <button className={viewMode === 'fp' ? 'active' : ''} onClick={() => setViewMode('fp')} title="Spacer w pierwszej osobie">
             <I.Eye width={13} height={13} style={{ verticalAlign: -2, marginRight: 5 }} />Z oczu
           </button>
-          <button className={viewMode === 'vr' ? 'active' : ''} onClick={() => setViewMode('vr')} title="VR (gogle lub telefon w Cardboard)">
+          <button
+            className={viewMode === 'vr' ? 'active' : ''}
+            onClick={() => {
+              // pełny ekran trzeba poprosić w samym dotknięciu — po pierwszym await
+              // (sprawdzenie WebXR, zgoda na czujniki) przeglądarka już odmawia
+              enterFullscreen();
+              setViewMode('vr');
+            }}
+            title="VR (gogle lub telefon w Cardboard)"
+          >
             <I.Vr width={13} height={13} style={{ verticalAlign: -2, marginRight: 5 }} />
             VR
           </button>

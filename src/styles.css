@@ -320,3 +320,6 @@ input, textarea, select { outline: none; }
 .vr-hint kbd { background: rgba(255,255,255,0.18); border-radius: 4px; padding: 0 5px; font-family: inherit; }
 @keyframes vr-hint-fade { to { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .vr-hint { animation: none; } }
+
+/* telefony bez pełnego ekranu dla elementów (iPhone): widok sam okrywa cały ekran */
+.viewport.vr-cover { position: fixed; inset: 0; z-index: 200; width: 100vw; height: 100dvh; }

@@ -1208,11 +1208,18 @@ export class SceneManager {
     this.stereo.setEyeSeparation(0.064);
     this.resize();
     try {
-      // pełny ekran obejmuje całą sekcję widoku, a nie sam kontener płótna —
-      // inaczej przycisk wyjścia i podpowiedź zostają poza obrazem
-      const fsTarget = (this.container.closest('.viewport') as HTMLElement | null) ?? this.container;
-      await fsTarget.requestFullscreen?.();
-      await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape');
+      // pełny ekran zwykle włącza już przycisk VR (musi paść w geście dotknięcia);
+      // tu jest druga próba dla przeglądarek, które na to pozwalają także później
+      if (!document.fullscreenElement) {
+        const fsTarget = (this.container.closest('.viewport') as HTMLElement | null) ?? this.container;
+        await fsTarget.requestFullscreen?.();
+      }
+      // blokada orientacji działa dopiero przy włączonym pełnym ekranie
+      if (document.fullscreenElement) {
+        await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape');
+      }
+      // na telefonie bez pełnego ekranu chowamy pasek adresu przewinięciem
+      window.scrollTo(0, 1);
     } catch {
       /* ignoruj */
     }
