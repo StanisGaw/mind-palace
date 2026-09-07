@@ -54,6 +54,8 @@ const tmpV3 = new THREE.Vector3();
 const tmpQ = new THREE.Quaternion();
 const tmpE = new THREE.Euler();
 const UP = new THREE.Vector3(0, 1, 0);
+// yawOf ma własny wektor — wołający trzymają w tmpV wektor ruchu, który nie może zostać nadpisany
+const tmpYaw = new THREE.Vector3();
 
 /** Największa skala pozioma — do pierścieni, odległości i kolizji kołowych. */
 function hs(e: { group: THREE.Group }): number {
@@ -61,8 +63,8 @@ function hs(e: { group: THREE.Group }): number {
 }
 
 function yawOf(q: THREE.Quaternion): number {
-  tmpV.set(0, 0, -1).applyQuaternion(q);
-  return Math.atan2(-tmpV.x, -tmpV.z);
+  tmpYaw.set(0, 0, -1).applyQuaternion(q);
+  return Math.atan2(-tmpYaw.x, -tmpYaw.z);
 }
 
 export class SceneManager {
@@ -156,6 +158,8 @@ export class SceneManager {
   private xrMove = new THREE.Vector2();
   private snapTurnArmed = false;
   private touchHold = false;
+  /** Rozglądanie w trybie stereo, gdy nie ma czujników ruchu (pulpit, brak zgody na telefonie). */
+  private vrLook: { id: number; x: number; y: number; moved: boolean } | null = null;
   private touchStart = 0;
 
   // VR
@@ -1204,7 +1208,10 @@ export class SceneManager {
     this.stereo.setEyeSeparation(0.064);
     this.resize();
     try {
-      await this.container.requestFullscreen?.();
+      // pełny ekran obejmuje całą sekcję widoku, a nie sam kontener płótna —
+      // inaczej przycisk wyjścia i podpowiedź zostają poza obrazem
+      const fsTarget = (this.container.closest('.viewport') as HTMLElement | null) ?? this.container;
+      await fsTarget.requestFullscreen?.();
       await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape');
     } catch {
       /* ignoruj */
@@ -1491,10 +1498,15 @@ export class SceneManager {
     if (this.isUiTarget(ev)) return;
     const st = useStore.getState();
     if (this.mode === 'vr') {
-      if (this.stereo) {
-        this.touchHold = true;
-        this.touchStart = performance.now();
+      if (!this.stereo) return;
+      // bez czujników ruchu rozglądamy się myszą, więc najpierw przejmujemy kursor
+      if (ev.pointerType === 'mouse' && !this.deviceOrient.active && document.pointerLockElement !== this.renderer.domElement) {
+        this.renderer.domElement.requestPointerLock?.();
+        return;
       }
+      this.touchHold = true;
+      this.touchStart = performance.now();
+      this.vrLook = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, moved: false };
       return;
     }
     if (this.mode === 'fp') {
@@ -1555,6 +1567,25 @@ export class SceneManager {
   };
 
   private onPointerMove = (ev: PointerEvent) => {
+    // tryb stereo bez czujników: przeciągnięcie rozgląda się zamiast prowadzić do przodu
+    if (
+      this.mode === 'vr' &&
+      this.vrLook &&
+      ev.pointerId === this.vrLook.id &&
+      !this.deviceOrient.active &&
+      document.pointerLockElement !== this.renderer.domElement
+    ) {
+      const dx = ev.clientX - this.vrLook.x;
+      const dy = ev.clientY - this.vrLook.y;
+      this.vrLook.x = ev.clientX;
+      this.vrLook.y = ev.clientY;
+      if (Math.abs(dx) + Math.abs(dy) > 2) {
+        this.vrLook.moved = true;
+        this.touchHold = false;
+      }
+      this.look(dx * 0.006, dy * 0.006);
+      return;
+    }
     if (this.mode === 'fp' && this.touchLook && ev.pointerId === this.touchLook.id) {
       const dx = ev.clientX - this.touchLook.x;
       const dy = ev.clientY - this.touchLook.y;
@@ -1614,8 +1645,9 @@ export class SceneManager {
     if (this.mode === 'vr') {
       if (this.stereo && this.touchHold) {
         this.touchHold = false;
-        if (performance.now() - this.touchStart < 250) this.onVrSelect();
+        if (!this.vrLook?.moved && performance.now() - this.touchStart < 250) this.onVrSelect();
       }
+      this.vrLook = null;
       return;
     }
     if (this.mode === 'fp') {
@@ -1694,7 +1726,10 @@ export class SceneManager {
   }
 
   private onMouseMoveLocked = (ev: MouseEvent) => {
-    if (this.mode !== 'fp' || document.pointerLockElement !== this.renderer.domElement) return;
+    if (document.pointerLockElement !== this.renderer.domElement) return;
+    // rozglądanie myszą: w widoku z oczu zawsze, w trybie stereo tylko gdy głowy nie prowadzą czujniki
+    const stereoLook = this.mode === 'vr' && !!this.stereo && !this.deviceOrient.active;
+    if (this.mode !== 'fp' && !stereoLook) return;
     this.look(ev.movementX * 0.0022, ev.movementY * 0.0022);
   };
 
@@ -1992,7 +2027,9 @@ export class SceneManager {
     const k = this.keys;
     let mx = this.joystick.x + this.xrMove.x;
     let mz = this.joystick.y + this.xrMove.y;
-    if (this.touchHold) mz -= 1; // Cardboard: idziemy tam, gdzie patrzymy
+    // Cardboard: idziemy tam, gdzie patrzymy, ale dopiero po chwili przytrzymania —
+    // inaczej samo rozglądanie albo krótkie dotknięcie przesuwałoby gracza
+    if (this.touchHold && performance.now() - this.touchStart > 180) mz -= 1;
     if (k.has('KeyW') || k.has('ArrowUp')) mz -= 1;
     if (k.has('KeyS') || k.has('ArrowDown')) mz += 1;
     if (k.has('KeyA') || k.has('ArrowLeft')) mx -= 1;

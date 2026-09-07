@@ -58,7 +58,7 @@ export function Viewport() {
       <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
 
       {/* góra-lewo: tryb */}
-      <div className="hud hud-top-left" style={{ top: 16, left: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div className="hud hud-top-left" style={{ top: 16, left: 16, gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <span className={'chip' + (review ? ' warm' : '')}>
           <span className="dot" /> {review ? 'Spacer pamięci' : modeChip}
         </span>
@@ -189,9 +189,15 @@ export function Viewport() {
       )}
 
       {vrActive && (
-        <button className="vr-exit" onClick={() => setViewMode('fp')}>
-          Wyjdź z VR
-        </button>
+        <>
+          <button className="vr-exit" onClick={() => setViewMode('fp')}>
+            Wyjdź z VR
+          </button>
+          <div className="vr-hint">
+            Rozglądanie: ruch myszą albo przeciągnięcie palcem. Marsz: przytrzymaj przycisk albo <kbd>W</kbd>{' '}
+            <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>. Krótkie kliknięcie: interakcja.
+          </div>
+        </>
       )}
 
       {review && !vrActive && <ReviewOverlay />}
