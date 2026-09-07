@@ -38,7 +38,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         <h3>Zwierzęta</h3>
         <ul>
           <li>W bibliotece, w kategorii <b>Zwierzęta</b>, stawiasz punkty pojawiania. W edytorze widać znacznik, a w trybie chodzenia zwierzę ożywa.</li>
-          <li>Pies podbiega i siada obok Ciebie, kot ucieka, wiewiórka wspina się na drzewo, wilk warczy z dystansu, ptaki krążą, a smok co jakiś czas przelatuje nad głową. Kliknięcie zwierzęcia wywołuje reakcję.</li>
+          <li>Pies podbiega i siada obok Ciebie, kot ucieka, wiewiórka wspina się na drzewo, wilk warczy z dystansu, ptaki krążą, a smok co jakiś czas przelatuje nad głową i zionie ogniem. Kliknięcie zwierzęcia wywołuje reakcję.</li>
         </ul>
         <h3>Wnętrza budynków</h3>
         <ul>

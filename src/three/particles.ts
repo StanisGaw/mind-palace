@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-/** Wspólny interfejs dla systemów cząsteczek (opady, dym, mgiełka). */
+/** Wspólny interfejs dla systemów cząsteczek (opady, dym, mgiełka, ogień). */
 export interface Updatable {
   readonly object: THREE.Object3D;
   update(dt: number, camPos: THREE.Vector3): void;
@@ -142,6 +142,7 @@ export interface PuffOpts {
   color: string;
   opacity?: number;
   drift?: [number, number]; // stały dryf w poziomie
+  emissive?: string; // żar (oddech smoka, nie dym)
 }
 
 const puffGeo = new THREE.IcosahedronGeometry(1, 0);
@@ -166,6 +167,8 @@ export class PuffEmitter implements Updatable {
       roughness: 1,
       flatShading: true,
       depthWrite: false,
+      emissive: opts.emissive ? new THREE.Color(opts.emissive) : new THREE.Color(0x000000),
+      emissiveIntensity: opts.emissive ? 1.4 : 0,
     });
     this.object = new THREE.InstancedMesh(puffGeo, mat, opts.count);
     this.object.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

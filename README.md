@@ -25,7 +25,7 @@ npm run build        # produkcyjny build do dist/
   i wczytywać jako „krajobrazy".
 - **Zwierzęta** — punkty pojawiania (ptaki, pies, kot, wiewiórka, wilk, smok) stawiane w edytorze
   ożywają w trybie chodzenia: pies podbiega i siada, kot ucieka, wiewiórka wspina się na drzewo,
-  wilk warczy z dystansu, smok krąży i przelatuje nad głową.
+  wilk warczy z dystansu, smok krąży, przelatuje nad głową i zionie ogniem.
 - **Wnętrza budynków** — każdy budynek ma własną scenę-pokój z osobnymi przedmiotami i notatkami.
   W edytorze: przycisk „Wejdź do środka" albo dwuklik na budynku. W widoku z oczu: podejdź do drzwi i `F`.
   Po wejściu stajesz tuż za progiem twarzą w głąb pomieszczenia, po wyjściu — przed drzwiami, plecami

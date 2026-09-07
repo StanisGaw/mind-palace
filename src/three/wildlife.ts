@@ -25,7 +25,7 @@ const COLORS: Record<AnimalKind, { body: string; dark: string; accent: string }>
   cat: { body: '#7b7d86', dark: '#5a5c64', accent: '#f0efe9' },
   squirrel: { body: '#b4623a', dark: '#8a482a', accent: '#e8d9c4' },
   wolf: { body: '#8b8f96', dark: '#61656c', accent: '#d8dbe0' },
-  dragon: { body: '#5f7d5a', dark: '#42583f', accent: '#d96a3a' },
+  dragon: { body: '#2a2438', dark: '#1a1524', accent: '#c4a574' },
 };
 
 /** Rozmiar zwierzęcia względem psa (przybliżona długość ciała w metrach). */
@@ -46,12 +46,196 @@ interface Parts {
   wings: THREE.Object3D[];
   tail: THREE.Object3D | null;
   head: THREE.Object3D | null;
+  /** Materiały niepochodzące z mat() — do zwolnienia w Creature.dispose. */
+  ownMaterials?: THREE.Material[];
 }
 
 const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
+const cone = (r: number, h: number, seg = 4) => new THREE.ConeGeometry(r, h, seg);
+
+let scaleTexDark: THREE.CanvasTexture | null = null;
+let scaleTexBelly: THREE.CanvasTexture | null = null;
+
+/** Rombowe łuski na canvasie — wspólna mapa, bez zwalniania per smok. */
+function dragonScaleMap(kind: 'dark' | 'belly'): THREE.CanvasTexture {
+  if (kind === 'dark' && scaleTexDark) return scaleTexDark;
+  if (kind === 'belly' && scaleTexBelly) return scaleTexBelly;
+  const size = 128;
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d')!;
+  const base = kind === 'belly' ? '#e8d4a0' : '#3d3458';
+  const hi = kind === 'belly' ? '#f7edd0' : '#5a4f78';
+  const line = kind === 'belly' ? '#b8925a' : '#1e1830';
+  const shade = kind === 'belly' ? '#d4bc82' : '#2a243f';
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, size, size);
+  const cell = 16;
+  for (let row = -1; row < size / cell + 2; row++) {
+    for (let col = -1; col < size / cell + 2; col++) {
+      const ox = col * cell + (row % 2 === 0 ? 0 : cell / 2);
+      const oy = row * cell * 0.72;
+      const variant = (row + col) % 3;
+      ctx.fillStyle = variant === 0 ? hi : variant === 1 ? shade : base;
+      ctx.beginPath();
+      ctx.moveTo(ox + cell / 2, oy + 1);
+      ctx.lineTo(ox + cell - 1, oy + cell * 0.45);
+      ctx.lineTo(ox + cell / 2, oy + cell * 0.9);
+      ctx.lineTo(ox + 1, oy + cell * 0.45);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = line;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  if (kind === 'dark') scaleTexDark = tex;
+  else scaleTexBelly = tex;
+  return tex;
+}
+
+/** Smok w stylu fantasy: ciemny grzbiet, jasny brzuch, kolce, membrana skrzydeł. */
+function buildDragonBody(): Parts {
+  const g = new THREE.Group();
+  const own: THREE.Material[] = [];
+  const legs: THREE.Object3D[] = [];
+  const wings: THREE.Object3D[] = [];
+  const mk = (
+    color: string,
+    opts: {
+      map?: THREE.Texture;
+      emissive?: string;
+      roughness?: number;
+      transparent?: boolean;
+      opacity?: number;
+      side?: THREE.Side;
+      repeat?: number;
+    } = {},
+  ): THREE.MeshStandardMaterial => {
+    const m = new THREE.MeshStandardMaterial({
+      color,
+      map: opts.map ?? null,
+      roughness: opts.roughness ?? 0.78,
+      metalness: 0.05,
+      flatShading: true,
+      emissive: opts.emissive ? new THREE.Color(opts.emissive) : new THREE.Color(0x000000),
+      transparent: opts.transparent ?? false,
+      opacity: opts.opacity ?? 1,
+      side: opts.side ?? THREE.FrontSide,
+      depthWrite: opts.transparent ? false : true,
+    });
+    if (opts.map) {
+      m.map!.repeat.set(opts.repeat ?? 2.2, opts.repeat ?? 2.2);
+      m.needsUpdate = true;
+    }
+    own.push(m);
+    return m;
+  };
+  const dorsal = mk('#ffffff', { map: dragonScaleMap('dark') });
+  const belly = mk('#ffffff', { map: dragonScaleMap('belly'), roughness: 0.7, repeat: 1.6 });
+  const bone = mk('#c4a574', { roughness: 0.55 });
+  const claw = mk('#1a1520');
+  const membrane = mk('#4a1830', {
+    emissive: '#c42a55',
+    transparent: true,
+    opacity: 0.78,
+    side: THREE.DoubleSide,
+    roughness: 0.95,
+  });
+  // emissiveIntensity osobno — mk nie ustawia, więc po utworzeniu
+  membrane.emissiveIntensity = 0.45;
+  const glowEdge = mk('#ff8a3a', { emissive: '#ff6a20' });
+  glowEdge.emissiveIntensity = 0.85;
+  const eye = mk('#ff5a2a', { emissive: '#ff3a00' });
+  eye.emissiveIntensity = 1.2;
+  const addM = (
+    geo: THREE.BufferGeometry,
+    material: THREE.Material,
+    x: number,
+    y: number,
+    z: number,
+    parent: THREE.Object3D = g,
+    cast = true,
+  ) => {
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = cast;
+    parent.add(mesh);
+    return mesh;
+  };
+
+  addM(box(0.95, 0.72, 2.4), dorsal, 0, 0.08, 0);
+  addM(box(0.78, 0.38, 2.15), belly, 0, -0.28, 0.05);
+  addM(box(0.62, 0.5, 0.7), dorsal, 0, 0.22, -1.45);
+  addM(box(0.48, 0.28, 0.55), belly, 0, -0.02, -1.5);
+  addM(box(0.52, 0.42, 0.55), dorsal, 0, 0.32, -1.95);
+  const head = addM(box(0.48, 0.4, 0.72), dorsal, 0, 0.38, -2.45);
+  addM(box(0.36, 0.2, 0.5), belly, 0, 0.18, -2.5);
+  addM(box(0.22, 0.12, 0.28), belly, 0, 0.22, -2.85);
+  addM(box(0.08, 0.08, 0.08), eye, -0.16, 0.5, -2.55);
+  addM(box(0.08, 0.08, 0.08), eye, 0.16, 0.5, -2.55);
+  for (const s of [-1, 1]) {
+    const horn = addM(cone(0.09, 0.42, 5), bone, s * 0.18, 0.72, -2.25);
+    horn.rotation.x = -0.55;
+    horn.rotation.z = s * 0.25;
+    const horn2 = addM(cone(0.06, 0.28, 4), bone, s * 0.28, 0.55, -2.15);
+    horn2.rotation.x = -0.35;
+    horn2.rotation.z = s * 0.55;
+  }
+  const spineZs = [-2.1, -1.55, -1.0, -0.4, 0.2, 0.8, 1.4, 2.0, 2.55, 3.1];
+  spineZs.forEach((z, i) => {
+    const h = 0.38 - i * 0.022;
+    const sp = addM(cone(0.08, h, 4), bone, 0, 0.48 + h * 0.15, z);
+    sp.rotation.x = 0.15;
+  });
+  const tailPivot = new THREE.Group();
+  tailPivot.position.set(0, 0.05, 1.15);
+  g.add(tailPivot);
+  addM(box(0.42, 0.38, 1.1), dorsal, 0, 0, 0.55, tailPivot);
+  addM(box(0.32, 0.2, 0.95), belly, 0, -0.18, 0.55, tailPivot);
+  addM(box(0.28, 0.26, 1.0), dorsal, 0, -0.02, 1.45, tailPivot);
+  addM(box(0.16, 0.14, 0.9), dorsal, 0, -0.04, 2.25, tailPivot);
+  addM(box(0.22, 0.05, 0.35), bone, 0, 0.02, 2.75, tailPivot);
+  for (const s of [-1, 1] as const) {
+    const pivot = new THREE.Group();
+    pivot.position.set(s * 0.42, 0.35, -0.15);
+    g.add(pivot);
+    wings.push(pivot);
+    addM(box(1.5, 0.1, 0.14), dorsal, (s * 1.5) / 2, 0.05, -0.05, pivot);
+    addM(box(1.1, 0.08, 0.1), dorsal, (s * 1.9) / 2, -0.05, 0.55, pivot);
+    addM(box(0.9, 0.07, 0.08), dorsal, (s * 2.1) / 2, -0.15, 1.05, pivot);
+    const tip = addM(cone(0.07, 0.22, 4), bone, s * 2.55, 0.08, -0.1, pivot, false);
+    tip.rotation.z = s * -1.2;
+    const mem = addM(box(2.4, 0.04, 1.55), membrane, (s * 2.4) / 2, -0.08, 0.45, pivot, false);
+    mem.rotation.x = 0.12;
+    addM(box(2.35, 0.02, 0.06), glowEdge, (s * 2.35) / 2, -0.1, 1.15, pivot, false);
+  }
+  for (const [x, z, front] of [
+    [-0.38, -0.75, true],
+    [0.38, -0.75, true],
+    [-0.4, 0.75, false],
+    [0.4, 0.75, false],
+  ] as [number, number, boolean][]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(x, -0.25, z);
+    g.add(pivot);
+    legs.push(pivot);
+    const len = front ? 0.65 : 0.75;
+    addM(box(0.22, len, 0.24), dorsal, 0, -len / 2, 0, pivot);
+    addM(box(0.32, 0.1, 0.36), claw, 0, -len - 0.02, -0.05, pivot);
+    for (const t of [-0.1, 0, 0.1]) addM(box(0.06, 0.08, 0.14), claw, t, -len - 0.08, -0.22, pivot);
+  }
+  return { group: g, legs, wings, tail: tailPivot, head, ownMaterials: own };
+}
 
 /** Proceduralne, low-poly ciało zwierzęcia. Jednostka: metry, przód w −Z. */
 export function buildAnimalBody(kind: AnimalKind): Parts {
+  if (kind === 'dragon') return buildDragonBody();
+
   const g = new THREE.Group();
   const c = COLORS[kind];
   const legs: THREE.Object3D[] = [];
@@ -79,24 +263,6 @@ export function buildAnimalBody(kind: AnimalKind): Parts {
       wings.push(pivot);
     }
     tail = add(box(0.12, 0.03, 0.16), c.dark, 0, 0.02, 0.2);
-  } else if (kind === 'dragon') {
-    add(box(0.9, 0.8, 2.6), c.body, 0, 0, 0);
-    add(box(0.7, 0.55, 0.9), c.dark, 0, 0.15, -1.5);
-    head = add(box(0.5, 0.45, 0.7), c.dark, 0, 0.28, -2.1);
-    add(box(0.14, 0.3, 0.14), c.accent, -0.16, 0.55, -1.95);
-    add(box(0.14, 0.3, 0.14), c.accent, 0.16, 0.55, -1.95);
-    for (const s of [-1, 1]) {
-      const pivot = new THREE.Group();
-      pivot.position.set(s * 0.4, 0.3, -0.2);
-      add(box(2.6, 0.08, 1.5), c.dark, (s * 2.6) / 2, 0, 0, pivot);
-      g.add(pivot);
-      wings.push(pivot);
-    }
-    tail = add(box(0.3, 0.3, 1.8), c.body, 0, 0, 2.0);
-    add(box(0.5, 0.06, 0.5), c.accent, 0, 0, 2.8, tail);
-    for (const [x, z] of [[-0.35, -0.7], [0.35, -0.7], [-0.35, 0.7], [0.35, 0.7]] as [number, number][]) {
-      legs.push(add(box(0.2, 0.7, 0.2), c.dark, x, -0.6, z));
-    }
   } else {
     // czworonogi: pies, kot, wiewiórka, wilk
     const L = SIZES[kind];
@@ -108,7 +274,12 @@ export function buildAnimalBody(kind: AnimalKind): Parts {
     add(box(L * 0.1, L * 0.12, L * 0.1), c.accent, L * 0.09, h * 0.95, -L * 0.6);
     add(box(L * 0.12, L * 0.1, L * 0.12), c.accent, 0, h * 0.42, -L * 0.78);
     const legLen = L * (kind === 'squirrel' ? 0.3 : 0.55);
-    for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as [number, number][]) {
+    for (const [x, z] of [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ] as [number, number][]) {
       const pivot = new THREE.Group();
       pivot.position.set(x * L * 0.17, -h * 0.35, z * L * 0.32);
       add(box(L * 0.12, legLen, L * 0.12), c.dark, 0, -legLen / 2, 0, pivot);
@@ -158,7 +329,20 @@ class Creature {
     this.state = this.flying ? 'circle' : kind === 'wolf' ? 'patrol' : 'wander';
     this.phase += index;
     if (kind === 'dragon') {
-      this.emitter = new PuffEmitter({ count: 10, origin: [0, 0.3, -2.4], radius: 0.25, rise: 0.4, life: 1.4, scaleFrom: 0.2, scaleTo: 0.9, color: '#9c9792', opacity: 0 });
+      // oddech: suchy ogień do przodu (−Z), nie kłąb dymu w górę
+      this.emitter = new PuffEmitter({
+        count: 14,
+        origin: [0, 0.22, -2.9],
+        radius: 0.1,
+        rise: 0.12,
+        life: 0.65,
+        scaleFrom: 0.07,
+        scaleTo: 0.42,
+        color: '#ff7a28',
+        emissive: '#ff3a00',
+        opacity: 0,
+        drift: [0, -2.4],
+      });
       this.parts.group.add(this.emitter.object);
     }
   }
@@ -217,9 +401,13 @@ class Creature {
       }
       const flap = Math.sin(this.phase * (big ? 3 : 12));
       for (const w2 of this.parts.wings) w2.rotation.z = flap * (big ? 0.35 : 0.9) * (w2.position.x < 0 ? -1 : 1);
+      if (big && this.parts.tail) {
+        this.parts.tail.rotation.y = Math.sin(this.phase * 1.4) * 0.18;
+        this.parts.tail.rotation.x = Math.sin(this.phase * 0.9) * 0.08;
+      }
       if (this.emitter) {
         const m = this.emitter.object as THREE.InstancedMesh;
-        (m.material as THREE.MeshStandardMaterial).opacity = this.reactTimer > 0 || this.state === 'swoop' ? 0.4 : 0;
+        (m.material as THREE.MeshStandardMaterial).opacity = this.reactTimer > 0 || this.state === 'swoop' ? 0.75 : 0;
       }
     } else {
       // czworonogi: chód po ziemi
@@ -329,6 +517,8 @@ class Creature {
       const m = c as THREE.Mesh;
       if (m.geometry) m.geometry.dispose();
     });
+    // wspólne materiały smoka — raz, nie przy każdym meshu
+    for (const m of this.parts.ownMaterials ?? []) m.dispose();
     this.group.removeFromParent();
   }
 }

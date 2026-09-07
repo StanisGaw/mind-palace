@@ -74,7 +74,7 @@ export const CATALOG: CatalogItem[] = [
   { id: 'spawn_cat', name: 'Kot', category: 'animal', emoji: '🐈', description: 'Wędruje po okolicy i ucieka, gdy podejdziesz za blisko.', footprint: 0.5, collider: 'none', spawn: 'cat' },
   { id: 'spawn_squirrel', name: 'Wiewiórka', category: 'animal', emoji: '🐿️', description: 'Biega między drzewami, wspina się przy zagrożeniu.', footprint: 0.4, collider: 'none', spawn: 'squirrel' },
   { id: 'spawn_wolf', name: 'Wilk', category: 'animal', emoji: '🐺', description: 'Patroluje teren i warczy z bezpiecznej odległości.', footprint: 0.6, collider: 'none', spawn: 'wolf' },
-  { id: 'spawn_dragon', name: 'Smok', category: 'animal', emoji: '🐉', description: 'Krąży wysoko i co jakiś czas przelatuje nad głową.', footprint: 0.8, collider: 'none', spawn: 'dragon' },
+  { id: 'spawn_dragon', name: 'Smok', category: 'animal', emoji: '🐉', description: 'Krąży wysoko, przelatuje nad głową i zionie ogniem.', footprint: 0.8, collider: 'none', spawn: 'dragon' },
   // Specjalne
   { id: 'gate', name: 'Brama wejściowa', category: 'special', emoji: '🚪', description: 'Tu zaczyna się spacer po pałacu. Może być tylko jedna.', footprint: 1.6, collider: 'trimesh', unique: true },
 ];
