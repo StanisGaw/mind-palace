@@ -46,6 +46,17 @@ export type Scenery = 'none' | 'meadow' | 'mountains' | 'coast' | 'desert';
 
 export type GroundShape = 'rect' | 'circle' | 'hex';
 
+/** Głośność warstw dźwięków otoczenia, 0..1 (preferencja użytkownika, nie dane pałacu). */
+export interface SoundLevels {
+  master: number;
+  rain: number;
+  storm: number;
+  snow: number;
+  wind: number;
+  animals: number;
+  crickets: number;
+}
+
 /** Kształt i wymiary płyty, po której się chodzi. */
 export interface GroundSpec {
   width: number;

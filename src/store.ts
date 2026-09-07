@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import type { AppData, CameraKind, Palace, PalaceObject, Rating, Tool, Vec3, ViewMode } from './types';
+import type { AppData, CameraKind, Palace, PalaceObject, Rating, SoundLevels, Tool, Vec3, ViewMode } from './types';
 import { ROOMS, catalogItem, hasInterior } from './catalog';
 import { uid } from './lib/ids';
+import { getPref, setPref } from './lib/prefs';
 import { chainOf, collectSubtree, loadData, makeInteriorPalace, makePalace, rootOf, saveData } from './lib/storage';
 import { isDue, newSrs, reviewSrs } from './lib/srs';
 import { flattenStops, dueInTree, type ReviewStop } from './lib/review';
@@ -45,6 +46,7 @@ interface State {
   sceneEntry: { kind: 'enter' | 'exit'; objectId: string; seq: number } | null;
   doorPrompt: { kind: 'enter' | 'exit'; objectId?: string; label: string } | null;
   placing: { type: string } | null; // element wybrany z biblioteki, czeka na kliknięcie w scenie
+  sound: SoundLevels; // głośność dźwięków otoczenia; trzymana w preferencjach, nie w danych pałacu
 
   palace(): Palace;
   setPalace(mut: (p: Palace) => void, opts?: { undo?: boolean }): void;
@@ -97,6 +99,21 @@ interface State {
   showToast(msg: string): void;
   camera(kind: CameraKind): void;
   setTopView(v: boolean): void;
+  setSound(patch: Partial<SoundLevels>): void;
+}
+
+export const DEFAULT_SOUND: SoundLevels = { master: 0.8, rain: 0, storm: 0, snow: 0, wind: 0, animals: 0, crickets: 0 };
+
+const SOUND_PREF = 'sound';
+
+function initialSound(): SoundLevels {
+  const saved = getPref<Partial<SoundLevels>>(SOUND_PREF, {});
+  const out = { ...DEFAULT_SOUND };
+  for (const k of Object.keys(out) as (keyof SoundLevels)[]) {
+    const v = saved[k];
+    if (typeof v === 'number' && Number.isFinite(v)) out[k] = Math.min(1, Math.max(0, v));
+  }
+  return out;
 }
 
 /** Obiekty stojące (bezpośrednio i pośrednio) na wskazanym obiekcie. */
@@ -191,6 +208,7 @@ export const useStore = create<State>((set, get) => ({
   sceneEntry: null,
   doorPrompt: null,
   placing: null,
+  sound: initialSound(),
 
   palace() {
     const d = get().data;
@@ -626,6 +644,11 @@ export const useStore = create<State>((set, get) => ({
   },
   setTopView(topView) {
     if (get().topView !== topView) set({ topView });
+  },
+  setSound(patch) {
+    const sound = { ...get().sound, ...patch };
+    setPref(SOUND_PREF, sound);
+    set({ sound });
   },
 }));
 
