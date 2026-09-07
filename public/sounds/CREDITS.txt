@@ -1,0 +1,38 @@
+Dźwięki otoczenia w Mneme — źródła nagrań
+=========================================
+
+Wszystkie nagrania pochodzą z Wikimedia Commons. Zostały przycięte, znormalizowane
+głośnościowo i zapisane jako MP3. Pliki na licencjach CC BY / CC BY-SA są dalej
+udostępniane na tych samych warunkach.
+
+rain.mp3
+  „Rain (1).ogg” — autor: ezwa — domena publiczna
+  https://commons.wikimedia.org/wiki/File:Rain_(1).ogg
+
+storm.mp3
+  „Rain and thunder (1).ogg” — autor: ezwa — domena publiczna
+  https://commons.wikimedia.org/wiki/File:Rain_and_thunder_(1).ogg
+
+thunder-1.mp3, thunder-2.mp3, thunder-3.mp3, thunder-4.mp3
+  „Rhumphries - rbh-thunder-storm.ogg” — autor: RHumphries — CC BY 3.0
+  https://commons.wikimedia.org/wiki/File:Rhumphries_-_rbh-thunder-storm.ogg
+  https://creativecommons.org/licenses/by/3.0/
+
+thunder-5.mp3
+  „Thunder Claps.ogg” — autor: Jonathan Hunt — CC BY-SA 4.0
+  https://commons.wikimedia.org/wiki/File:Thunder_Claps.ogg
+  https://creativecommons.org/licenses/by-sa/4.0/
+
+wind.mp3
+  „Wind in Swedish pine forest at 25 mps.ogg” — autor: W.carter — CC BY-SA 4.0
+  https://commons.wikimedia.org/wiki/File:Wind_in_Swedish_pine_forest_at_25_mps.ogg
+  https://creativecommons.org/licenses/by-sa/4.0/
+
+snow.mp3
+  „20221229 - Abisko Turiststation at night - Wind and snow.wav” — autor: Fabricio Cardenas — CC BY-SA 4.0
+  https://commons.wikimedia.org/wiki/File:20221229_-_Abisko_Turiststation_at_night_-_Wind_and_snow.wav
+  https://creativecommons.org/licenses/by-sa/4.0/
+
+birds.mp3
+  „Bird singing.ogg” — autor: jc — domena publiczna
+  https://commons.wikimedia.org/wiki/File:Bird_singing.ogg

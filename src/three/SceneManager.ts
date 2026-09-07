@@ -17,6 +17,7 @@ import { ROOMS, colliderKind, spawnKind } from '../catalog';
 import { clampToGround, clipSegment, groundExtent, groundPolygon, insideGround } from '../lib/ground';
 import { getTexture } from './textures';
 import { Wildlife, type SpawnInfo, type WorldInfo } from './wildlife';
+import { Soundscape } from './soundscape';
 import { loadCustomTextures } from '../lib/textureStore';
 import type { GroundSpec } from '../types';
 
@@ -91,6 +92,7 @@ export class SceneManager {
   private ambient: THREE.AmbientLight;
   private weather = new WeatherSystem(this.scene);
   readonly wildlife = new Wildlife(this.scene);
+  private sounds = new Soundscape();
   private wildlifeTick = 0;
   private cachedWorld: WorldInfo | null = null;
   private terrain: Terrain | null = null;
@@ -283,6 +285,7 @@ export class SceneManager {
 
     // stan
     const st = useStore.getState();
+    this.sounds.setLevels(st.sound);
     this.applyPalace(st.palace(), true);
     this.applySelection(st.selectedId, st.hoverId);
     this.unsub = useStore.subscribe((s, prev) => this.onState(s, prev));
@@ -420,6 +423,7 @@ export class SceneManager {
     if (s.tool !== prev.tool || s.review !== prev.review) this.syncGizmo();
     if (s.placing?.type !== prev.placing?.type) this.setGhost(s.placing?.type ?? null);
     if (s.viewMode !== prev.viewMode) this.setMode(s.viewMode);
+    if (s.sound !== prev.sound) this.sounds.setLevels(s.sound);
     if (s.fly && s.fly.seq !== this.lastFlySeq) {
       this.lastFlySeq = s.fly.seq;
       this.flyTo(s.fly.objectId);
@@ -486,6 +490,7 @@ export class SceneManager {
       if (this.envKey !== 'interior') {
         this.envKey = 'interior';
         this.weather.apply('clear', p.settings.ambience, groundExtent(p.settings.ground), false);
+        this.sounds.setEnvironment(p.settings.ambience === 'night', true);
         this.scene.background = new THREE.Color('#242a26');
         this.baseLight = { hemi: 0.5, ambient: 0.45, sun: 0.25 };
         this.ambienceFog = { color: '#242a26', near: 30, far: 90 };
@@ -524,6 +529,7 @@ export class SceneManager {
       this.weather.apply(p.settings.weather, p.settings.ambience, groundExtent(p.settings.ground), true);
       this.weather.setCloudsVisible(!this.topView);
       this.applyAmbience(p.settings.ambience);
+      this.sounds.setEnvironment(p.settings.ambience === 'night', false);
     }
     this.grid.visible = p.settings.grid;
     const texKey = `out|${p.settings.groundTexture ?? ''}|${groundKey}|${p.settings.ambience}`;
@@ -1882,6 +1888,8 @@ export class SceneManager {
     const hadFlash = this.weather.flash;
     this.weather.update(dt, camWorldPos);
     if (hadFlash !== this.weather.flash) this.applyLighting();
+    if (hadFlash === 0 && this.weather.flash > 0) this.sounds.thunder();
+    this.sounds.update(dt);
     for (const e of this.entries.values()) e.emitter?.update(dt, camWorldPos);
     if (this.mode !== 'editor' && this.wildlife.creatures.length > 0) {
       // świat przeliczamy rzadziej niż ruch zwierząt — obiekty i tak stoją w miejscu
@@ -2152,6 +2160,7 @@ export class SceneManager {
     for (const e of [...this.entries.values()]) this.removeEntry(e);
     this.weather.dispose();
     this.wildlife.dispose();
+    this.sounds.dispose();
     if (this.terrain) {
       this.scene.remove(this.terrain.group);
       this.terrain.dispose();
