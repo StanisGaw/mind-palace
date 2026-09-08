@@ -54,7 +54,10 @@ npm run build        # produkcyjny build do dist/
   współliniowe ścianki scalają się w jeden obiekt), drzwi (stawiane w ściance działowej — ścianka dostaje
   otwór, `R` zmienia stronę zawiasów), schody, lampa sufitowa. Obiekty można grupować („Grupuj" w panelu
   zaznaczenia): grupa zaznacza się, przesuwa i znika jako całość. Panel „Piętra" ustawia liczbę
-  kondygnacji (1–4) budynku i piętro do edycji; schody robią otwór w stropie i prowadzą wyżej. Zakładka „Układy" we wnętrzu proponuje gotowe układy pokoju (wbudowane i własne) — „Zastosuj" zastępuje obiekty bez
+  kondygnacji (1–4) budynku i piętro do edycji; schody robią otwór w stropie i prowadzą wyżej. Domek, pałac
+  i biblioteka dostają schody same przy pierwszym piętrze (zwykły obiekt do przesunięcia albo usunięcia); wieża
+  ma jeden ciągły bieg kręconych schodów przez wszystkie kondygnacje i okrągłe izby na piętrach. Zakładka „Układy"
+  (we wnętrzu i dla odsłoniętego budynku w miejscu) proponuje gotowe układy pokoju (wbudowane i własne) — „Zastosuj" zastępuje obiekty bez
   notatek, „Zapisz obecny układ" zachowuje bieżące rozmieszczenie do ponownego użycia. Drzwi otwiera
   i zamyka `F` albo kliknięcie.
 - **Krajobraz** — proceduralny pierścień terenu wokół planszy (łąki, góry, wybrzeże, pustynia) z losowanym
