@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FURNITURE_SETS, SET_WALL_GAP, instantiateSet } from './sets';
 import { SHELLS, buildingFloorY } from './rooms';
-import { PLAYER_R, WalkGrid, boxCorners, boxPoint, boxesOverlap, findStairsSpot, insideRoom, layoutProblems, obstacleOf, pointInBox, roomOfBuilding, stairBoxes, type Box2, type RoomShape } from './layout';
+import { PLAYER_R, WalkGrid, boxCorners, boxPoint, boxesOverlap, findStairsSpot, insideRoom, layoutProblems, obstacleOf, placementBlock, pointInBox, roomOfBuilding, stairBoxes, type Box2, type RoomShape } from './layout';
 import type { FurnitureSet, PalaceObject, Vec3 } from '../types';
 
 /**
@@ -193,5 +193,53 @@ describe('siatka przejść', () => {
     const seen = grid.reachable(room.entry[0], room.entry[1]);
     const behind: [number, number] = [room.box.cx, room.box.cz - room.box.hz + 0.6];
     expect(grid.near(seen, behind[0], behind[1], 0.3), 'szczelina 0,54 m nie powinna przepuścić gracza').toBe(false);
+  });
+});
+
+describe('reguły rozmieszczenia', () => {
+  const win = [{ x: 0, z: -3, half: 0.5 }];
+
+  it('kandelabra ani pochodni nie stawiamy na stole, biurku i blacie', () => {
+    for (const on of ['table', 'desk', 'counter', 'sideboard', 'shelf']) {
+      expect(placementBlock('candle', { anchorType: on, x: 0, z: 0 }), `świeca na ${on}`).not.toBeNull();
+      expect(placementBlock('torch', { anchorType: on, x: 0, z: 0 }), `pochodnia na ${on}`).not.toBeNull();
+    }
+    // wazon i naczynia na blacie są w porządku — reguła dotyczy ognia i papieru
+    expect(placementBlock('vase', { anchorType: 'table', x: 0, z: 0 })).toBeNull();
+    expect(placementBlock('dishes', { anchorType: 'counter', x: 0, z: 0 })).toBeNull();
+    expect(placementBlock('candle', { anchorType: undefined, x: 0, z: 0 }), 'świeca na podłodze').toBeNull();
+  });
+
+  it('książek nie kładziemy na biurku, ale na stole i regale wolno', () => {
+    expect(placementBlock('books', { anchorType: 'desk', x: 0, z: 0 })).not.toBeNull();
+    expect(placementBlock('books', { anchorType: 'table', x: 0, z: 0 })).toBeNull();
+    expect(placementBlock('books', { anchorType: 'shelf', x: 0, z: 0 })).toBeNull();
+  });
+
+  it('obrazu, lustra ani zegara nie da się powiesić na oknie, obok wolno', () => {
+    for (const type of ['painting', 'mirror', 'clock', 'curtains']) {
+      expect(placementBlock(type, { windows: win, x: 0, z: -3 }), `${type} na oknie`).not.toBeNull();
+      expect(placementBlock(type, { windows: win, x: 2, z: -3 }), `${type} obok okna`).toBeNull();
+    }
+    // stojący mebel oknu nie przeszkadza — reguła dotyczy tego, co wisi na murze
+    expect(placementBlock('sideboard', { windows: win, x: 0, z: -3 })).toBeNull();
+  });
+
+  it('okno postawione z biblioteki też blokuje wieszanie', () => {
+    const b = building('house', SHELLS.house.minScale, 0, 1);
+    const room = roomOfBuilding(b);
+    const wall = room.box.cz - room.box.hz;
+    const okno: PalaceObject = { id: 'w1', type: 'window', name: 'Okno', position: [1.2, 0, wall], rotation: [0, 0, 0], scale: [1, 1, 1], anchorId: b.id };
+    const zOknem = roomOfBuilding(b, [b, okno]);
+    expect(zOknem.windows!.length, 'okno z biblioteki nie trafiło na listę').toBeGreaterThan(room.windows!.length);
+    expect(placementBlock('painting', { windows: zOknem.windows, x: 1.2, z: wall })).not.toBeNull();
+  });
+
+  it('layoutProblems zgłasza złamaną regułę razem z resztą uwag', () => {
+    const room: RoomShape = { box: { cx: 0, cz: 0, hx: 3, hz: 3, yaw: 0 }, floorHeight: 3.2, entry: [0, 2.3] };
+    const stol: PalaceObject = { id: 't', type: 'table', name: 'Stół', position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] };
+    const swieca: PalaceObject = { id: 'c', type: 'candle', name: 'Kandelabr', position: [0, 0.81, 0], rotation: [0, 0, 0], scale: [1, 1, 1], anchorId: 't' };
+    const problems = layoutProblems(room, [stol, swieca], 1);
+    expect(problems.some((x) => x.includes('Kandelabr')), problems.join('\n')).toBe(true);
   });
 });

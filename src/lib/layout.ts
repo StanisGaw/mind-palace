@@ -1,6 +1,6 @@
 import type { PalaceObject, RoomSpec, Vec3 } from '../types';
 import { catalogItem } from '../catalog';
-import { DOOR_OPENING, SHELLS, SHELL_WINDOWS, TOWER_R, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, buildingOf, facadeWallsOf, floorOf, floorOfIn, isInPlace, shellFixedBoxes, wallLength, wallOffsetOf, worldXZ } from './rooms';
+import { DOOR_OPENING, FACADE, SHELLS, SHELL_WINDOWS, TOWER_R, WALL_THICKNESS, isFacade, buildingFloorHeight, buildingFloorY, buildingOf, facadeWallsOf, floorOf, floorOfIn, isInPlace, shellFixedBoxes, wallLength, wallOffsetOf, worldXZ } from './rooms';
 
 /**
  * Geometria układu pokoju w rzucie z góry: obrysy mebli i ścianek, miejsce potrzebne przy schodach
@@ -59,6 +59,47 @@ const SIZES: Record<string, [number, number]> = {
 const PASSABLE = new Set(['rug', 'ceiling_lamp', 'painting', 'curtains', 'mirror', 'window', 'balcony', 'terrace', 'door', 'pathway', 'vase', 'candle', 'dishes', 'books', 'globe']);
 /** Obiekty wieszane na ścianie — układ ma sens tylko, gdy stoją przy murze albo ściance. */
 export const WALL_HUNG = new Set(['painting', 'curtains', 'mirror', 'clock', 'window']);
+
+/**
+ * Czego nie stawiamy na blacie. Otwarty ogień nad papierami i obrusem to nie jest rzecz, którą chcemy
+ * podpowiadać; kartki i książki na biurku zasłaniają blat, który ma zostać pusty pod notatki.
+ */
+const ANCHOR_DENY: Record<string, string[]> = {
+  candle: ['table', 'desk', 'counter', 'sideboard', 'shelf'],
+  torch: ['table', 'desk', 'counter', 'sideboard', 'shelf'],
+  lantern: ['table', 'desk', 'counter', 'sideboard', 'shelf'],
+  books: ['desk'],
+};
+
+/** Nazwy mebli w dopełniaczu — do komunikatu „na stole ani biurku". */
+const DENY_LABEL: Record<string, string> = {
+  table: 'na stole',
+  desk: 'na biurku',
+  counter: 'na blacie',
+  sideboard: 'na kredensie',
+  shelf: 'na regale',
+};
+
+/**
+ * Powód, dla którego obiekt nie powinien stanąć w tym miejscu, albo `null`. Po polsku — trafia wprost
+ * do podpowiedzi przy podglądzie i na listę problemów układu. Jedno źródło prawdy dla sceny i walidacji.
+ */
+export function placementBlock(
+  type: string,
+  ctx: { anchorType?: string; windows?: RoomShape['windows']; x: number; z: number },
+): string | null {
+  const deny = ANCHOR_DENY[type];
+  if (deny && ctx.anchorType && deny.includes(ctx.anchorType)) {
+    return `${catalogItem(type).name}: nie stawiamy tego ${DENY_LABEL[ctx.anchorType] ?? 'na meblu'}.`;
+  }
+  if (WALL_HUNG.has(type) && ctx.windows) {
+    const half = (catalogItem(type).footprint * 0.9) / 2;
+    if (ctx.windows.some((w) => Math.hypot(w.x - ctx.x, w.z - ctx.z) < w.half + half)) {
+      return `${catalogItem(type).name}: na oknie nie da się nic powiesić.`;
+    }
+  }
+  return null;
+}
 
 /** Punkt lokalny prostokąta (osie wzdłuż jego boków) w świecie — ten sam obrót co `worldXZ`. */
 export function boxPoint(b: Box2, lx: number, lz: number): [number, number] {
@@ -119,8 +160,11 @@ export interface RoomShape {
 /** Szerokość pierścienia zajętego przez kręcone schody wieży (jednostki modelu, jak `inner` w `buildTower`). */
 const TOWER_STAIR_RING = 0.58;
 
-/** Kształt wnętrza budynku z wnętrzem w miejscu, w świecie. */
-export function roomOfBuilding(b: PalaceObject): RoomShape {
+/**
+ * Kształt wnętrza budynku z wnętrzem w miejscu, w świecie. `objects` dokłada do listy okien te postawione
+ * z biblioteki (okna, balkony, tarasy) — bez nich obraz dałoby się powiesić na własnoręcznie wstawionym oknie.
+ */
+export function roomOfBuilding(b: PalaceObject, objects: PalaceObject[] = []): RoomShape {
   const spec = SHELLS[b.type] ?? SHELLS.house;
   const [cx, cz] = worldXZ(b, spec.cx, spec.cz);
   const box: Box2 = { cx, cz, hx: (spec.inner.w / 2) * b.scale[0], hz: (spec.inner.d / 2) * b.scale[2], yaw: b.rotation[1] };
@@ -135,6 +179,10 @@ export function roomOfBuilding(b: PalaceObject): RoomShape {
     const [x, z] = worldXZ(b, w.cx + w.tx * win.u, w.cz + w.tz * win.u);
     return [{ x, z, half: (win.w / 2) * Math.max(b.scale[0], b.scale[2]) }];
   });
+  for (const o of objects) {
+    if (!isFacade(o.type) || o.anchorId !== b.id) continue;
+    windows.push({ x: o.position[0], z: o.position[2], half: (FACADE[o.type].w / 2) * Math.max(o.scale[0], o.scale[2]) });
+  }
   const fixed = shellFixedBoxes(b.type).map((f) => {
     const [x, z] = worldXZ(b, f.cx, f.cz);
     return { cx: x, cz: z, hx: f.hx * b.scale[0], hz: f.hz * b.scale[2], yaw: b.rotation[1] };
@@ -399,6 +447,12 @@ export function layoutProblems(room: RoomShape, objects: PalaceObject[], floors:
         if ((room.fixed ?? []).some((f) => boxesOverlap(ob, f, -0.02))) out.push(`piętro ${k}: ${name(o)} wchodzi w kolumnę albo ołtarz`);
       }
     }
+    // 6. reguły sensu: świeca na blacie, papier na biurku, obraz na oknie — te same, co blokują podgląd
+    const typeOf = new Map(objects.map((o) => [o.id, o.type]));
+    for (const o of onFloor) {
+      const why = placementBlock(o.type, { anchorType: o.anchorId ? typeOf.get(o.anchorId) : undefined, windows: room.windows, x: o.position[0], z: o.position[2] });
+      if (why) out.push(`piętro ${k}: ${why}`);
+    }
   }
   return out;
 }
@@ -413,7 +467,7 @@ export function findStairsSpot(b: PalaceObject, objects: PalaceObject[]): { posi
   if (!isInPlace(b) || b.type === 'tower') return null;
   const inside = objects.filter((o) => o.id !== b.id && buildingOf(objects, o)?.id === b.id);
   const ground = inside.filter((o) => floorOfIn(b, o.position[1]) === 0);
-  return findStairsIn(roomOfBuilding(b), ground, objects, buildingFloorY(b, 0));
+  return findStairsIn(roomOfBuilding(b, objects), ground, objects, buildingFloorY(b, 0));
 }
 
 /** To samo dla pokoju ładowanego osobno (albo dowolnego kształtu): `ground` to obiekty stojące na parterze. */

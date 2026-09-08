@@ -20,7 +20,7 @@ import { ROOMS, colliderKind, spawnKind } from '../catalog';
 import { clampToGround, clipSegment, groundExtent, groundPolygon, insideGround } from '../lib/ground';
 import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, buildingOf, buildingOpenings, facadeFloorOk, facadeHoles, facadeSlotFree, facadeSnap, isDrawn, isFacade, doorOffsets, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, localXZ, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, SHELLS, TOWER_R, type Opening } from '../lib/rooms';
 import { SET_WALL_GAP, furnitureSet, instantiateSet } from '../lib/sets';
-import { boxLocal, boxPoint, insideRoom, roomOfBuilding, roomOfSpec, type RoomShape } from '../lib/layout';
+import { boxLocal, boxPoint, insideRoom, placementBlock, roomOfBuilding, roomOfSpec, type RoomShape } from '../lib/layout';
 import { getTexture } from './textures';
 import { Wildlife, type SpawnInfo, type WorldInfo } from './wildlife';
 import { Soundscape } from './soundscape';
@@ -209,6 +209,8 @@ export class SceneManager {
   private ghostSet: FurnitureSet | null = null;
   /** Zestaw z tyłem sam ustawia się do ściany, dopóki użytkownik nie obróci podglądu ręcznie. */
   private ghostAutoRot = true;
+  /** Powód, dla którego podglądu nie wolno postawić (świeca na blacie, obraz na oknie). */
+  private placeBlockReason = '';
   private ghostFootprint = 1;
   ghostRot = 0;
   private ghostPos = new THREE.Vector3();
@@ -1697,6 +1699,7 @@ export class SceneManager {
     }
     if (this.ghostType === 'window' && this.room) this.snapWindowToWall(p);
     if (this.ghostSet?.back && this.ghostAutoRot) this.snapSetToWall(p);
+    this.placeBlockReason = this.blockReasonAt(p) ?? '';
     this.ghostPos.copy(p);
     this.ghost.position.copy(p);
     this.ghost.rotation.y = this.ghostRot;
@@ -1712,7 +1715,39 @@ export class SceneManager {
         }
       }
     }
-    (this.ghostRing.material as THREE.MeshBasicMaterial).color.set(this.ghostAnchor ? '#2b6ea8' : blocked ? '#b4483d' : '#3f7550');
+    if (this.placeBlockReason) blocked = true;
+    (this.ghostRing.material as THREE.MeshBasicMaterial).color.set(blocked ? '#b4483d' : this.ghostAnchor ? '#2b6ea8' : '#3f7550');
+  }
+
+  /**
+   * Powód, dla którego podglądu nie wolno tu postawić. Zestaw sprawdzamy element po elemencie w miejscu,
+   * w którym wylądują — inaczej obraz z zestawu trafiłby na okno.
+   */
+  private blockReasonAt(p: THREE.Vector3): string | null {
+    const st = useStore.getState();
+    const windows = this.ghostRoom()?.windows;
+    if (this.ghostSet) {
+      const cos = Math.cos(this.ghostRot);
+      const sin = Math.sin(this.ghostRot);
+      const byIndex = new Map(this.ghostSet.objects.map((o, i) => [i, o.type]));
+      for (const so of this.ghostSet.objects) {
+        const anchorType = so.anchor !== undefined ? byIndex.get(so.anchor) : undefined;
+        const why = placementBlock(so.type, { anchorType, windows, x: p.x + so.dx * cos + so.dz * sin, z: p.z - so.dx * sin + so.dz * cos });
+        if (why) return why;
+      }
+      return null;
+    }
+    const anchorType = this.ghostAnchor ? st.palace().objects.find((o) => o.id === this.ghostAnchor)?.type : undefined;
+    return placementBlock(this.ghostType, { anchorType, windows, x: p.x, z: p.z });
+  }
+
+  /** Pokój, w którym stoi obiekt: wnętrze budynku, w którym jest zakotwiczony, albo pokój ładowany. */
+  private roomForObject(o: PalaceObject): RoomShape | null {
+    const p = this.lastPalace;
+    if (!p) return null;
+    if (p.interior) return roomOfSpec(roomSpecFor(p, useStore.getState().data.palaces), p.interior.buildingType);
+    const b = buildingOf(p.objects, o);
+    return b ? roomOfBuilding(b, p.objects) : null;
   }
 
   /** Pokój, w którym stoi podgląd: wnętrze w miejscu spod kursora albo pokój ładowany. */
@@ -1721,7 +1756,7 @@ export class SceneManager {
     if (!p) return null;
     if (p.interior) return roomOfSpec(roomSpecFor(p, useStore.getState().data.palaces), p.interior.buildingType);
     const b = this.placeBuilding()?.b;
-    return b ? roomOfBuilding(b) : null;
+    return b ? roomOfBuilding(b, p.objects) : null;
   }
 
   /**
@@ -1820,6 +1855,10 @@ export class SceneManager {
       st.showToast(this.facadeBlockReason || 'Okna, balkony i tarasy stawia się na murze budynku z wnętrzem w miejscu.');
       return;
     }
+    if (this.placeBlockReason) {
+      st.showToast(this.placeBlockReason);
+      return;
+    }
     if (this.ghostSet) {
       st.placeSet(this.ghostSet.id, { position: [this.ghostPos.x, this.ghostPos.y, this.ghostPos.z], rotation: this.ghostRot, anchorId: this.ghostAnchor });
       if (!keepPlacing) st.setPlacing(null);
@@ -1850,6 +1889,14 @@ export class SceneManager {
     for (const [eid, e] of this.entries) if (!exclude.has(eid) && colliderKind(e.type) !== 'none') targets.push(e.group);
     const hit = ray.intersectObjects(targets, true).find((h) => !h.object.userData.noPick && h.object.userData.objectId);
     const anchorId = hit && Math.abs(hit.point.y - obj!.position.y) < 0.2 ? (hit.object.userData.objectId as string) : undefined;
+    const room = this.roomForObject(o);
+    const why = placementBlock(o.type, { anchorType: anchorId ? st.palace().objects.find((x) => x.id === anchorId)?.type : undefined, windows: room?.windows, x: o.position[0], z: o.position[2] });
+    if (why) {
+      // nie zostawiamy obiektu tam, gdzie nie ma prawa stać: spada na podłogę swojego piętra
+      st.showToast(why);
+      st.dropToGround(id);
+      return;
+    }
     if (anchorId !== o.anchorId) st.updateObject(id, { anchorId }, { undo: false });
   }
 
