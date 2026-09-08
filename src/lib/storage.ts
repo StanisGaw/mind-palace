@@ -2,7 +2,7 @@ import type { AppData, GroundSpec, Palace, PalaceObject, PalaceSettings, RoomPre
 import { catalogItem, ROOMS } from '../catalog';
 import { uid } from './ids';
 import { hashString } from '../three/noise';
-import { FLOOR_MAX, SHELLS, attachLegacyDoors, buildingOf, facadeSnap, isFacade, roomLamps } from './rooms';
+import { FLOOR_MAX, SHELLS, attachLegacyDoors, buildingOf, facadeSnap, isFacade, localXZ, roomLamps, worldXZ } from './rooms';
 import { yawRotation } from './transform';
 
 const KEY = 'mneme.data.v1';
@@ -254,21 +254,34 @@ function migrateShellFloors(objects: PalaceObject[]) {
   }
 }
 
+/** Wymiary wnętrz (szerokość, głębokość w jednostkach modelu) w poprzednich wersjach powłok — do przeliczenia elewacji. */
+const OLD_INNER: Record<number, Record<string, [number, number]>> = {
+  3: { house: [1.88, 1.68], palace: [3.28, 2.28], library: [3.08, 2.28], temple: [2.4, 2.0], tower: [2.0, 2.0] },
+  4: { house: [2.6, 2.4], palace: [3.28, 2.88], library: [3.08, 2.88], temple: [2.4, 2.0], tower: [2.0, 2.0] },
+};
+
 /**
- * Wersje 4 i 5 powłok: większe wnętrza (mury odsunęły się od środka). Okna, balkony i tarasy zakotwiczone
- * w budynku wisiałyby w głębi pokoju, więc przyciągamy je ponownie do nowego lica tej samej ściany; obiekty
- * w środku zostają (wnętrze tylko urosło). Jednorazowo, przez znacznik `shellVersion`.
+ * Wersje 4 i 5 powłok: większe wnętrza, mury odsunęły się od środka (w wersji 5 dwukrotnie). Okna, balkony
+ * i tarasy zakotwiczone w budynku zawisłyby w głębi pokoju, więc ich położenie względem środka bryły skalujemy
+ * proporcjonalnie do wzrostu wnętrza i dociągamy do lica nowej ściany. Meble w środku zostają na swoich
+ * miejscach — pokój tylko urósł. Jednorazowo, przez znacznik `shellVersion`.
  */
 function migrateShellFacade(objects: PalaceObject[]) {
   for (const b of objects) {
-    if (b.interiorMode !== 'inplace' || (b.shellVersion ?? 0) < 3 || (b.shellVersion ?? 0) >= 5) continue;
-    if (!SHELLS[b.type]) continue;
+    const ver = b.shellVersion ?? 0;
+    if (b.interiorMode !== 'inplace' || ver < 3 || ver >= 5) continue;
+    const spec = SHELLS[b.type];
+    const old = OLD_INNER[ver]?.[b.type];
+    if (!spec || !old) continue;
+    const rx = spec.inner.w / old[0];
+    const rz = spec.inner.d / old[1];
     for (const o of objects) {
       if (o.anchorId !== b.id || !isFacade(o.type)) continue;
-      const hit = facadeSnap(b, o.type, o.position[0], o.position[2]);
-      if (!hit) continue;
-      o.position = [hit.x, o.position[1], hit.z];
-      o.rotation = yawRotation(hit.yaw);
+      const [lx, lz] = localXZ(b, o.position[0], o.position[2]);
+      const [wx, wz] = worldXZ(b, spec.cx + (lx - spec.cx) * rx, spec.cz + (lz - spec.cz) * rz);
+      const hit = facadeSnap(b, o.type, wx, wz);
+      o.position = [hit ? hit.x : wx, o.position[1], hit ? hit.z : wz];
+      if (hit) o.rotation = yawRotation(hit.yaw);
     }
     b.shellVersion = 5;
   }
