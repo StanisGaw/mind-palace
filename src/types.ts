@@ -34,7 +34,7 @@ export interface PalaceObject {
   floors?: number; // budynek z wnętrzem w miejscu: liczba kondygnacji (1–4)
   colors?: Record<string, string>; // nadpisane kolory warstw materiałów (rola → #rrggbb), patrz `lib/materials.ts`
   finish?: { floor?: string; wall?: string }; // tekstury wnętrza budynku w miejscu; dla ścieżki `floor` to nawierzchnia
-  shellVersion?: 2 | 3 | 4; // 2: piętra podwyższają bryłę (stała wysokość kondygnacji); 3: szersza i wyższa wieża; 4: większe wnętrza domku, pałacu i biblioteki; brak = stary podział bryły
+  shellVersion?: 2 | 3 | 4 | 5; // 2: piętra podwyższają bryłę (stała wysokość kondygnacji); 3: szersza i wyższa wieża; 4: większe wnętrza domku, pałacu i biblioteki; 5: wnętrza o czterokrotnym polu; brak = stary podział bryły
 }
 
 /** Wymiary proceduralnego wnętrza budynku. */
@@ -101,6 +101,9 @@ export interface PresetObject {
   name?: string;
   u: number; // -0.5..0.5 względem szerokości pokoju
   v: number; // -0.5..0.5 względem głębokości pokoju
+  /** Przesunięcie w metrach od punktu (u, v) — meble w grupie (krzesła przy stole) trzymają stałe odstępy niezależnie od wielkości pokoju. */
+  dx?: number;
+  dz?: number;
   floor: number;
   dy?: number; // wysokość nad podłogą piętra
   rotationY: number;

@@ -279,21 +279,22 @@ function seedPalace(): Palace {
   };
   const now = Date.now();
   const note = (title: string, body: string) => ({ title, body, createdAt: now, updatedAt: now, srs: newSrs() });
-  const a = add('palace', 'Pałac odkryć', [-3.5, 0, -1], 0);
+  // rozstaw dopasowany do wielkości budynków (pałac ~11 × 10 m, biblioteka ~10 × 9,5 m)
+  const a = add('palace', 'Pałac odkryć', [-8, 0, -3], 0);
   a.note = note('Cel na ten miesiąc', 'Skończyć prototyp i pokazać go trzem osobom.');
-  const b = add('library', 'Biblioteka pomysłów', [3, 0, -2], -0.4);
+  const b = add('library', 'Biblioteka pomysłów', [8, 0, -4], -0.4);
   b.note = note('Trzy książki do przeczytania', '1. Moonwalking with Einstein\n2. Sztuka pamięci\n3. Atomic Habits');
-  const c = add('fountain', 'Źródło skojarzeń', [0.2, 0, 1.2]);
+  const c = add('fountain', 'Źródło skojarzeń', [0, 0, 4]);
   c.note = note('Zasada', 'Każde nowe pojęcie łącz z obrazem i miejscem.');
-  add('tree', 'Drzewo', [-6.5, 0, 1.5]);
-  add('tree', 'Drzewo', [6.8, 0, 0.5]);
-  add('cypress', 'Cyprys', [-5.5, 0, -3]);
-  add('cypress', 'Cyprys', [-1.2, 0, -3.2]);
-  add('cypress', 'Cyprys', [5.2, 0, -3.5]);
-  add('bench', 'Ławka', [-2.2, 0, 2.6], Math.PI);
-  add('lantern', 'Latarnia', [2.6, 0, 2.2]);
-  add('books', 'Książki', [4.2, 0, 2.6], 0.5);
-  add('tree', 'Drzewo', [7.2, 0, 3]);
+  add('tree', 'Drzewo', [-14, 0, 4]);
+  add('tree', 'Drzewo', [14.5, 0, 2]);
+  add('cypress', 'Cyprys', [-15, 0, -8]);
+  add('cypress', 'Cyprys', [0, 0, -9]);
+  add('cypress', 'Cyprys', [15, 0, -9]);
+  add('bench', 'Ławka', [-4, 0, 6], Math.PI);
+  add('lantern', 'Latarnia', [4.5, 0, 5.5]);
+  add('books', 'Książki', [7, 0, 6], 0.5);
+  add('tree', 'Drzewo', [15, 0, 7]);
   p.path = [a.id, b.id, c.id];
   return p;
 }

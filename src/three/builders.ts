@@ -476,56 +476,62 @@ function shellEntryRamp(g: THREE.Group, spec: ShellSpec, zOut: number) {
 
 function buildPalace(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.palace;
-  add(g, box(4.6, 0.28, 4.2), mat(C.stone), 0, 0.14, 0);
-  add(g, box(4.0, 0.16, 3.6), mat(C.cream2), 0, 0.36, 0);
+  const { w, d } = spec.inner;
+  const front = spec.cz + d / 2 + SHELL_WALL_T / 2; // lico ściany frontowej
+  add(g, box(w + 1.3, 0.28, d + 1.5), mat(C.stone), 0, 0.14, spec.cz + 0.1);
+  add(g, box(w + 0.7, 0.16, d + 0.9), mat(C.cream2), 0, 0.36, spec.cz + 0.1);
   shellBox(g, ctx, 'palace', mat(C.cream), mat(C.stone), mat(C.dark));
-  shellEntryRamp(g, spec, 2.6);
-  // portyk przed licem ściany (z = 1,33): kolumny między drzwiami (|x| < 0,3) a oknami (|x| ∈ 0,87..1,23),
-  // żeby nie zasłaniały ani jednych, ani drugich
-  columns(g, [[-1.45, 1.52], [-0.55, 1.52], [0.55, 1.52], [1.45, 1.52]], 1.7, 0.11, 0.44);
-  add(g, box(3.4, 0.22, 0.6), mat(C.cream2), 0, 0.44 + 1.7 + 0.11, 1.4);
+  shellEntryRamp(g, spec, front + 1.3);
+  // portyk przed licem ściany: kolumny między drzwiami (|x| < 0,3) a oknami (|x| ∈ 1,92..2,28) i za oknami
+  columns(g, [[-2.75, front + 0.19], [-1.1, front + 0.19], [1.1, front + 0.19], [2.75, front + 0.19]], 1.7, 0.11, 0.44);
+  add(g, box(w + 0.2, 0.22, 0.6), mat(C.cream2), 0, 0.44 + 1.7 + 0.11, front + 0.07);
   const roof = roofGroup(g, roofLift(ctx, spec));
-  add(roof, prism(3.6, 0.6, 0.7), mat(C.cream), 0, 0.44 + 1.92, 1.4);
-  add(roof, box(3.46, 0.08, 3.06), mat(C.cream2), 0, 2.34 + 0.04, -0.2); // strop nad salą
+  add(roof, prism(w + 0.4, 0.7, 0.7), mat(C.cream), 0, 0.44 + 1.92, front + 0.07);
+  add(roof, box(w + 0.18, 0.08, d + 0.18), mat(C.cream2), 0, 2.34 + 0.04, spec.cz); // strop nad salą
   // bęben + kopuła
-  add(roof, cyl(1.05, 1.05, 0.45, 16), mat(C.cream2), 0, 0.44 + 1.9 + 0.22, -0.2);
-  add(roof, cyl(1.15, 1.15, 0.1, 16), mat(C.stone), 0, 0.44 + 1.9 + 0.5, -0.2);
-  const dome = new THREE.SphereGeometry(1.05, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2);
-  add(roof, dome, mat(C.dome, { flat: false }), 0, 0.44 + 1.9 + 0.55, -0.2);
-  add(roof, sphere(0.12, 8), mat(C.domeDark), 0, 0.44 + 1.9 + 0.55 + 1.08, -0.2);
+  add(roof, cyl(2.0, 2.0, 0.45, 20), mat(C.cream2), 0, 0.44 + 1.9 + 0.22, spec.cz);
+  add(roof, cyl(2.15, 2.15, 0.1, 20), mat(C.stone), 0, 0.44 + 1.9 + 0.5, spec.cz);
+  const dome = new THREE.SphereGeometry(2.0, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+  add(roof, dome, mat(C.dome, { flat: false }), 0, 0.44 + 1.9 + 0.55, spec.cz);
+  add(roof, sphere(0.16, 8), mat(C.domeDark), 0, 0.44 + 1.9 + 0.55 + 2.05, spec.cz);
   // schody
-  add(g, box(2.2, 0.12, 0.5), mat(C.stone), 0, 0.06, 2.25);
-  add(g, box(2.2, 0.12, 0.3), mat(C.stoneDark), 0, 0.18, 2.15);
+  add(g, box(3.0, 0.12, 0.5), mat(C.stone), 0, 0.06, front + 0.95);
+  add(g, box(3.0, 0.12, 0.3), mat(C.stoneDark), 0, 0.18, front + 0.85);
 }
 
 function buildLibrary(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.library;
-  add(g, box(4.0, 0.24, 3.8), mat(C.stone), 0, 0.12, 0);
+  const { w, d } = spec.inner;
+  const front = spec.cz + d / 2 + SHELL_WALL_T / 2;
+  add(g, box(w + 0.9, 0.24, d + 1.1), mat(C.stone), 0, 0.12, spec.cz + 0.1);
   shellBox(g, ctx, 'library', mat(C.cream), mat(C.stone), mat(C.dark));
-  shellEntryRamp(g, spec, 2.6);
-  // kolumny przed ścianą, poza drzwiami (|x| < 0,35) i oknami (|x| ∈ 0,83..1,17)
-  columns(g, [[-1.4, 1.45], [-0.55, 1.45], [0.55, 1.45], [1.4, 1.45]], 1.6, 0.1, 0.24);
-  add(g, box(3.3, 0.18, 0.55), mat(C.cream2), 0, 0.24 + 1.6 + 0.09, 1.35);
+  shellEntryRamp(g, spec, front + 1.3);
+  // kolumny przed ścianą, poza drzwiami (|x| < 0,35) i oknami (|x| ∈ 1,83..2,17)
+  columns(g, [[-2.7, front + 0.18], [-1.0, front + 0.18], [1.0, front + 0.18], [2.7, front + 0.18]], 1.6, 0.1, 0.24);
+  add(g, box(w + 0.2, 0.18, 0.55), mat(C.cream2), 0, 0.24 + 1.6 + 0.09, front + 0.08);
   const roof = roofGroup(g, roofLift(ctx, spec));
-  add(roof, box(3.26, 0.1, 3.06), mat(C.cream2), 0, 1.94 + 0.05, -0.2); // strop
-  add(roof, prism(3.6, 0.8, 3.6), mat(C.roof), 0, 0.24 + 1.78, -0.2);
-  add(g, box(0.9, 0.16, 0.14), mat(C.roofDark), 0, 0.24 + 1.35, 1.37);
-  add(g, box(1.6, 0.1, 0.6), mat(C.stone), 0, 0.05, 2.15);
+  add(roof, box(w + 0.18, 0.1, d + 0.18), mat(C.cream2), 0, 1.94 + 0.05, spec.cz); // strop
+  add(roof, prism(w + 0.5, 1.2, d + 0.7), mat(C.roof), 0, 0.24 + 1.78, spec.cz);
+  add(g, box(0.9, 0.16, 0.14), mat(C.roofDark), 0, 0.24 + 1.35, front + 0.1);
+  add(g, box(2.0, 0.1, 0.6), mat(C.stone), 0, 0.05, front + 0.9);
 }
 
 function buildTemple(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.temple;
-  add(g, box(2.8, 0.22, 2.4), mat(C.stone), 0, 0.11, 0);
-  add(g, box(2.4, 0.14, 2.0), mat(C.cream2), 0, 0.29, 0);
+  const { w, d } = spec.inner;
+  add(g, box(w + 0.4, 0.22, d + 0.4), mat(C.stone), 0, 0.11, 0);
+  add(g, box(w, 0.14, d), mat(C.cream2), 0, 0.29, 0);
   const templeFloor = finishMat(ctx.finish?.floor, C.cream2);
-  shellFloor(g, spec.inner.w, spec.inner.d, 0, spec.floorY, 0, templeFloor);
-  shellSlabs(g, ctx, [{ x0: -spec.inner.w / 2, x1: spec.inner.w / 2, z0: -spec.inner.d / 2, z1: spec.inner.d / 2 }], spec.floorY, spec.inner.h, templeFloor);
-  shellRamp(g, 0, 1.6, 1.0, 2.0, spec.floorY); // wejście między kolumnami od frontu
-  columns(g, [[-0.9, 0.7], [0.9, 0.7], [-0.9, -0.7], [0.9, -0.7]], 1.5, 0.1, 0.36);
+  shellFloor(g, w, d, 0, spec.floorY, 0, templeFloor);
+  shellSlabs(g, ctx, [{ x0: -w / 2, x1: w / 2, z0: -d / 2, z1: d / 2 }], spec.floorY, spec.inner.h, templeFloor);
+  shellRamp(g, 0, d / 2 + 0.6, d / 2, 2.0, spec.floorY); // wejście między kolumnami od frontu
+  const cx = w / 2 - 0.3;
+  const cz = d / 2 - 0.3;
+  columns(g, [[-cx, cz], [cx, cz], [-cx, -cz], [cx, -cz], [0, -cz], [0, cz], [-cx, 0], [cx, 0]], 1.5, 0.1, 0.36);
   const roof = roofGroup(g, roofLift(ctx, spec));
-  add(roof, box(2.4, 0.16, 2.0), mat(C.cream), 0, 0.36 + 1.5 + 0.08, 0);
-  add(roof, prism(2.6, 0.7, 2.2), mat(C.roof), 0, 0.36 + 1.66, 0);
-  add(g, box(0.8, 0.9, 0.8), mat(C.cream2), 0, 0.36 + 0.45, -0.3);
+  add(roof, box(w, 0.16, d), mat(C.cream), 0, 0.36 + 1.5 + 0.08, 0);
+  add(roof, prism(w + 0.2, 1.0, d + 0.2), mat(C.roof), 0, 0.36 + 1.66, 0);
+  add(g, box(0.8, 0.9, 0.8), mat(C.cream2), 0, 0.36 + 0.45, -d * 0.3);
 }
 
 function buildTower(g: THREE.Group, ctx: BuildCtx) {
@@ -556,33 +562,37 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
   shellLeaf(g, door, spec.floorY, mat(C.dark));
   shellEntryRamp(g, spec, r + 0.7);
   // wieża ma wbudowane kręcone schody wzdłuż muru: jeden ciągły bieg przez wszystkie kondygnacje (każda
-  // kondygnacja to 3/4 obrotu, następny bieg zaczyna się tam, gdzie poprzedni doszedł do stropu). Bieg 0,42
-  // szerokości zostawia pośrodku każdej izby wolne koło o promieniu ~1,3 m przy skali 2,5.
+  // kondygnacja to 3/4 obrotu, następny bieg zaczyna się tam, gdzie poprzedni doszedł do stropu). Bieg 0,5
+  // szerokości zostawia pośrodku każdej izby wolne koło o promieniu ~3,7 m przy skali 2,5.
   const sy = ctx.scaleY ?? spec.minScale;
-  const turn = Math.PI * 1.5;
-  const steps = Math.max(8, Math.round((h * sy) / 0.19));
+  // kąt biegu z nachylenia ~30°: przy szerokim murze pełne 3/4 obrotu dałoby pochylnię, przy wąskim byłoby za stromo
+  const rm = (r - 0.08 + (r - 0.58)) / 2;
+  const turn = Math.min(Math.PI * 1.5, Math.max(Math.PI / 2, h / (Math.tan(Math.PI / 6) * rm)));
+  const steps = Math.max(8, Math.round((turn * rm * sy) / 0.3)); // stopień ~0,3 m w metrach świata
   for (let k = 1; k < floors; k++) {
-    const { sector } = spiralStairs(g, { cx: 0, cz: 0, r: r - 0.08, inner: r - 0.5, y0: spec.floorY + (k - 1) * h, height: h, start: Math.PI / 2 + (k - 1) * turn, turn, steps, headroom: 2.2 / sy }, mat(C.stoneDark));
+    const { sector } = spiralStairs(g, { cx: 0, cz: 0, r: r - 0.08, inner: r - 0.58, y0: spec.floorY + (k - 1) * h, height: h, start: Math.PI / 2 + (k - 1) * turn, turn, steps, headroom: 2.2 / sy }, mat(C.stoneDark));
     const holes = (ctx.slabOpenings?.[k - 1] ?? []).map((op) => ({ x0: op.cx - op.hx, x1: op.cx + op.hx, z0: op.cz - op.hz, z1: op.cz + op.hz }));
     const slab = add(g, discSlabGeometry(r - 0.05, sector, holes, 0.04), floorFinish, 0, spec.floorY + k * h - 0.04, 0);
     slab.userData.floorSurface = true;
     slab.userData.slab = k;
   }
   const lift = top - 3.9; // gzyms i stożek siedzą na szczycie muru
+  const coneH = 1.2 + r * 0.6;
   const roof = roofGroup(g, lift);
   add(roof, cyl(r + 0.1, r + 0.1, 0.22, 12), mat(C.cream2), 0, 3.9 + 0.11, 0);
-  add(roof, cone(r + 0.18, 1.5, 12), mat(C.roof), 0, 4.12 + 0.75, 0);
-  add(roof, sphere(0.1), mat(C.domeDark), 0, 5.62, 0);
+  add(roof, cone(r + 0.18, coneH, 12), mat(C.roof), 0, 4.12 + coneH / 2, 0);
+  add(roof, sphere(0.12), mat(C.domeDark), 0, 4.12 + coneH, 0);
 }
 
 function buildHouse(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.house;
-  add(g, box(3.1, 0.16, 2.9), mat(C.stone), 0, 0.08, 0);
+  const { w, d } = spec.inner;
+  add(g, box(w + 0.5, 0.16, d + 0.5), mat(C.stone), 0, 0.08, 0);
   shellBox(g, ctx, 'house', mat(C.cream), woodMat(C.wood), mat(C.dark));
-  shellEntryRamp(g, spec, 2.0);
+  shellEntryRamp(g, spec, d / 2 + 0.8);
   const roof = roofGroup(g, roofLift(ctx, spec));
-  add(roof, prism(3.0, 1.0, 2.8), mat(C.roof), 0, 1.56, 0);
-  add(roof, box(0.3, 0.7, 0.3), mat(C.stoneDark), 0.9, 1.98, -0.6);
+  add(roof, prism(w + 0.4, 1.2, d + 0.4), mat(C.roof), 0, 1.56, 0);
+  add(roof, box(0.36, 0.9, 0.36), mat(C.stoneDark), w * 0.3, 2.1, -d * 0.25);
 }
 
 function buildGazebo(g: THREE.Group) {
@@ -1767,11 +1777,11 @@ export function shellLeafLocal(type: string): { size: [number, number, number]; 
  * `local` to sama framuga, `outside` to miejsce, w którym staje gracz po wyjściu.
  */
 export const DOORS: Record<string, { local: [number, number, number]; outside: [number, number, number] }> = {
-  palace: { local: [0, 0.44, 1.3], outside: [0, 0, 3.4] },
-  library: { local: [0, 0.24, 1.3], outside: [0, 0, 3.3] },
-  temple: { local: [0, 0.36, 0.9], outside: [0, 0, 2.6] },
-  tower: { local: [0, 0.3, 1.05], outside: [0, 0, 2.8] },
-  house: { local: [-0.6, 0.16, 1.28], outside: [-0.6, 0, 2.8] },
+  palace: { local: [0, 0.44, 2.74], outside: [0, 0, 4.9] },
+  library: { local: [0, 0.24, 2.74], outside: [0, 0, 4.8] },
+  temple: { local: [0, 0.36, 2.0], outside: [0, 0, 3.6] },
+  tower: { local: [0, 0.3, 2.05], outside: [0, 0, 3.8] },
+  house: { local: [-1.2, 0.16, 2.48], outside: [-1.2, 0, 4.0] },
 };
 
 /** Punkt zaczepienia emitera cząsteczek w lokalnych współrzędnych modelu. */

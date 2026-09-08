@@ -8,7 +8,7 @@ import { yawRotation } from './transform';
 const KEY = 'mneme.data.v1';
 
 export function defaultSettings(): PalaceSettings {
-  return { grid: true, showPath: true, ground: { width: 24, depth: 24, shape: 'rect' }, ambience: 'garden', weather: 'clear', scenery: 'meadow', seed: (Math.random() * 1e9) | 0 };
+  return { grid: true, showPath: true, ground: { width: 40, depth: 40, shape: 'rect' }, ambience: 'garden', weather: 'clear', scenery: 'meadow', seed: (Math.random() * 1e9) | 0 };
 }
 
 export function makePalace(name = 'Ogród dobrych myśli'): Palace {
@@ -41,6 +41,27 @@ export function loadData(): AppData | null {
   }
 }
 
+/**
+ * Plansza musi pomieścić budynki: po powiększeniu powłok bryły postawione przy krawędzi wychodziłyby poza płytę,
+ * więc raz ją poszerzamy do ich zasięgu (najwyżej do 80 m, jak suwak w panelu otoczenia).
+ */
+function growGroundForBuildings(p: Palace) {
+  if (p.interior) return;
+  let needX = 0;
+  let needZ = 0;
+  for (const o of p.objects) {
+    const shell = SHELLS[o.type];
+    if (!shell) continue;
+    const reach = Math.max(shell.inner.w * o.scale[0], shell.inner.d * o.scale[2]) / 2 + 1.5;
+    needX = Math.max(needX, (Math.abs(o.position[0]) + reach) * 2);
+    needZ = Math.max(needZ, (Math.abs(o.position[2]) + reach) * 2);
+  }
+  const g = p.settings.ground;
+  const width = Math.min(80, Math.max(g.width, Math.ceil(needX)));
+  const depth = Math.min(80, Math.max(g.depth, Math.ceil(needZ)));
+  if (width !== g.width || depth !== g.depth) p.settings = { ...p.settings, ground: { ...g, width, depth } };
+}
+
 /** Naprawia powiązania między pałacami: osierocone wnętrza stają się samodzielne, martwe odsyłacze znikają. */
 export function normalizeData(data: AppData): AppData {
   const byId = new Map(data.palaces.map((p) => [p.id, p]));
@@ -64,6 +85,7 @@ export function normalizeData(data: AppData): AppData {
     }
     migrateShellFloors(p.objects);
     migrateShellFacade(p.objects);
+    growGroundForBuildings(p);
     // grupa jednoosobowa to brak grupy
     const groupSize = new Map<string, number>();
     for (const o of p.objects) if (o.groupId) groupSize.set(o.groupId, (groupSize.get(o.groupId) ?? 0) + 1);
@@ -187,7 +209,7 @@ function normalizeSettings(raw: unknown, id: string): PalaceSettings {
   // patrzymy na zapisane dane, nie na scalone domyślne wartości
   const g = src.ground as Partial<GroundSpec> | undefined;
   if (!g || typeof g.width !== 'number') {
-    const size = typeof src.groundSize === 'number' && src.groundSize > 0 ? src.groundSize : 24;
+    const size = typeof src.groundSize === 'number' && src.groundSize > 0 ? src.groundSize : 40;
     merged.ground = { width: size, depth: size, shape: 'rect' };
   } else {
     merged.ground = {
@@ -233,13 +255,13 @@ function migrateShellFloors(objects: PalaceObject[]) {
 }
 
 /**
- * Wersja 4 powłok: większe wnętrza domku, pałacu i biblioteki (mury odsunęły się o 0,3–0,36 jednostki modelu).
- * Okna, balkony i tarasy zakotwiczone w budynku wisiałyby w głębi pokoju, więc przyciągamy je ponownie do nowego
- * lica tej samej ściany; obiekty w środku zostają (wnętrze tylko urosło). Jednorazowo, przez znacznik `shellVersion`.
+ * Wersje 4 i 5 powłok: większe wnętrza (mury odsunęły się od środka). Okna, balkony i tarasy zakotwiczone
+ * w budynku wisiałyby w głębi pokoju, więc przyciągamy je ponownie do nowego lica tej samej ściany; obiekty
+ * w środku zostają (wnętrze tylko urosło). Jednorazowo, przez znacznik `shellVersion`.
  */
 function migrateShellFacade(objects: PalaceObject[]) {
   for (const b of objects) {
-    if (b.interiorMode !== 'inplace' || b.shellVersion !== 3) continue;
+    if (b.interiorMode !== 'inplace' || (b.shellVersion ?? 0) < 3 || (b.shellVersion ?? 0) >= 5) continue;
     if (!SHELLS[b.type]) continue;
     for (const o of objects) {
       if (o.anchorId !== b.id || !isFacade(o.type)) continue;
@@ -248,7 +270,7 @@ function migrateShellFacade(objects: PalaceObject[]) {
       o.position = [hit.x, o.position[1], hit.z];
       o.rotation = yawRotation(hit.yaw);
     }
-    b.shellVersion = 4;
+    b.shellVersion = 5;
   }
 }
 
