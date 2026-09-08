@@ -21,6 +21,13 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
           <li>W spacerze też stawiasz obiekty: wybierz coś z Biblioteki, a półprzezroczysty podgląd idzie za celownikiem — klik stawia, <kbd>R</kbd> obraca, <kbd>Esc</kbd> albo prawy przycisk anuluje. Wewnątrz budynku biblioteka pokazuje tylko to, co pasuje do pokoju (bez drzew, gór czy studni; kot i pies mogą wejść), a elewację (okno, balkon, taras) stawiasz na murze od środka.</li>
           <li>Na telefonie: joystick po lewej, przeciąganie po prawej, przycisk <b>Skok</b> po prawej na dole, dotknięcie obiektu — wybór. W edytorze pasek stawiania ma „Obróć”, „Wiele” i „Anuluj”, a w rzucie z góry palec przesuwa planszę. Obróć telefon poziomo: belki znikają, menu i panele są pod ikonami przy lewej krawędzi.</li>
         </ul>
+        <h3>Samolot</h3>
+        <ul>
+          <li>W bibliotece, w kategorii <b>Przedmioty</b>, jest <b>Samolot</b> z otwartym kokpitem. W widoku z oczu podejdź do kabiny i naciśnij <kbd>F</kbd> (albo kliknij podpowiedź) — siadasz za sterami i widzisz kokpit: tablicę z zegarami, drążek, wiatrochron i kręcące się śmigło. Myszą rozglądasz się po kabinie, także na boki i za siebie.</li>
+          <li>Sterowanie: <kbd>Shift</kbd> dodaje gazu, <kbd>Ctrl</kbd> zmniejsza, <kbd>W</kbd>/<kbd>S</kbd> to ster wysokości (nos w dół i w górę), <kbd>A</kbd>/<kbd>D</kbd> przechyla — przechył zakręca maszyną — a <kbd>Q</kbd>/<kbd>E</kbd> to ster kierunku. Na ziemi samolot kołuje; po rozpędzeniu odrywa się od ziemi, gdy ściągniesz nos. Puszczone stery same wracają do lotu poziomego.</li>
+          <li>Latasz nad planszą i okolicznym krajobrazem. Żeby <b>wysiąść</b>, wyląduj na planszy, zatrzymaj maszynę i naciśnij <kbd>F</kbd>. Samolot zostaje tam, gdzie go zostawisz, a Ty stajesz obok kadłuba.</li>
+          <li>Na telefonie joystick steruje przechyłem i nosem, a przyciski <b>Gaz +</b> i <b>Gaz −</b> po prawej zmieniają obroty.</li>
+        </ul>
         <h3>Stawianie i układanie</h3>
         <ul>
           <li>Kliknięcie elementu w bibliotece włącza <b>podgląd</b>: półprzezroczysty obiekt z okręgiem idzie za kursorem. Kliknij scenę, aby postawić, <kbd>R</kbd> lub kółko myszy obraca, <kbd>Shift</kbd>+klik stawia kilka sztuk, <kbd>Esc</kbd> albo prawy przycisk anuluje.</li>

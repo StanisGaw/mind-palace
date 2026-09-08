@@ -36,6 +36,12 @@ npm run build        # produkcyjny build do dist/
   ożywają w trybie chodzenia: pies podbiega i siada, kot ucieka, wiewiórka wspina się na drzewo,
   wilk warczy z dystansu, smok krąży, przelatuje nad głową i zionie ogniem. Świetliki, owady i motyle to roje
   cząstek krążące wokół znacznika (słoik, ul, kępa kwiatów).
+- **Samolot** — obiekt z biblioteki (Przedmioty). W spacerze podejdź do kokpitu i naciśnij `F`, żeby wsiąść:
+  kamera siada w otwartym kokpicie (tablica z zegarami, drążek, wiatrochron, kręcące się śmigło), a myszą
+  rozglądasz się po kabinie. `Shift`/`Ctrl` — gaz, `W`/`S` — ster wysokości, `A`/`D` — przechył (przechył
+  zakręca), `Q`/`E` — ster kierunku. Powyżej prędkości startowej maszyna odrywa się od ziemi; latasz nad
+  planszą i okolicznym terenem (w locie mgła cofa się, żeby było widać krajobraz). Wysiadka (`F`) wymaga
+  postoju na planszy — samolot zostaje tam, gdzie stanął.
 - **Elewacja i dekoracje** — budynki mają wbudowane okna z szybami, te same na bryle, w powłoce
   w miejscu i w pokoju ładowanym (z widokiem „dnia” za szybą). Okno, balkon i taras z biblioteki
   stawia się na murze budynku z wnętrzem w miejscu (mur dostaje otwór; balkon na piętrze, taras przy
