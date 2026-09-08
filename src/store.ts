@@ -505,7 +505,7 @@ export const useStore = create<State>((set, get) => ({
         if (!o) return;
         o.interiorMode = 'inplace';
         o.floors = o.floors ?? SHELLS[o.type]?.defaultFloors ?? 1;
-        o.shellVersion = 2;
+        o.shellVersion = 3;
         o.finish = o.finish ?? DEFAULT_FINISH;
         o.scale = bumped;
       });
@@ -644,7 +644,7 @@ export const useStore = create<State>((set, get) => ({
         rotation: yawRotation(rotationY ?? (item.unique ? Math.atan2(pos[0], pos[2]) : 0)),
         scale: finalScale,
         anchorId,
-        ...(shell ? { interiorMode: 'inplace' as const, floors: shell.defaultFloors, shellVersion: 2 as const, finish: DEFAULT_FINISH } : {}),
+        ...(shell ? { interiorMode: 'inplace' as const, floors: shell.defaultFloors, shellVersion: 3 as const, finish: DEFAULT_FINISH } : {}),
       });
     });
     set({ selectedIds: [id], ...(get().placing ? {} : { leftTab: 'scene' as const }) });

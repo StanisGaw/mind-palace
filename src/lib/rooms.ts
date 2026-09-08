@@ -231,13 +231,17 @@ export interface ShellSpec {
   maxFloors: number;
 }
 
+/** Promień wewnętrznego lica muru wieży (jednostki modelu). */
+export const TOWER_R = 1.0;
+
 export const SHELLS: Record<string, ShellSpec> = {
   house: { inner: { w: 1.88, d: 1.68, h: 1.4 }, cx: 0, cz: 0, floorY: 0.16, door: { x: -0.4, z: 0.9, w: 0.5, h: 1.0 }, minScale: 2.0, defaultFloors: 1, maxFloors: 2 },
   palace: { inner: { w: 3.28, d: 2.28, h: 1.9 }, cx: 0, cz: -0.2, floorY: 0.44, door: { x: 0, z: 1.0, w: 0.6, h: 1.1 }, minScale: 1.7, defaultFloors: 1, maxFloors: 2 },
   library: { inner: { w: 3.08, d: 2.28, h: 1.7 }, cx: 0, cz: -0.2, floorY: 0.24, door: { x: 0, z: 1.0, w: 0.7, h: 1.15 }, minScale: 1.65, defaultFloors: 1, maxFloors: 2 },
   temple: { inner: { w: 2.4, d: 2.0, h: 1.5 }, cx: 0, cz: 0, floorY: 0.36, minScale: 1.6, defaultFloors: 1, maxFloors: 1 },
-  // wieża: kondygnacja 1,2 (3 m przy skali 2,5); trzy kondygnacje dają dotychczasową sylwetkę
-  tower: { inner: { w: 1.4, d: 1.4, h: 1.2 }, cx: 0, cz: 0, floorY: 0.3, door: { x: 0, z: 0.8, w: 0.43, h: 1.0 }, minScale: 2.5, defaultFloors: 3, maxFloors: 4 },
+  // wieża: mur o promieniu TOWER_R, kondygnacja 1,4 (3,5 m przy skali 2,5) — węższa i niższa była za ciasna
+  // dla postaci obok kręconych schodów
+  tower: { inner: { w: 2.0, d: 2.0, h: 1.4 }, cx: 0, cz: 0, floorY: 0.3, door: { x: 0, z: 1.0, w: 0.43, h: 1.0 }, minScale: 2.5, defaultFloors: 3, maxFloors: 4 },
 };
 
 /** Budynek z wnętrzem w tej samej scenie (bez ładowania osobnego pałacu). */
@@ -355,8 +359,8 @@ export function facadeWallsOf(type: string): FacadeWall[] {
   const spec = SHELLS[type];
   if (!spec) return [];
   if (type === 'tower') {
-    const r = 0.8 + 0.05;
-    const side = 2 * 0.8 * Math.tan(Math.PI / 12);
+    const r = TOWER_R + 0.05;
+    const side = 2 * TOWER_R * Math.tan(Math.PI / 12);
     return Array.from({ length: 12 }, (_, i) => {
       const a = (i / 12) * Math.PI * 2;
       return { key: `seg${i}`, cx: Math.sin(a) * r, cz: Math.cos(a) * r, nx: Math.sin(a), nz: Math.cos(a), tx: Math.cos(a), tz: -Math.sin(a), half: side / 2 };

@@ -207,23 +207,26 @@ const OLD_INNER_H: Record<string, number> = { house: 1.4, palace: 1.9, library: 
  */
 function migrateShellFloors(objects: PalaceObject[]) {
   for (const b of objects) {
-    if (b.interiorMode !== 'inplace' || b.shellVersion === 2) continue;
+    if (b.interiorMode !== 'inplace' || b.shellVersion === 3) continue;
     const spec = SHELLS[b.type];
     if (!spec) continue;
     const oldFloors = Math.max(1, b.floors ?? 1);
     const sy = b.scale[1];
-    const hOld = ((OLD_INNER_H[b.type] ?? spec.inner.h) * sy) / oldFloors;
+    // wersja 2 różni się od 3 tylko wysokością kondygnacji wieży (1,2 → 1,4)
+    const hOld = b.shellVersion === 2 ? (b.type === 'tower' ? 1.2 : spec.inner.h) * sy : ((OLD_INNER_H[b.type] ?? spec.inner.h) * sy) / oldFloors;
     const hNew = spec.inner.h * sy;
     const base = b.position[1] + spec.floorY * sy;
-    for (const o of objects) {
-      if (o.id === b.id || buildingOf(objects, o)?.id !== b.id) continue;
-      const k = Math.max(0, Math.floor((o.position[1] - base + 0.05) / hOld));
-      o.position[1] = base + k * hNew + (o.position[1] - base - k * hOld);
+    if (hOld !== hNew) {
+      for (const o of objects) {
+        if (o.id === b.id || buildingOf(objects, o)?.id !== b.id) continue;
+        const k = Math.max(0, Math.floor((o.position[1] - base + 0.05) / hOld));
+        o.position[1] = base + k * hNew + (o.position[1] - base - k * hOld);
+      }
     }
     // dawna wieża miała jedną bryłę 3,6 — teraz to trzy kondygnacje
-    if (b.type === 'tower') b.floors = Math.max(spec.defaultFloors, oldFloors);
+    if (b.type === 'tower' && b.shellVersion !== 2) b.floors = Math.max(spec.defaultFloors, oldFloors);
     b.floors = Math.min(spec.maxFloors, Math.max(1, b.floors ?? 1));
-    b.shellVersion = 2;
+    b.shellVersion = 3;
   }
 }
 

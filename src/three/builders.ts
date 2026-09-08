@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { buildAnimalBody, type AnimalKind } from './wildlife';
-import { DOOR_OPENING, FACADE, SHELLS, SHELL_WALL_T, WALL_SEGMENT, WALL_THICKNESS, facadeWallsOf, shellWindowHoles, type FacadeWall, type Opening, type ShellSpec, type WallHole } from '../lib/rooms';
+import { DOOR_OPENING, FACADE, SHELLS, SHELL_WALL_T, TOWER_R, WALL_SEGMENT, WALL_THICKNESS, facadeWallsOf, shellWindowHoles, type FacadeWall, type Opening, type ShellSpec, type WallHole } from '../lib/rooms';
 import { subtractRect, type Rect } from './interior';
 import { paintingTexture } from './art';
 import { grainTexture, textureById } from './textures';
@@ -478,13 +478,13 @@ function buildTemple(g: THREE.Group, ctx: BuildCtx) {
 
 function buildTower(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.tower;
-  add(g, cyl(1.0, 1.1, 0.3, 12), mat(C.stone), 0, 0.15, 0);
+  const r = TOWER_R;
+  add(g, cyl(r + 0.2, r + 0.3, 0.3, 12), mat(C.stone), 0, 0.15, 0);
   const floorFinish = finishMat(ctx.finish?.floor, C.stone);
   const lining = ctx.finish?.wall ? finishMat(ctx.finish.wall, C.cream) : undefined;
-  const floor = add(g, scaleUv(cyl(0.72, 0.72, 0.04, 12), 1.44, 1.44), floorFinish, 0, spec.floorY - 0.01, 0);
+  const floor = add(g, scaleUv(cyl(r - 0.06, r - 0.06, 0.04, 12), 2 * r, 2 * r), floorFinish, 0, spec.floorY - 0.01, 0);
   floor.userData.floorSurface = true;
   // mur z dwunastu segmentów o wysokości wszystkich kondygnacji; przedni ma otwór drzwi
-  const r = 0.8;
   const side = 2 * r * Math.tan(Math.PI / 12);
   const h = spec.inner.h;
   const floors = Math.max(1, ctx.floors ?? 1);
@@ -502,19 +502,20 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
     if (lining) shellLining(g, wallGeometry(-side / 2 - 0.01, side / 2 + 0.01, spec.floorY - 0.01, top, holes, LINING_T), lining, Math.sin(a) * (r - 0.05 - LINING_T / 2 - 0.002), Math.cos(a) * (r - 0.05 - LINING_T / 2 - 0.002), a, [Math.sin(a), Math.cos(a)]);
   }
   shellLeaf(g, door, spec.floorY, mat(C.dark));
-  shellEntryRamp(g, spec, 1.5);
-  // wieża ma wbudowane kręcone schody wzdłuż muru: bez nich piętra byłyby nieosiągalne
+  shellEntryRamp(g, spec, r + 0.7);
+  // wieża ma wbudowane kręcone schody wzdłuż muru: bez nich piętra byłyby nieosiągalne; bieg 0,5 szerokości
+  // zostawia pośrodku wolne koło o promieniu ~1 (2,6 m średnicy przy skali 2,5)
   const holes: Rect[][] = [];
   for (let k = 0; k < floors - 1; k++) {
-    const { hole } = spiralStairs(g, { cx: 0, cz: 0, r: 0.72, inner: 0.26, y0: spec.floorY + k * h, height: h, start: Math.PI / 2, turn: Math.PI * 1.5, steps: Math.max(8, Math.round((h * 2.5) / 0.27)) }, mat(C.stoneDark));
+    const { hole } = spiralStairs(g, { cx: 0, cz: 0, r: r - 0.08, inner: r - 0.58, y0: spec.floorY + k * h, height: h, start: Math.PI / 2, turn: Math.PI * 1.5, steps: Math.max(8, Math.round((h * 2.5) / 0.27)) }, mat(C.stoneDark));
     holes.push([hole]);
   }
-  shellSlabs(g, ctx, discRects(0.74), spec.floorY, h, floorFinish, holes);
+  shellSlabs(g, ctx, discRects(r - 0.06), spec.floorY, h, floorFinish, holes);
   const lift = top - 3.9; // gzyms i stożek siedzą na szczycie muru
   const roof = roofGroup(g, lift);
-  add(roof, cyl(0.9, 0.9, 0.22, 12), mat(C.cream2), 0, 3.9 + 0.11, 0);
-  add(roof, cone(0.98, 1.4, 12), mat(C.roof), 0, 4.12 + 0.7, 0);
-  add(roof, sphere(0.1), mat(C.domeDark), 0, 5.55, 0);
+  add(roof, cyl(r + 0.1, r + 0.1, 0.22, 12), mat(C.cream2), 0, 3.9 + 0.11, 0);
+  add(roof, cone(r + 0.18, 1.5, 12), mat(C.roof), 0, 4.12 + 0.75, 0);
+  add(roof, sphere(0.1), mat(C.domeDark), 0, 5.62, 0);
 }
 
 function buildHouse(g: THREE.Group, ctx: BuildCtx) {
@@ -1363,7 +1364,7 @@ export const DOORS: Record<string, { local: [number, number, number]; outside: [
   palace: { local: [0, 0.44, 1.0], outside: [0, 0, 3.1] },
   library: { local: [0, 0.24, 1.0], outside: [0, 0, 3.0] },
   temple: { local: [0, 0.36, 0.9], outside: [0, 0, 2.6] },
-  tower: { local: [0, 0.3, 0.85], outside: [0, 0, 2.4] },
+  tower: { local: [0, 0.3, 1.05], outside: [0, 0, 2.8] },
   house: { local: [-0.4, 0.16, 0.92], outside: [-0.4, 0, 2.4] },
 };
 
