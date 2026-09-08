@@ -37,6 +37,12 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         <ul>
           <li>Przycisk <b>Otoczenie</b> zawiera kształt planszy (prostokąt, koło, sześciokąt) i jej wymiary, wybór nawierzchni (w tym własne obrazy) oraz zapisane zestawy krajobrazu.</li>
           <li>Zestaw można zapisać („Zapisz bieżący jako…") i zastosować jednym kliknięciem w innym pałacu.</li>
+          <li><b>Ścieżki</b> (Konstrukcja) rysujesz jak ścianki: klik początek, klik koniec, z <kbd>Shift</kbd> kolejny odcinek od końca poprzedniego. Cały ciąg jest jedną grupą; nawierzchnię (żwir, kostka, kamienie, deski…) i szerokość (skala Z) ustawisz w panelu odcinka.</li>
+        </ul>
+        <h3>Materiały i kolory</h3>
+        <ul>
+          <li>Sekcja <b>Materiały</b> w panelu obiektu pokazuje warstwy, z których zbudowany jest model (drewno, kamień, tkanina, dach…). Każdej zmienisz kolor; „↺” przywraca domyślny. Obiekty z drewnem mają szybkie odcienie: dąb, sosna, orzech, wiśnia, heban, bielone. Kopie dziedziczą kolory.</li>
+          <li>Wnętrze budynku w miejscu ma w panelu budynku wybór <b>podłogi</b> (parkiet, panele, marmur, beton, płytki, dywan…) i <b>ścian</b> (tynk, boazeria, tapety, cegła, kamień). W pokoju ładowanym to samo ustawisz w Otoczeniu („Podłoga”, „Ściany”). Własne obrazy działają wszędzie.</li>
         </ul>
         <h3>Zwierzęta</h3>
         <ul>
@@ -46,7 +52,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         <h3>Wnętrza budynków</h3>
         <ul>
           <li>Budynek ma wnętrze w jednym z dwóch trybów (panel budynku, „Wnętrze”). <b>W budynku</b> (domyślnie dla nowych): wnętrze jest w tej samej scenie — w widoku z oczu podchodzisz do drzwi, naciskasz <kbd>F</kbd> albo klikasz i po prostu wchodzisz. W edytorze kliknięcie budynku chowa mu dach i ściany od strony kamery; obiekty stawiasz na jego podłodze (jadą z nim razem), piętra dodajesz w panelu i przełączasz, które edytujesz — każde piętro podwyższa bryłę (domek, biblioteka i pałac do 2, wieża do 4). Klik w pustkę przywraca dach.</li>
-          <li><b>Elewacja</b>: okno, balkon i taras z Konstrukcji stawia się na murze budynku z wnętrzem w miejscu — podgląd przyciąga się do ściany na edytowanym piętrze, a mur dostaje otwór. Balkon tylko na piętrze (z wyjściem), taras tylko przy parterze (z wyjściem i schodkami), okno wszędzie.</li>
+          <li>Każdy budynek ma <b>wbudowane okna</b> z szybami — te same na bryle, od środka w budynku w miejscu i w pokoju ładowanym (za szybą widać dzień). <b>Elewacja</b>: okno, balkon i taras z Konstrukcji stawia się dodatkowo na murze budynku z wnętrzem w miejscu — podgląd przyciąga się do ściany na edytowanym piętrze, a mur dostaje otwór. Balkon tylko na piętrze (z wyjściem), taras tylko przy parterze (z wyjściem i schodkami), okno wszędzie poza miejscem wbudowanych okien.</li>
           <li><b>Osobna scena</b> (dla dużych wnętrz i starszych pałaców): wnętrze to własny pokój z osobnymi przedmiotami. W edytorze „Wejdź do środka” albo dwuklik; z oczu <kbd>F</kbd> przy drzwiach. Po wejściu stajesz tuż za progiem, po wyjściu przed drzwiami. Ścieżka okruszków u góry pokazuje, gdzie jesteś.</li>
           <li>Skala budynku z wnętrzem w miejscu jest podnoszona do minimum, przy którym mieścisz się w drzwiach; większa skala daje przestronniejsze wnętrze. Usunięcie budynku kasuje też to, co w nim stoi.</li>
         </ul>

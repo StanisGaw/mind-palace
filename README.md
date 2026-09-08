@@ -23,14 +23,22 @@ npm run build        # produkcyjny build do dist/
   Przyciski kamery: wyśrodkuj (`F`), rzut z góry (`T`), pełny ekran. Podpowiedzi po najechaniu na przyciski.
 - **Układanie i kotwiczenie** — obiekty można stawiać na innych; postawiony przedmiot przesuwa się
   i obraca razem z podstawą. Stawianie działa też poza planszą, na okolicznym terenie.
-- **Plansza i nawierzchnia** — kształt płyty (prostokąt, koło, sześciokąt), jej wymiary, osiem
-  proceduralnych nawierzchni oraz własne obrazy jako tekstura. Zestawy otoczenia można zapisywać
-  i wczytywać jako „krajobrazy".
+- **Plansza i nawierzchnia** — kształt płyty (prostokąt, koło, sześciokąt), jej wymiary, kilkanaście
+  proceduralnych nawierzchni (trawa, żwir, kostka, kamienie polne, kora…) oraz własne obrazy jako
+  tekstura. Zestawy otoczenia można zapisywać i wczytywać jako „krajobrazy". **Ścieżki** rysuje się
+  odcinek po odcinku jak ścianki — z własną nawierzchnią i szerokością, cały ciąg jako jedna grupa.
+- **Materiały i kolory** — każdy obiekt pokazuje w panelu swoje warstwy materiału (drewno, kamień,
+  tkanina, dach…) z wyborem koloru i gotowymi odcieniami drewna (dąb, sosna, orzech, wiśnia, heban,
+  bielone); warstwy drewniane mają słoje. Wnętrza mają tekstury podłogi (parkiet, panele, marmur,
+  beton, płytki, dywan) i ścian (tynk, boazeria, tapety, cegła, kamień) — osobno dla pokoju ładowanego
+  i dla każdego budynku z wnętrzem w miejscu.
 - **Zwierzęta** — punkty pojawiania (ptaki, pies, kot, wiewiórka, wilk, smok) stawiane w edytorze
   ożywają w trybie chodzenia: pies podbiega i siada, kot ucieka, wiewiórka wspina się na drzewo,
   wilk warczy z dystansu, smok krąży, przelatuje nad głową i zionie ogniem.
-- **Elewacja i dekoracje** — okno, balkon i taras stawia się na murze budynku z wnętrzem w miejscu
-  (mur dostaje otwór; balkon na piętrze, taras przy parterze); każde piętro podwyższa bryłę budynku.
+- **Elewacja i dekoracje** — budynki mają wbudowane okna z szybami, te same na bryle, w powłoce
+  w miejscu i w pokoju ładowanym (z widokiem „dnia” za szybą). Okno, balkon i taras z biblioteki
+  stawia się na murze budynku z wnętrzem w miejscu (mur dostaje otwór; balkon na piętrze, taras przy
+  parterze); każde piętro podwyższa bryłę budynku.
   Wyposażenie: obrazy z generowanym płótnem, popiersie, kominek, fotel, sofa, łóżko, biurko, kredens,
   zegar, lustro, wazon, zasłony; z nich siedem gotowych układów pokoi.
 - **Wnętrza budynków** — dwa tryby. *W budynku* (domyślny dla nowych): wnętrze w tej samej scenie,
