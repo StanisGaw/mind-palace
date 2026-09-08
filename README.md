@@ -29,15 +29,17 @@ npm run build        # produkcyjny build do dist/
 - **Zwierzęta** — punkty pojawiania (ptaki, pies, kot, wiewiórka, wilk, smok) stawiane w edytorze
   ożywają w trybie chodzenia: pies podbiega i siada, kot ucieka, wiewiórka wspina się na drzewo,
   wilk warczy z dystansu, smok krąży, przelatuje nad głową i zionie ogniem.
-- **Wnętrza budynków** — każdy budynek ma własną scenę-pokój z osobnymi przedmiotami i notatkami.
-  W edytorze: przycisk „Wejdź do środka" albo dwuklik na budynku. W widoku z oczu: podejdź do drzwi i `F`.
-  Po wejściu stajesz tuż za progiem twarzą w głąb pomieszczenia, po wyjściu — przed drzwiami, plecami
-  do budynku. Element „Brama wejściowa" wyznacza miejsce startu spaceru po głównej planszy.
-  Ścieżka okruszków u góry pokazuje, gdzie jesteś; usunięcie budynku kasuje jego wnętrze.
+- **Wnętrza budynków** — dwa tryby. *W budynku* (domyślny dla nowych): wnętrze w tej samej scenie,
+  w spacerze otwierasz drzwi (`F` lub klik) i wchodzisz; w edytorze klik w budynek chowa dach i ściany od
+  strony kamery, obiekty stawia się na jego podłodze, piętra (1–4) i piętro do edycji są w panelu budynku.
+  *Osobna scena*: własny pokój z osobnymi przedmiotami — „Wejdź do środka" albo dwuklik, z oczu `F` przy
+  drzwiach; po wejściu stajesz za progiem, po wyjściu przed drzwiami. Element „Brama wejściowa" wyznacza
+  start spaceru po planszy. Usunięcie budynku kasuje jego wnętrze i to, co w nim stoi.
 - **Kreator wnętrz** — układ pokoju to zwykłe obiekty biblioteki z kategorii „Konstrukcja": ściana
-  działowa (rysowana dwoma kliknięciami: początek i koniec, `Shift` ciągnie kolejną, `Esc` anuluje),
-  drzwi (stawiane w ściance działowej — ścianka dostaje otwór, `R` zmienia stronę zawiasów), okno
-  (przyciąga się do najbliższej ściany), schody. Panel „Piętra" ustawia liczbę
+  działowa (rysowana dwoma kliknięciami: początek i koniec, `Shift` ciągnie kolejną, `Esc` anuluje;
+  współliniowe ścianki scalają się w jeden obiekt), drzwi (stawiane w ściance działowej — ścianka dostaje
+  otwór, `R` zmienia stronę zawiasów), schody, lampa sufitowa. Obiekty można grupować („Grupuj" w panelu
+  zaznaczenia): grupa zaznacza się, przesuwa i znika jako całość. Panel „Piętra" ustawia liczbę
   kondygnacji (1–4) budynku i piętro do edycji; schody robią otwór w stropie i prowadzą wyżej. Puste
   wnętrze proponuje gotowe układy pokoju (wbudowane i własne) — „Zastosuj" zastępuje obiekty bez
   notatek, „Zapisz obecny układ" zachowuje bieżące rozmieszczenie do ponownego użycia. Drzwi otwiera

@@ -45,13 +45,13 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         </ul>
         <h3>Wnętrza budynków</h3>
         <ul>
-          <li>Każdy budynek ma własne wnętrze — osobną scenę z własnymi przedmiotami i notatkami. W edytorze kliknij budynek i wybierz <b>Wejdź do środka</b> albo kliknij go dwukrotnie.</li>
-          <li>W widoku z oczu podejdź do drzwi i naciśnij <kbd>F</kbd> lub kliknij drzwi. Po wejściu stajesz tuż za progiem twarzą w głąb pomieszczenia, a po wyjściu — przed drzwiami, plecami do budynku.</li>
-          <li>Ścieżka okruszków u góry pokazuje, gdzie jesteś. Usunięcie budynku kasuje też jego wnętrze.</li>
+          <li>Budynek ma wnętrze w jednym z dwóch trybów (panel budynku, „Wnętrze”). <b>W budynku</b> (domyślnie dla nowych): wnętrze jest w tej samej scenie — w widoku z oczu podchodzisz do drzwi, naciskasz <kbd>F</kbd> albo klikasz i po prostu wchodzisz. W edytorze kliknięcie budynku chowa mu dach i ściany od strony kamery; obiekty stawiasz na jego podłodze (jadą z nim razem), piętra dodajesz w panelu i przełączasz, które edytujesz. Klik w pustkę przywraca dach.</li>
+          <li><b>Osobna scena</b> (dla dużych wnętrz i starszych pałaców): wnętrze to własny pokój z osobnymi przedmiotami. W edytorze „Wejdź do środka” albo dwuklik; z oczu <kbd>F</kbd> przy drzwiach. Po wejściu stajesz tuż za progiem, po wyjściu przed drzwiami. Ścieżka okruszków u góry pokazuje, gdzie jesteś.</li>
+          <li>Skala budynku z wnętrzem w miejscu jest podnoszona do minimum, przy którym mieścisz się w drzwiach; większa skala daje przestronniejsze wnętrze. Usunięcie budynku kasuje też to, co w nim stoi.</li>
         </ul>
         <h3>Kreator wnętrz</h3>
         <ul>
-          <li>We wnętrzu biblioteka ma dodatkową kategorię <b>Konstrukcja</b>: ściana działowa, drzwi, okno i schody. To zwykłe obiekty — można je przesuwać, cofać i usuwać jak wszystko inne.</li>
+          <li>Kategoria <b>Konstrukcja</b> (ściana działowa, drzwi, schody) jest dostępna we wnętrzu i na planszy — na planszy służy budynkom z wnętrzem w miejscu. To zwykłe obiekty — można je przesuwać, cofać i usuwać jak wszystko inne. Lampy sufitowe („Lampa sufitowa” w Oświetleniu) też są obiektami: stoją na podłodze piętra, a świecą pod jego sufitem.</li>
           <li><b>Ścianę działową</b> rysujesz dwoma kliknięciami: pierwsze wskazuje początek, drugie koniec (można też przeciągnąć). Końce przyciągają się do siatki, innych ścianek i ścian pokoju, a kąt do wielokrotności 15°. Z <kbd>Shift</kbd> kolejna ścianka zaczyna się tam, gdzie skończyła poprzednia; <kbd>Esc</kbd> cofa początek albo kończy rysowanie.</li>
           <li><b>Drzwi</b> stawia się w ściance działowej — podgląd sam przyciąga się do jej osi, a ścianka dostaje otwór. <kbd>R</kbd> albo kółko myszy w trakcie stawiania (i przycisk „Zawiasy z drugiej strony" w panelu) zmienia stronę, w którą otwiera się skrzydło. Przesuwane drzwi jadą po ściance; usunięcie ścianki usuwa też jej drzwi.</li>
           <li>Puste wnętrze proponuje gotowe <b>układy pokoju</b> po lewej stronie — wybierz jeden i kliknij „Zastosuj". Układ zastąpi obiekty bez notatek; te z notatkami zawsze zostają. Przycisk „Zapisz obecny układ" zachowuje bieżące rozmieszczenie do ponownego użycia w innym budynku.</li>
