@@ -319,6 +319,7 @@ function EnvironmentMenu() {
             <I.Spark width={13} height={13} /> Losuj ukształtowanie terenu
           </button>
           {palace.interior ? <FloorsSection /> : <GroundSection />}
+          {!palace.interior && <ActiveBuildingSection />}
           <TextureSection />
           {!palace.interior && <LandscapeSection />}
         </div>
@@ -414,6 +415,41 @@ function FloorsSection() {
             − Mniej
           </button>
           <button className="shape-btn" onClick={() => setFloors(floors + 1)} disabled={floors >= 4}>
+            + Więcej
+          </button>
+        </div>
+      </label>
+      <div className="shape-row">
+        {Array.from({ length: floors }, (_, i) => (
+          <button key={i} className={'shape-btn' + (editFloor === i ? ' on' : '')} onClick={() => setEditFloor(i)}>
+            {i === 0 ? 'Parter' : `Piętro ${i}`}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Piętra aktywnego budynku z wnętrzem w miejscu (na planszy). */
+function ActiveBuildingSection() {
+  const palace = useCurrentPalace();
+  const activeBuildingId = useStore((s) => s.activeBuildingId);
+  const editFloor = useStore((s) => s.editFloor);
+  const setEditFloor = useStore((s) => s.setEditFloor);
+  const setBuildingFloors = useStore((s) => s.setBuildingFloors);
+  const b = palace.objects.find((o) => o.id === activeBuildingId);
+  if (!b || b.interiorMode !== 'inplace') return null;
+  const floors = b.floors ?? 1;
+  return (
+    <div className="env-section">
+      <span className="env-title">Piętra: {b.name}</span>
+      <label>
+        <span>Liczba pięter: {floors}</span>
+        <div className="shape-row">
+          <button className="shape-btn" onClick={() => setBuildingFloors(b.id, floors - 1)} disabled={floors <= 1}>
+            − Mniej
+          </button>
+          <button className="shape-btn" onClick={() => setBuildingFloors(b.id, floors + 1)} disabled={floors >= 4}>
             + Więcej
           </button>
         </div>

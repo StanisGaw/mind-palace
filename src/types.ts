@@ -30,6 +30,8 @@ export interface PalaceObject {
   interiorId?: string; // id pałacu-wnętrza (tylko budynki)
   anchorId?: string; // obiekt, na którym stoi ten obiekt (rusza się razem z nim)
   groupId?: string; // grupa: kliknięcie zaznacza wszystkich członków, ruszają się i giną razem
+  interiorMode?: 'inplace'; // budynek: wnętrze w tej samej scenie (brak = osobny pałac-wnętrze)
+  floors?: number; // budynek z wnętrzem w miejscu: liczba kondygnacji (1–4)
 }
 
 /** Wymiary proceduralnego wnętrza budynku. */

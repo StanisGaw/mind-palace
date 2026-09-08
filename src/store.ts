@@ -5,7 +5,7 @@ import { uid } from './lib/ids';
 import { yawRotation } from './lib/transform';
 import { getPref, setPref } from './lib/prefs';
 import { chainOf, collectSubtree, loadData, makeInteriorPalace, makePalace, rootOf, saveData } from './lib/storage';
-import { DOOR_SLOT, FLOOR_MAX, clampToRoom, doorRange, doorSlotFree, floorOf, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt } from './lib/rooms';
+import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingFloorY, buildingOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt } from './lib/rooms';
 import { ROOM_PRESETS, capturePreset, instantiatePreset } from './lib/presets';
 import { loadCustomPresets, saveCustomPresets } from './lib/presetStore';
 import { isDue, newSrs, reviewSrs } from './lib/srs';
@@ -52,6 +52,7 @@ interface State {
   placing: { type: string } | null; // element wybrany z biblioteki, czeka na kliknięcie w scenie
   sound: SoundLevels; // głośność dźwięków otoczenia; trzymana w preferencjach, nie w danych pałacu
   editFloor: number; // piętro edytowane w edytorze (nieutrwalane — zerowane przy zmianie sceny)
+  activeBuildingId: string | null; // budynek z wnętrzem w miejscu, któremu edytor chowa dach (nieutrwalane)
   customPresets: RoomPreset[]; // własne układy pokoi, poza danymi pałacu (jak własne tekstury)
 
   palace(): Palace;
@@ -64,6 +65,9 @@ interface State {
   exitInterior(): void;
   setDoorPrompt(p: State['doorPrompt']): void;
   setEditFloor(n: number): void;
+  setActiveBuilding(id: string | null): void;
+  setBuildingFloors(id: string, n: number): void;
+  setInteriorMode(id: string, mode: 'inplace' | 'nested'): void;
   setFloors(n: number): void;
   // presety pokoi
   applyRoomPreset(id: string): void;
@@ -330,6 +334,7 @@ export const useStore = create<State>((set, get) => ({
   placing: null,
   sound: initialSound(),
   editFloor: 0,
+  activeBuildingId: null,
   customPresets: loadCustomPresets(),
 
   palace() {
@@ -369,6 +374,12 @@ export const useStore = create<State>((set, get) => ({
     const parent = get().palace();
     const obj = parent.objects.find((o) => o.id === objectId);
     if (!obj || !hasInterior(obj.type)) return;
+    if (isInPlace(obj)) {
+      // wnętrze jest w tej scenie: wystarczy odsłonić budynek i podjechać kamerą
+      get().setActiveBuilding(objectId);
+      get().camera('center');
+      return;
+    }
     let interiorId = obj.interiorId;
     let palaces = d.palaces;
     if (!interiorId || !palaces.some((p) => p.id === interiorId)) {
@@ -430,9 +441,69 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setEditFloor(n) {
-    const floors = get().palace().interior?.floors ?? 1;
+    const p = get().palace();
+    const active = p.objects.find((o) => o.id === get().activeBuildingId);
+    const floors = p.interior?.floors ?? active?.floors ?? 1;
     const clamped = Math.min(floors - 1, Math.max(0, Math.round(n)));
     if (get().editFloor !== clamped) set({ editFloor: clamped });
+  },
+  setActiveBuilding(id) {
+    if (get().activeBuildingId === id) return;
+    set({ activeBuildingId: id, editFloor: 0 });
+  },
+  setBuildingFloors(id, n) {
+    const p = get().palace();
+    const b = p.objects.find((o) => o.id === id);
+    if (!b || !isInPlace(b)) return;
+    const floors = Math.min(FLOOR_MAX, Math.max(1, Math.round(n)));
+    const cur = b.floors ?? 1;
+    if (floors === cur) return;
+    if (floors < cur && p.objects.some((o) => buildingOf(p.objects, o)?.id === id && floorOfIn(b, o.position[1]) >= floors)) {
+      get().showToast('Na usuwanym piętrze stoją obiekty — najpierw je przenieś albo usuń.');
+      return;
+    }
+    get().setPalace((pl) => {
+      const o = pl.objects.find((x) => x.id === id);
+      if (o) o.floors = floors;
+    });
+    if (get().activeBuildingId === id && get().editFloor > floors - 1) set({ editFloor: floors - 1 });
+  },
+  setInteriorMode(id, mode) {
+    const p = get().palace();
+    const b = p.objects.find((o) => o.id === id);
+    if (!b || !hasInterior(b.type)) return;
+    if (mode === 'inplace' && isInPlace(b)) return;
+    if (mode === 'nested' && !isInPlace(b)) return;
+    if (mode === 'inplace') {
+      const inside = b.interiorId ? get().data.palaces.find((x) => x.id === b.interiorId) : undefined;
+      if (inside && inside.objects.some((o) => o.type !== 'ceiling_lamp')) {
+        get().showToast('Osobne wnętrze ma już wyposażenie — najpierw je opróżnij.');
+        return;
+      }
+      const min = SHELLS[b.type]?.minScale ?? 1;
+      const bumped = b.scale.map((v) => Math.max(v, min)) as Vec3;
+      get().setPalace((pl) => {
+        const o = pl.objects.find((x) => x.id === id);
+        if (!o) return;
+        o.interiorMode = 'inplace';
+        o.floors = o.floors ?? 1;
+        o.scale = bumped;
+      });
+      if (bumped.some((v, i) => v !== b.scale[i])) get().showToast(`Skala budynku podniesiona do ${min}, żeby dało się wejść do środka.`);
+      get().setActiveBuilding(id);
+      return;
+    }
+    if (p.objects.some((o) => buildingOf(p.objects, o)?.id === id)) {
+      get().showToast('W budynku stoją obiekty — najpierw je wynieś albo usuń.');
+      return;
+    }
+    get().setPalace((pl) => {
+      const o = pl.objects.find((x) => x.id === id);
+      if (!o) return;
+      delete o.interiorMode;
+      delete o.floors;
+    });
+    if (get().activeBuildingId === id) get().setActiveBuilding(null);
   },
 
   setFloors(n) {
@@ -541,8 +612,20 @@ export const useStore = create<State>((set, get) => ({
         r += 2.2;
       }
     }
+    const shell = SHELLS[type];
+    // nowe budynki mają wnętrze w tej samej scenie i skalę, przy której gracz mieści się w drzwiach
+    const finalScale: Vec3 = shell ? ((scale ?? [1, 1, 1]).map((v) => Math.max(v, shell.minScale)) as Vec3) : (scale ?? [1, 1, 1]);
     get().setPalace((pl) => {
-      pl.objects.push({ id, type, name: item.name, position: pos, rotation: yawRotation(rotationY ?? (item.unique ? Math.atan2(pos[0], pos[2]) : 0)), scale: scale ?? [1, 1, 1], anchorId });
+      pl.objects.push({
+        id,
+        type,
+        name: item.name,
+        position: pos,
+        rotation: yawRotation(rotationY ?? (item.unique ? Math.atan2(pos[0], pos[2]) : 0)),
+        scale: finalScale,
+        anchorId,
+        ...(shell ? { interiorMode: 'inplace' as const, floors: 1 } : {}),
+      });
     });
     set({ selectedIds: [id], ...(get().placing ? {} : { leftTab: 'scene' as const }) });
     return id;
@@ -555,8 +638,12 @@ export const useStore = create<State>((set, get) => ({
   removeObjects(ids) {
     const doomed = new Set(ids);
     const p = get().palace();
-    // drzwi nie istnieją bez ścianki — giną razem z nią
-    for (const o of p.objects) if (o.type === 'door' && o.anchorId && doomed.has(o.anchorId)) doomed.add(o.id);
+    // drzwi nie istnieją bez ścianki — giną razem z nią; wyposażenie budynku w miejscu ginie razem z nim
+    for (const o of p.objects) {
+      if (o.type === 'door' && o.anchorId && doomed.has(o.anchorId)) doomed.add(o.id);
+      const b = buildingOf(p.objects, o);
+      if (b && doomed.has(b.id)) doomed.add(o.id);
+    }
     const victims = p.objects.filter((o) => doomed.has(o.id));
     if (victims.length === 0) return;
     get().setPalace((pl) => {
@@ -597,9 +684,11 @@ export const useStore = create<State>((set, get) => ({
       const o = pl.objects.find((x) => x.id === id);
       if (!o) return;
       const floorH = pl.interior ? (ROOMS[pl.interior.buildingType] ?? ROOMS.house).height : 0;
-      const groundY = pl.interior ? floorOf(o.position[1], floorH) * floorH : 0;
+      const building = buildingOf(pl.objects, o);
+      // w budynku z wnętrzem w miejscu „ziemia” to podłoga jego piętra, a kotwicą zostaje budynek
+      const groundY = building ? buildingFloorY(building, floorOfIn(building, o.position[1])) : pl.interior ? floorOf(o.position[1], floorH) * floorH : 0;
       const drop = o.position[1] - groundY;
-      o.anchorId = undefined;
+      o.anchorId = building?.id;
       o.position[1] = groundY;
       for (const k of descendants(pl.objects, id)) k.position[1] -= drop;
     });

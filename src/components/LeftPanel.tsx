@@ -57,10 +57,11 @@ function Library({ q }: { q: string }) {
   const isInterior = !!useCurrentPalace().interior;
   const [collapsed, setCollapsed] = usePref<string[]>('libCollapsed', []);
   const [hidden, setHidden] = usePref<string[]>('libHidden', []);
-  // we wnętrzu nie stawiamy budynków, gór ani bramy; wyposażenie idzie na wierzch
+  // we wnętrzu nie stawiamy budynków, gór ani bramy; wyposażenie idzie na wierzch. Na planszy Konstrukcja
+  // (ścianki, drzwi, schody) służy budynkom z wnętrzem w miejscu
   const cats: Category[] = isInterior
     ? (['structure', 'furniture', ...CATEGORY_ORDER.filter((c) => !['building', 'landscape', 'special', 'furniture', 'structure'].includes(c))] as Category[])
-    : CATEGORY_ORDER.filter((c) => c !== 'structure');
+    : (['building', ...CATEGORY_ORDER.filter((c) => c !== 'building')] as Category[]);
   const searching = q.trim().length > 0;
   const filtered = useMemo(
     () => CATALOG.filter((c) => !c.hidden && (!q || c.name.toLowerCase().includes(q.toLowerCase()) || c.description.toLowerCase().includes(q.toLowerCase()))),

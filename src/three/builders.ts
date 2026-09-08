@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { buildAnimalBody, type AnimalKind } from './wildlife';
-import { DOOR_OPENING, SHELLS, WALL_SEGMENT, WALL_THICKNESS, type ShellSpec } from '../lib/rooms';
+import { DOOR_OPENING, SHELLS, WALL_SEGMENT, WALL_THICKNESS, type Opening, type ShellSpec } from '../lib/rooms';
+import { subtractRect, type Rect } from './interior';
 
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
 export function mat(color: string, opts: { emissive?: string; roughness?: number; metalness?: number; flat?: boolean } = {}) {
@@ -113,25 +114,59 @@ function shellFloor(g: THREE.Group, w: number, d: number, x: number, y: number, 
   return f;
 }
 
+/** Ściana budynku: `wallNormal` (lokalny kierunek na zewnątrz) pozwala edytorowi chować ściany od strony kamery. */
+function shellWallPiece(g: THREE.Group, geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, normal: [number, number]) {
+  const mesh = add(g, geo, m, x, y, z);
+  mesh.userData.wallNormal = normal;
+  return mesh;
+}
+
 /** Ściana wzdłuż X (na `z`) z ewentualnym otworem na drzwi: słupki i nadproże, jak w ściance działowej. */
-function shellWallX(g: THREE.Group, x0: number, x1: number, y0: number, y1: number, z: number, m: THREE.Material, door?: { x: number; w: number; h: number }) {
+function shellWallX(g: THREE.Group, x0: number, x1: number, y0: number, y1: number, z: number, m: THREE.Material, normal: [number, number], door?: { x: number; w: number; h: number }) {
   const h = y1 - y0;
   if (!door) {
-    add(g, box(x1 - x0, h, SHELL_WALL_T), m, (x0 + x1) / 2, y0 + h / 2, z);
+    shellWallPiece(g, box(x1 - x0, h, SHELL_WALL_T), m, (x0 + x1) / 2, y0 + h / 2, z, normal);
     return;
   }
   const a = door.x - door.w / 2;
   const b = door.x + door.w / 2;
-  if (a - x0 > 1e-3) add(g, box(a - x0, h, SHELL_WALL_T), m, (x0 + a) / 2, y0 + h / 2, z);
-  if (x1 - b > 1e-3) add(g, box(x1 - b, h, SHELL_WALL_T), m, (b + x1) / 2, y0 + h / 2, z);
+  if (a - x0 > 1e-3) shellWallPiece(g, box(a - x0, h, SHELL_WALL_T), m, (x0 + a) / 2, y0 + h / 2, z, normal);
+  if (x1 - b > 1e-3) shellWallPiece(g, box(x1 - b, h, SHELL_WALL_T), m, (b + x1) / 2, y0 + h / 2, z, normal);
   const lh = h - door.h;
-  if (lh > 1e-3) add(g, box(b - a + 0.02, lh, SHELL_WALL_T - 0.004), m, door.x, y0 + door.h + lh / 2, z);
+  if (lh > 1e-3) shellWallPiece(g, box(b - a + 0.02, lh, SHELL_WALL_T - 0.004), m, door.x, y0 + door.h + lh / 2, z, normal);
 }
 
 /** Ściana wzdłuż Z (na `x`). */
-function shellWallZ(g: THREE.Group, z0: number, z1: number, y0: number, y1: number, x: number, m: THREE.Material) {
+function shellWallZ(g: THREE.Group, z0: number, z1: number, y0: number, y1: number, x: number, m: THREE.Material, normal: [number, number]) {
   const h = y1 - y0;
-  add(g, box(SHELL_WALL_T, h, z1 - z0), m, x, y0 + h / 2, (z0 + z1) / 2);
+  shellWallPiece(g, box(SHELL_WALL_T, h, z1 - z0), m, x, y0 + h / 2, (z0 + z1) / 2, normal);
+}
+
+/** Stropy między kondygnacjami budynku: pudełka omijające otwory nad schodami; po nich też stawia się obiekty. */
+function shellSlabs(g: THREE.Group, ctx: BuildCtx, x0: number, x1: number, z0: number, z1: number, floorY: number, innerH: number, m: THREE.Material) {
+  const floors = Math.max(1, ctx.floors ?? 1);
+  const H = innerH / floors;
+  for (let k = 1; k < floors; k++) {
+    let rects: Rect[] = [{ x0, x1, z0, z1 }];
+    for (const op of ctx.slabOpenings?.[k - 1] ?? []) rects = subtractRect(rects, { x0: op.cx - op.hx, x1: op.cx + op.hx, z0: op.cz - op.hz, z1: op.cz + op.hz });
+    for (const r of rects) {
+      if (r.x1 - r.x0 < 0.01 || r.z1 - r.z0 < 0.01) continue;
+      const slab = add(g, box(r.x1 - r.x0, 0.04, r.z1 - r.z0), m, (r.x0 + r.x1) / 2, floorY + k * H - 0.02, (r.z0 + r.z1) / 2);
+      slab.userData.floorSurface = true;
+      slab.userData.slab = k;
+    }
+  }
+}
+
+/**
+ * Niewidoczna pochylnia od ziemi do progu: autostep kontrolera nie pokonuje krawędzi cokołu w siatce
+ * trójkątów (tak samo jak przy schodach), a po pochylni gracz wchodzi płynnie. `zOut` > `zDoor`.
+ */
+function shellRamp(g: THREE.Group, x: number, zOut: number, zDoor: number, width: number, yTop: number) {
+  const dz = zOut - zDoor;
+  const top = yTop - 0.04;
+  const ramp = add(g, box(width, 0.1, Math.hypot(dz, top) + 0.1), mat(C.stone), x, top / 2, (zOut + zDoor) / 2, [Math.atan2(top, dz), 0, 0]);
+  ramp.visible = false;
 }
 
 /** Skrzydło drzwi budynku na zawiasie przy lewej krawędzi otworu; obraca je SceneManager jak drzwi z Konstrukcji. */
@@ -144,8 +179,8 @@ function shellLeaf(g: THREE.Group, door: { x: number; z: number; w: number; h: n
   g.add(pivot);
 }
 
-/** Prostokątna powłoka: podłoga, cztery ściany z drzwiami z przodu, skrzydło. */
-function shellBox(g: THREE.Group, spec: ShellSpec, wallMat: THREE.Material, floorMat: THREE.Material, leafMat: THREE.Material) {
+/** Prostokątna powłoka: podłoga, cztery ściany z drzwiami z przodu, skrzydło, stropy pięter. */
+function shellBox(g: THREE.Group, ctx: BuildCtx, spec: ShellSpec, wallMat: THREE.Material, floorMat: THREE.Material, leafMat: THREE.Material) {
   const { w, d, h } = spec.inner;
   const x0 = spec.cx - w / 2;
   const x1 = spec.cx + w / 2;
@@ -155,18 +190,26 @@ function shellBox(g: THREE.Group, spec: ShellSpec, wallMat: THREE.Material, floo
   const y1 = spec.floorY + h;
   const t = SHELL_WALL_T / 2;
   shellFloor(g, w, d, spec.cx, y0, spec.cz, floorMat);
-  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z0 - t, wallMat); // tylna
-  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z1 + t, wallMat, spec.door); // przednia
-  shellWallZ(g, z0, z1, y0 - 0.01, y1, x0 - t, wallMat);
-  shellWallZ(g, z0, z1, y0 - 0.01, y1, x1 + t, wallMat);
+  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z0 - t, wallMat, [0, -1]); // tylna
+  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z1 + t, wallMat, [0, 1], spec.door); // przednia
+  shellWallZ(g, z0, z1, y0 - 0.01, y1, x0 - t, wallMat, [-1, 0]);
+  shellWallZ(g, z0, z1, y0 - 0.01, y1, x1 + t, wallMat, [1, 0]);
   if (spec.door) shellLeaf(g, spec.door, y0, leafMat);
+  shellSlabs(g, ctx, x0, x1, z0, z1, y0, h, floorMat);
 }
 
-function buildPalace(g: THREE.Group) {
+/** Pochylnia wejściowa budynku: przed drzwiami, o szerokości otworu z zapasem. */
+function shellEntryRamp(g: THREE.Group, spec: ShellSpec, zOut: number) {
+  if (!spec.door) return;
+  shellRamp(g, spec.door.x, zOut, spec.door.z - 0.1, spec.door.w + 0.4, spec.floorY);
+}
+
+function buildPalace(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.palace;
   add(g, box(4.6, 0.28, 3.6), mat(C.stone), 0, 0.14, 0);
   add(g, box(4.0, 0.16, 3.0), mat(C.cream2), 0, 0.36, 0);
-  shellBox(g, spec, mat(C.cream), mat(C.stone), mat(C.dark));
+  shellBox(g, ctx, spec, mat(C.cream), mat(C.stone), mat(C.dark));
+  shellEntryRamp(g, spec, 2.3);
   // portyk
   columns(g, [[-1.15, 1.0], [-0.4, 1.0], [0.4, 1.0], [1.15, 1.0]], 1.7, 0.11, 0.44);
   add(g, box(3.2, 0.22, 0.9), mat(C.cream2), 0, 0.44 + 1.7 + 0.11, 0.75);
@@ -186,10 +229,11 @@ function buildPalace(g: THREE.Group) {
   add(g, box(2.2, 0.12, 0.3), mat(C.stoneDark), 0, 0.18, 1.85);
 }
 
-function buildLibrary(g: THREE.Group) {
+function buildLibrary(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.library;
   add(g, box(4.0, 0.24, 3.2), mat(C.stone), 0, 0.12, 0);
-  shellBox(g, spec, mat(C.cream), mat(C.stone), mat(C.dark));
+  shellBox(g, ctx, spec, mat(C.cream), mat(C.stone), mat(C.dark));
+  shellEntryRamp(g, spec, 2.3);
   columns(g, [[-1.2, 0.95], [-0.4, 0.95], [0.4, 0.95], [1.2, 0.95]], 1.6, 0.1, 0.24);
   add(g, box(3.4, 0.18, 1.1), mat(C.cream2), 0, 0.24 + 1.6 + 0.09, 0.55);
   const roof = roofGroup(g);
@@ -200,11 +244,13 @@ function buildLibrary(g: THREE.Group) {
   add(g, box(1.6, 0.1, 0.6), mat(C.stone), 0, 0.05, 1.85);
 }
 
-function buildTemple(g: THREE.Group) {
+function buildTemple(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.temple;
   add(g, box(2.8, 0.22, 2.4), mat(C.stone), 0, 0.11, 0);
   add(g, box(2.4, 0.14, 2.0), mat(C.cream2), 0, 0.29, 0);
   shellFloor(g, spec.inner.w, spec.inner.d, 0, spec.floorY, 0, mat(C.cream2));
+  shellSlabs(g, ctx, -spec.inner.w / 2, spec.inner.w / 2, -spec.inner.d / 2, spec.inner.d / 2, spec.floorY, spec.inner.h, mat(C.cream2));
+  shellRamp(g, 0, 1.6, 1.0, 2.0, spec.floorY); // wejście między kolumnami od frontu
   columns(g, [[-0.9, 0.7], [0.9, 0.7], [-0.9, -0.7], [0.9, -0.7]], 1.5, 0.1, 0.36);
   const roof = roofGroup(g);
   add(roof, box(2.4, 0.16, 2.0), mat(C.cream), 0, 0.36 + 1.5 + 0.08, 0);
@@ -212,7 +258,7 @@ function buildTemple(g: THREE.Group) {
   add(g, box(0.8, 0.9, 0.8), mat(C.cream2), 0, 0.36 + 0.45, -0.3);
 }
 
-function buildTower(g: THREE.Group) {
+function buildTower(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.tower;
   add(g, cyl(1.0, 1.1, 0.3, 12), mat(C.stone), 0, 0.15, 0);
   const floor = add(g, cyl(0.72, 0.72, 0.04, 12), mat(C.stone), 0, spec.floorY - 0.02, 0);
@@ -231,9 +277,13 @@ function buildTower(g: THREE.Group) {
       add(g, box(side + 0.02, lh, 0.1), mat(C.cream), x, spec.floorY + door.h + lh / 2, z, [0, a, 0]);
       continue;
     }
-    add(g, box(side + 0.02, h + 0.01, 0.1), mat(C.cream), x, spec.floorY + h / 2 - 0.005, z, [0, a, 0]);
+    const seg = add(g, box(side + 0.02, h + 0.01, 0.1), mat(C.cream), x, spec.floorY + h / 2 - 0.005, z, [0, a, 0]);
+    seg.userData.wallNormal = [Math.sin(a), Math.cos(a)];
   }
   shellLeaf(g, door, spec.floorY, mat(C.dark));
+  shellEntryRamp(g, spec, 1.5);
+  // kwadratowy strop mieści się w kole muru (przekątna 1,41 < średnica 1,5)
+  shellSlabs(g, ctx, -0.5, 0.5, -0.5, 0.5, spec.floorY, h, mat(C.stone));
   const roof = roofGroup(g);
   add(roof, cyl(0.9, 0.9, 0.22, 12), mat(C.cream2), 0, 3.9 + 0.11, 0);
   add(roof, cone(0.98, 1.4, 12), mat(C.roof), 0, 4.12 + 0.7, 0);
@@ -244,10 +294,11 @@ function buildTower(g: THREE.Group) {
   }
 }
 
-function buildHouse(g: THREE.Group) {
+function buildHouse(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.house;
   add(g, box(2.4, 0.16, 2.2), mat(C.stone), 0, 0.08, 0);
-  shellBox(g, spec, mat(C.cream), mat(C.wood), mat(C.dark));
+  shellBox(g, ctx, spec, mat(C.cream), mat(C.wood), mat(C.dark));
+  shellEntryRamp(g, spec, 1.6);
   const roof = roofGroup(g);
   add(roof, prism(2.3, 0.9, 2.1), mat(C.roof), 0, 1.56, 0);
   add(roof, box(0.3, 0.7, 0.3), mat(C.stoneDark), 0.6, 1.9, -0.4);
@@ -479,6 +530,9 @@ export interface BuildCtx {
   scaleX?: number;
   /** Środki otworów drzwiowych wzdłuż ścianki, w metrach świata od jej środka. */
   openings?: number[];
+  /** Budynek z wnętrzem w miejscu: liczba kondygnacji i otwory w stropach (lokalne jednostki modelu). */
+  floors?: number;
+  slabOpenings?: Opening[][];
 }
 
 /**

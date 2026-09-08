@@ -219,14 +219,87 @@ export interface ShellSpec {
   floorY: number;
   /** Otwór drzwiowy w ścianie frontowej (brak = wejście bez drzwi, np. świątynia). */
   door?: { x: number; z: number; w: number; h: number };
-  /** Najmniejsza skala, przy której gracz (1,74 m) mieści się w drzwiach i pod sufitem. */
+  /** Najmniejsza skala, przy której kapsuła gracza (1,74 m) przechodzi pod nadprożem drzwi. */
   minScale: number;
 }
 
 export const SHELLS: Record<string, ShellSpec> = {
-  house: { inner: { w: 1.88, d: 1.68, h: 1.4 }, cx: 0, cz: 0, floorY: 0.16, door: { x: -0.4, z: 0.9, w: 0.5, h: 0.9 }, minScale: 1.8 },
-  palace: { inner: { w: 3.28, d: 2.28, h: 1.9 }, cx: 0, cz: -0.2, floorY: 0.44, door: { x: 0, z: 1.0, w: 0.6, h: 1.1 }, minScale: 1.5 },
-  library: { inner: { w: 3.08, d: 2.28, h: 1.7 }, cx: 0, cz: -0.2, floorY: 0.24, door: { x: 0, z: 1.0, w: 0.7, h: 1.15 }, minScale: 1.6 },
+  house: { inner: { w: 1.88, d: 1.68, h: 1.4 }, cx: 0, cz: 0, floorY: 0.16, door: { x: -0.4, z: 0.9, w: 0.5, h: 1.0 }, minScale: 2.0 },
+  palace: { inner: { w: 3.28, d: 2.28, h: 1.9 }, cx: 0, cz: -0.2, floorY: 0.44, door: { x: 0, z: 1.0, w: 0.6, h: 1.1 }, minScale: 1.7 },
+  library: { inner: { w: 3.08, d: 2.28, h: 1.7 }, cx: 0, cz: -0.2, floorY: 0.24, door: { x: 0, z: 1.0, w: 0.7, h: 1.15 }, minScale: 1.65 },
   temple: { inner: { w: 2.4, d: 2.0, h: 1.5 }, cx: 0, cz: 0, floorY: 0.36, minScale: 1.6 },
-  tower: { inner: { w: 1.4, d: 1.4, h: 3.6 }, cx: 0, cz: 0, floorY: 0.3, door: { x: 0, z: 0.8, w: 0.43, h: 0.9 }, minScale: 2.0 },
+  tower: { inner: { w: 1.4, d: 1.4, h: 3.6 }, cx: 0, cz: 0, floorY: 0.3, door: { x: 0, z: 0.8, w: 0.43, h: 1.0 }, minScale: 2.0 },
 };
+
+/** Budynek z wnętrzem w tej samej scenie (bez ładowania osobnego pałacu). */
+export function isInPlace(o: Pick<PalaceObject, 'type' | 'interiorMode'>): boolean {
+  return o.interiorMode === 'inplace' && o.type in SHELLS;
+}
+
+/** Wysokość jednej kondygnacji budynku w metrach świata. */
+export function buildingFloorHeight(b: PalaceObject): number {
+  const spec = SHELLS[b.type] ?? SHELLS.house;
+  return (spec.inner.h * b.scale[1]) / Math.max(1, b.floors ?? 1);
+}
+
+/** Wysokość podłogi piętra `k` budynku w świecie. */
+export function buildingFloorY(b: PalaceObject, k: number): number {
+  const spec = SHELLS[b.type] ?? SHELLS.house;
+  return b.position[1] + spec.floorY * b.scale[1] + k * buildingFloorHeight(b);
+}
+
+/** Piętro budynku, na którym stoi obiekt o wysokości `y` (świat). */
+export function floorOfIn(b: PalaceObject, y: number): number {
+  const k = floorOf(y - buildingFloorY(b, 0), buildingFloorHeight(b));
+  return Math.min(Math.max(0, k), Math.max(1, b.floors ?? 1) - 1);
+}
+
+/** Budynek z wnętrzem w miejscu, w którym stoi obiekt (przez łańcuch kotwic), albo `undefined`. */
+export function buildingOf(objects: PalaceObject[], o: PalaceObject): PalaceObject | undefined {
+  const byId = new Map(objects.map((x) => [x.id, x]));
+  const seen = new Set<string>([o.id]);
+  let cur = o.anchorId ? byId.get(o.anchorId) : undefined;
+  while (cur && !seen.has(cur.id)) {
+    if (isInPlace(cur)) return cur;
+    seen.add(cur.id);
+    cur = cur.anchorId ? byId.get(cur.anchorId) : undefined;
+  }
+  return undefined;
+}
+
+/** Punkt świata w układzie lokalnym modelu budynku (obrót wokół osi pionowej i skala). */
+export function localXZ(b: PalaceObject, x: number, z: number): [number, number] {
+  const dx = x - b.position[0];
+  const dz = z - b.position[2];
+  const c = Math.cos(b.rotation[1]);
+  const s = Math.sin(b.rotation[1]);
+  // odwrotność obrotu R_y(yaw): lokalny X = (cos, -sin) w świecie
+  return [(dx * c - dz * s) / b.scale[0], (dx * s + dz * c) / b.scale[2]];
+}
+
+/**
+ * Otwory w stropach budynku nad schodami w nim zakotwiczonymi — w jednostkach lokalnych modelu
+ * (indeks tablicy = piętro startowe schodów). Wzór: `stairOpenings`.
+ */
+export function buildingOpenings(b: PalaceObject, objects: PalaceObject[]): Opening[][] {
+  const byFloor = new Map<number, Opening[]>();
+  const H = buildingFloorHeight(b);
+  const halfLen = (1.15 * H) / 2;
+  const halfWidth = 0.6;
+  for (const o of objects) {
+    if (o.type !== 'stairs' || o.anchorId !== b.id) continue;
+    const floor = floorOfIn(b, o.position[1]);
+    const rel = o.rotation[1] - b.rotation[1];
+    const cos = Math.abs(Math.cos(rel));
+    const sin = Math.abs(Math.sin(rel));
+    const hx = (cos * halfWidth * o.scale[0] + sin * halfLen * o.scale[2] + 0.15) / b.scale[0];
+    const hz = (sin * halfWidth * o.scale[0] + cos * halfLen * o.scale[2] + 0.15) / b.scale[2];
+    const [cx, cz] = localXZ(b, o.position[0], o.position[2]);
+    const list = byFloor.get(floor) ?? [];
+    list.push({ cx, cz, hx, hz });
+    byFloor.set(floor, list);
+  }
+  const out: Opening[][] = [];
+  for (let i = 0; i < Math.max(1, b.floors ?? 1) - 1; i++) out.push(byFloor.get(i) ?? []);
+  return out;
+}

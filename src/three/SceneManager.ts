@@ -7,7 +7,7 @@ import { useStore, descendants, movableRoots, selectionRoots } from '../store';
 import { yawOfObject } from '../lib/transform';
 import type { CameraKind, Palace, PalaceObject, RoomSpec, Vec3, ViewMode } from '../types';
 import { AMBIENCES, catalogItem, hasInterior } from '../catalog';
-import { buildModel, disposeObject, modelHeight, EMITTER_ANCHORS, DOORS, GATE_SPAWN } from './builders';
+import { buildModel, disposeObject, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN } from './builders';
 import { makeTextPanel, disposeTextPanel } from './text';
 import { WeatherSystem } from './weather';
 import { PuffEmitter, type Updatable } from './particles';
@@ -16,7 +16,7 @@ import { buildRoom, type Room } from './interior';
 import { Physics, FOOT_OFFSET, type StaticShape } from './physics';
 import { ROOMS, colliderKind, spawnKind } from '../catalog';
 import { clampToGround, clipSegment, groundExtent, groundPolygon, insideGround } from '../lib/ground';
-import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, doorOffsets, doorRange, doorSlotFree, floorOf, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, type Opening } from '../lib/rooms';
+import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorY, buildingOf, buildingOpenings, doorOffsets, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, type Opening } from '../lib/rooms';
 import { getTexture } from './textures';
 import { Wildlife, type SpawnInfo, type WorldInfo } from './wildlife';
 import { Soundscape } from './soundscape';
@@ -39,8 +39,23 @@ interface Entry {
   emitter: Updatable | null;
   /** `typ|wysokośćKondygnacji` (ścianka dodatkowo skala X i otwory na drzwi) — zmiana klucza przebudowuje model. */
   buildKey: string;
-  /** Pivot skrzydła drzwi (obiekty typu `door`) — obraca go `toggleDoor`. */
+  /** Pivot skrzydła drzwi (obiekty typu `door` i budynki z wnętrzem w miejscu) — obraca go `toggleDoor`. */
   doorPivot?: THREE.Group;
+  /** Budynek z wnętrzem w tej samej scenie: dach do schowania, stropy pięter i ściany do chowania od strony kamery. */
+  inplace: boolean;
+  roof: THREE.Object3D | null;
+  slabs: THREE.Object3D[];
+  walls: THREE.Mesh[];
+}
+
+/** Czy obiekt jest widoczny razem ze wszystkimi przodkami (raycaster nie sprawdza `visible`). */
+function isShown(o: THREE.Object3D): boolean {
+  let cur: THREE.Object3D | null = o;
+  while (cur) {
+    if (!cur.visible) return false;
+    cur = cur.parent;
+  }
+  return true;
 }
 
 interface Tween {
@@ -63,6 +78,11 @@ const tmpE = new THREE.Euler();
 const UP = new THREE.Vector3(0, 1, 0);
 // yawOf ma własny wektor — wołający trzymają w tmpV wektor ruchu, który nie może zostać nadpisany
 const tmpYaw = new THREE.Vector3();
+
+/** Bryła kolizji zamkniętego skrzydła: stała dla drzwi z Konstrukcji, z `SHELLS` dla budynków. */
+function leafFor(type: string) {
+  return type === 'door' ? DOOR_LEAF_LOCAL : (shellLeafLocal(type) ?? DOOR_LEAF_LOCAL);
+}
 
 /** Obrót drzwi w ściance: taki jak ścianki albo odwrócony, gdy drzwi miały zawiasy z drugiej strony. */
 function doorYawOn(wall: PalaceObject, door: PalaceObject): number {
@@ -147,6 +167,7 @@ export class SceneManager {
   // podgląd stawiania
   private ghost: THREE.Group | null = null;
   private ghostRing: THREE.Mesh | null = null;
+  private lastActiveBuilding: string | null = null;
   private ghostType = '';
   ghostRot = 0;
   private ghostPos = new THREE.Vector3();
@@ -509,8 +530,9 @@ export class SceneManager {
       this.lastEntrySeq = s.sceneEntry.seq;
       this.applySceneEntry(s.sceneEntry.kind, s.sceneEntry.objectId);
     }
-    if (s.editFloor !== this.lastEditFloor) {
+    if (s.editFloor !== this.lastEditFloor || s.activeBuildingId !== this.lastActiveBuilding) {
       this.lastEditFloor = s.editFloor;
+      this.lastActiveBuilding = s.activeBuildingId;
       this.applyFloorVisibility();
       this.updateGroundPlane();
     }
@@ -550,15 +572,43 @@ export class SceneManager {
       const H = floorHeightFor(this.lastPalace);
       if (floorOf(e.group.position.y, H) > useStore.getState().editFloor) return false;
     }
+    if (this.mode === 'editor' && this.lastPalace && !this.lastPalace.interior) {
+      // w aktywnym budynku widać tylko piętra do edytowanego włącznie
+      const b = this.activeBuilding();
+      const o = b ? this.lastPalace.objects.find((x) => x.id === e.id) : undefined;
+      if (b && o && buildingOf(this.lastPalace.objects, o)?.id === b.id && floorOfIn(b, o.position[1]) > useStore.getState().editFloor) return false;
+    }
     return true;
+  }
+
+  /** Budynek z wnętrzem w miejscu, któremu edytor chowa dach (tylko na planszy, w edytorze). */
+  private activeBuilding(): PalaceObject | undefined {
+    const p = this.lastPalace;
+    if (!p || p.interior || this.mode !== 'editor') return undefined;
+    const id = useStore.getState().activeBuildingId;
+    const b = id ? p.objects.find((o) => o.id === id) : undefined;
+    return b && isInPlace(b) ? b : undefined;
+  }
+
+  /** Wysokość podłogi, na której edytor stawia obiekty i rysuje ścianki. */
+  private editFloorY(): number {
+    return -this.groundPlane.constant;
   }
 
   /** Odświeża widoczność obiektów i stropów zależnie od edytowanego piętra (ściany rozstrzyga `frame()` co klatkę). */
   private applyFloorVisibility() {
     for (const e of this.entries.values()) e.group.visible = this.entryVisible(e);
+    const active = this.activeBuilding();
+    const editFloor = useStore.getState().editFloor;
+    for (const e of this.entries.values()) {
+      if (!e.inplace) continue;
+      const on = active?.id === e.id;
+      if (e.roof) e.roof.visible = !on;
+      for (const s of e.slabs) s.visible = !on || (s.userData.slab as number) <= editFloor;
+      if (!on) for (const w of e.walls) w.visible = true;
+    }
     if (!this.room) return;
     const inEditor = this.mode === 'editor';
-    const editFloor = useStore.getState().editFloor;
     this.room.slabs.forEach((s, k) => (s.visible = !inEditor || k <= editFloor));
     this.room.ceiling.visible = !inEditor;
   }
@@ -566,7 +616,8 @@ export class SceneManager {
   /** Płaszczyzna pomocnicza do stawiania obiektów — na wysokości edytowanego piętra we wnętrzu. */
   private updateGroundPlane() {
     const p = this.lastPalace;
-    const y = p?.interior ? useStore.getState().editFloor * floorHeightFor(p) : 0;
+    const active = this.activeBuilding();
+    const y = active ? buildingFloorY(active, useStore.getState().editFloor) : p?.interior ? useStore.getState().editFloor * floorHeightFor(p) : 0;
     this.groundPlane.constant = -y;
   }
 
@@ -731,7 +782,14 @@ export class SceneManager {
     const H = floorHeightFor(p);
     // ścianka zależy też od skali X i otworów na drzwi — zmiana któregoś przebudowuje model i kolizję
     const openingsOf = (o: PalaceObject) => (o.type === 'wall' ? doorOffsets(o, p.objects) : []);
-    const buildKey = (o: PalaceObject) => (o.type === 'wall' ? `wall|${H}|${o.scale[0]}|${openingsOf(o).map((t) => t.toFixed(2)).join(',')}` : `${o.type}|${H}`);
+    // budynek z wnętrzem w miejscu zależy od liczby pięter i otworów w stropach nad schodami
+    const slabOpeningsOf = (o: PalaceObject) => (isInPlace(o) ? buildingOpenings(o, p.objects) : undefined);
+    const buildKey = (o: PalaceObject) =>
+      o.type === 'wall'
+        ? `wall|${H}|${o.scale[0]}|${openingsOf(o).map((t) => t.toFixed(2)).join(',')}`
+        : isInPlace(o)
+          ? `${o.type}|inplace|${o.floors ?? 1}|${JSON.stringify(slabOpeningsOf(o))}`
+          : `${o.type}|${H}`;
     for (const o of p.objects) {
       seen.add(o.id);
       let e = this.entries.get(o.id);
@@ -741,15 +799,23 @@ export class SceneManager {
       }
       if (!e) {
         const key = buildKey(o);
-        const model = buildModel(o.type, { floorHeight: H, scaleX: o.scale[0], openings: openingsOf(o) });
+        const model = buildModel(o.type, { floorHeight: H, scaleX: o.scale[0], openings: openingsOf(o), floors: isInPlace(o) ? (o.floors ?? 1) : 1, slabOpenings: slabOpeningsOf(o) });
         const group = new THREE.Group();
         group.add(model);
         group.userData.objectId = o.id;
         group.traverse((c) => (c.userData.objectId = o.id));
         this.scene.add(group);
         const item = catalogItem(o.type);
-        e = { id: o.id, type: o.type, group, model, height: modelHeight(model), footprint: item.footprint, label: null, labelEl: null, labelKey: '', panel: null, panelKey: '', transformKey: '', emitter: null, buildKey: key };
-        if (o.type === 'door') model.traverse((c) => { if (c.userData.doorLeaf) e!.doorPivot = c as THREE.Group; });
+        e = { id: o.id, type: o.type, group, model, height: modelHeight(model), footprint: item.footprint, label: null, labelEl: null, labelKey: '', panel: null, panelKey: '', transformKey: '', emitter: null, buildKey: key, inplace: isInPlace(o), roof: null, slabs: [], walls: [] };
+        // drzwi z Konstrukcji i budynki z wnętrzem w miejscu mają otwierane skrzydło; zagnieżdżone budynki nie (F wchodzi do środka)
+        if (o.type === 'door' || e.inplace) model.traverse((c) => { if (c.userData.doorLeaf) e!.doorPivot = c as THREE.Group; });
+        if (e.inplace) {
+          model.traverse((c) => {
+            if (c.userData.roof) e!.roof = c;
+            if (c.userData.slab !== undefined) e!.slabs.push(c);
+            if (c.userData.wallNormal) e!.walls.push(c as THREE.Mesh);
+          });
+        }
         if (item.emitter) {
           const anchor = EMITTER_ANCHORS[o.type] ?? [0, e.height, 0];
           e.emitter =
@@ -773,10 +839,10 @@ export class SceneManager {
         if (this.physics) {
           // sama zmiana położenia nie wymaga przeliczania siatki kolizji
           if (!isNew && prevScaleKey === scaleKey && this.physics.moveStatic(o.id, e.group.position, e.group.quaternion)) {
-            if (o.type === 'door') this.physics.moveStatic(o.id + ':leaf', e.group.position, e.group.quaternion);
+            if (e.doorPivot) this.physics.moveStatic(o.id + ':leaf', e.group.position, e.group.quaternion);
           } else {
             this.physics.setStatic(o.id, this.shapeFor(e), e.group.position, e.group.quaternion, e.group.scale);
-            if (o.type === 'door') this.physics.setLeaf(o.id, !this.openDoors.has(o.id), e.group.position, e.group.quaternion, e.group.scale);
+            if (e.doorPivot) this.physics.setLeaf(o.id, !this.openDoors.has(o.id), e.group.position, e.group.quaternion, e.group.scale, leafFor(o.type));
           }
         } else this.physicsDirty = true;
       }
@@ -1023,7 +1089,7 @@ export class SceneManager {
       const o = p.objects.find((x) => x.id === id);
       if (!o) continue;
       ph.setStatic(id, this.shapeFor(e), e.group.position, e.group.quaternion, e.group.scale);
-      if (o.type === 'door') ph.setLeaf(id, !this.openDoors.has(id), e.group.position, e.group.quaternion, e.group.scale);
+      if (e.doorPivot) ph.setLeaf(id, !this.openDoors.has(id), e.group.position, e.group.quaternion, e.group.scale, leafFor(o.type));
     }
     ph.createCharacter(this.rig.position);
     this.physicsDirty = false;
@@ -1167,7 +1233,9 @@ export class SceneManager {
     if (!p) return [];
     const H = floorHeightFor(p);
     const editFloor = useStore.getState().editFloor;
-    return p.objects.filter((o) => o.type === 'wall' && floorOf(o.position[1], H) === editFloor);
+    const active = this.activeBuilding();
+    if (active) return p.objects.filter((o) => o.type === 'wall' && buildingOf(p.objects, o)?.id === active.id && floorOfIn(active, o.position[1]) === editFloor);
+    return p.objects.filter((o) => o.type === 'wall' && !buildingOf(p.objects, o) && floorOf(o.position[1], H) === editFloor);
   }
 
   /**
@@ -1253,7 +1321,7 @@ export class SceneManager {
     if (!this.ghost) return;
     const gp = new THREE.Vector3();
     if (!this.groundPoint(gp)) return;
-    const floorY = this.lastPalace?.interior ? useStore.getState().editFloor * floorHeightFor(this.lastPalace) : 0;
+    const floorY = this.editFloorY();
     const p = this.snapWallPoint(gp.x, gp.z, this.wallStart);
     this.ghostAnchor = undefined;
     if (!this.wallStart) {
@@ -1303,7 +1371,7 @@ export class SceneManager {
     }
     if (this.wallLen < 0.5) return;
     const end = new THREE.Vector3(this.wallStart.x + Math.cos(this.ghostRot) * this.wallLen, this.ghostPos.y, this.wallStart.z - Math.sin(this.ghostRot) * this.wallLen);
-    const id = st.addObject('wall', [this.ghostPos.x, this.ghostPos.y, this.ghostPos.z], this.ghostRot, undefined, [this.wallLen / WALL_SEGMENT, 1, 1]);
+    const id = st.addObject('wall', [this.ghostPos.x, this.ghostPos.y, this.ghostPos.z], this.ghostRot, this.activeBuilding()?.id, [this.wallLen / WALL_SEGMENT, 1, 1]);
     // odcinek w tej samej linii co poprzedni z łańcucha to nadal jedna ścianka
     const kept = this.lastWallId ? st.mergeWalls([this.lastWallId, id], { undo: false }) : [];
     this.lastWallId = kept[0] ?? id;
@@ -1319,7 +1387,7 @@ export class SceneManager {
     const gp = new THREE.Vector3();
     if (!this.groundPoint(gp)) return;
     const st = useStore.getState();
-    const floorY = this.lastPalace?.interior ? st.editFloor * floorHeightFor(this.lastPalace) : 0;
+    const floorY = this.editFloorY();
     const hit = this.findWallFor(gp.x, gp.z);
     if (hit) {
       this.ghostPos.set(hit.x, hit.wall.position[1], hit.z);
@@ -1362,8 +1430,12 @@ export class SceneManager {
     const st = useStore.getState();
     const snap = st.palace().settings.grid ? 0.5 : 0.05;
     // na obiekcie stawiamy dokładnie tam, gdzie wskazuje kursor — bez przyciągania do siatki
-    const floorY = this.lastPalace?.interior ? useStore.getState().editFloor * floorHeightFor(this.lastPalace) : 0;
-    if (!found.anchorId) {
+    const floorY = this.editFloorY();
+    if (found.onFloor) {
+      // podłoga budynku: siatka jak na płycie, wysokość z trafienia
+      p.x = Math.round(p.x / snap) * snap;
+      p.z = Math.round(p.z / snap) * snap;
+    } else if (!found.anchorId) {
       const onPlate = !this.walkArea || insideGround(this.walkArea, p.x, p.z);
       if (onPlate) {
         p.x = Math.round(p.x / snap) * snap;
@@ -1753,7 +1825,8 @@ export class SceneManager {
     const look = objPos.clone().sub(pos);
     const desiredYaw = Math.atan2(-look.x, -look.z);
     // obiekt może stać na innym piętrze — gracz musi wylądować na tej samej podłodze, nie tylko obok w XZ
-    const footY = this.lastPalace?.interior ? floorOf(o.position[1], floorHeightFor(this.lastPalace)) * floorHeightFor(this.lastPalace) : 0;
+    const building = this.lastPalace ? buildingOf(this.lastPalace.objects, o) : undefined;
+    const footY = building ? buildingFloorY(building, floorOfIn(building, o.position[1])) : this.lastPalace?.interior ? floorOf(o.position[1], floorHeightFor(this.lastPalace)) * floorHeightFor(this.lastPalace) : 0;
     this.rig.position.x = pos.x;
     this.rig.position.z = pos.z;
     this.rig.position.y = footY + this.headOffset;
@@ -1910,6 +1983,12 @@ export class SceneManager {
       radius = Math.max(radius, (p ? groundExtent(p.settings.ground) : 12) * 0.78);
       center.y = useStore.getState().editFloor * floorHeightFor(p) + 0.5;
     }
+    const active = kind === 'center' ? this.activeBuilding() : undefined;
+    if (active) {
+      const e = this.entries.get(active.id);
+      center = new THREE.Vector3(active.position[0], buildingFloorY(active, useStore.getState().editFloor) + 0.5, active.position[2]);
+      radius = Math.max(4, (e ? e.footprint * hs(e) : 3) * 1.6);
+    }
     const dist = radius * 2.1;
     // 'center' i 'reset' wracają do domyślnego rzutu izometrycznego, 'fit' zachowuje bieżący kierunek
     const isInterior = !!p?.interior;
@@ -1945,6 +2024,7 @@ export class SceneManager {
     if (this.room) targets.push(this.room.exitDoor);
     const hits = this.raycaster.intersectObjects(targets, true);
     for (const h of hits) {
+      if (!isShown(h.object)) continue;
       if (h.object.userData.exitDoor) {
         this.pickedExitDoor = true;
         return null;
@@ -1959,7 +2039,7 @@ export class SceneManager {
    * Punkt, w którym stanie stawiany obiekt: wierzch obiektu pod kursorem (wtedy kotwiczymy)
    * albo płaszczyzna ziemi.
    */
-  private placementPoint(excludeIds: Set<string>): { pos: THREE.Vector3; anchorId?: string } | null {
+  private placementPoint(excludeIds: Set<string>): { pos: THREE.Vector3; anchorId?: string; onFloor?: boolean } | null {
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const targets: THREE.Object3D[] = [];
     for (const [id, e] of this.entries) {
@@ -1968,11 +2048,13 @@ export class SceneManager {
     }
     const hits = this.raycaster.intersectObjects(targets, true);
     for (const h of hits) {
-      if (h.object.userData.noPick) continue;
+      if (h.object.userData.noPick || !isShown(h.object)) continue;
       const id = h.object.userData.objectId as string | undefined;
       if (!id || excludeIds.has(id)) continue;
       const e = this.entries.get(id);
       if (!e) continue;
+      // podłoga budynku: stawiamy w punkcie trafienia, nie na wierzchu całego modelu (dachu)
+      if (h.object.userData.floorSurface) return { pos: h.point.clone(), anchorId: id, onFloor: true };
       const box = new THREE.Box3().setFromObject(e.model);
       return { pos: new THREE.Vector3(h.point.x, box.max.y, h.point.z), anchorId: id };
     }
@@ -2306,7 +2388,16 @@ export class SceneManager {
             st.selectOnly(hit);
           } else if (this.downInfo.shift) st.toggleSelected(hit);
           else st.select(hit);
-        } else if (!st.review && !this.downInfo.shift) st.select(null);
+          // klik w budynek z wnętrzem w miejscu (albo w coś w nim) odsłania go; klik w pustkę zakrywa
+          const clicked = this.lastPalace?.objects.find((o) => o.id === hit);
+          if (clicked && this.lastPalace && !this.lastPalace.interior) {
+            const b = isInPlace(clicked) ? clicked : buildingOf(this.lastPalace.objects, clicked);
+            if (b) st.setActiveBuilding(b.id);
+          }
+        } else if (!st.review && !this.downInfo.shift) {
+          st.select(null);
+          st.setActiveBuilding(null);
+        }
       }
       this.downInfo = null;
     }
@@ -2335,7 +2426,7 @@ export class SceneManager {
     // klik wprost w skrzydło drzwi obiektowych w zasięgu — niezależnie od aktualnej podpowiedzi
     if (id) {
       const e = this.entries.get(id);
-      if (e?.doorPivot && Math.hypot(e.group.position.x - this.rig.position.x, e.group.position.z - this.rig.position.z) < 2.6) {
+      if (e?.doorPivot && this.doorDistance(e) < 2.6) {
         this.toggleDoor(id);
         return;
       }
@@ -2517,6 +2608,22 @@ export class SceneManager {
 
     if (this.mode !== 'editor' && ++this.doorCheck % 6 === 0) this.updateDoorPrompt();
 
+    // aktywny budynek z wnętrzem w miejscu: ściany od strony kamery znikają (normalna obrócona obrotem budynku)
+    const activeB = this.activeBuilding();
+    const activeE = activeB ? this.entries.get(activeB.id) : undefined;
+    if (activeB && activeE) {
+      const yaw = activeB.rotation[1];
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      const dx = this.camera.position.x - activeB.position[0];
+      const dz = this.camera.position.z - activeB.position[2];
+      for (const w of activeE.walls) {
+        const n = w.userData.wallNormal as [number, number];
+        const nx = n[0] * cos + n[1] * sin;
+        const nz = -n[0] * sin + n[1] * cos;
+        w.visible = nx * dx + nz * dz < 0.5 * Math.hypot(dx, dz) * 0.6;
+      }
+    }
     // we wnętrzu w edytorze chowamy ściany od strony kamery (widok jak do domku dla lalek) i wyższe piętra
     if (this.room) {
       const inEditor = this.mode === 'editor';
@@ -2586,7 +2693,7 @@ export class SceneManager {
     for (const e of this.entries.values()) {
       if (spawnKind(e.type)) continue;
       const r = e.footprint * 0.8 * hs(e);
-      obstacles.push({ x: e.group.position.x, z: e.group.position.z, r });
+      if (!e.inplace) obstacles.push({ x: e.group.position.x, z: e.group.position.z, r });
       const top = e.group.position.y + e.height * e.group.scale.y;
       if (e.type === 'tree' || e.type === 'cypress' || e.type === 'palm') perches.push({ x: e.group.position.x, y: top * 0.75, z: e.group.position.z, kind: 'tree' });
       else if (hasInterior(e.type)) perches.push({ x: e.group.position.x, y: top * 0.9, z: e.group.position.z, kind: 'roof' });
@@ -2644,11 +2751,11 @@ export class SceneManager {
       st.setDoorPrompt(best ? { kind: best.kind, objectId: best.objectId, label: best.label } : null);
       return;
     }
-    let best: { id: string; name: string; d: number } | null = null;
+    let best: { id: string; name: string; d: number; kind: 'enter' | 'door' } | null = null;
     for (const [id, e] of this.entries) {
-      if (!hasInterior(e.type)) continue;
-      const spec = DOORS[e.type]?.local ?? [0, 0, 1];
-      const dw = e.group.localToWorld(tmpV.set(spec[0], spec[1], spec[2]));
+      if (!hasInterior(e.type) && e.type !== 'door') continue;
+      if (e.inplace && !e.doorPivot) continue; // np. świątynia — wejście bez drzwi
+      const dw = this.doorWorld(e);
       const dx = dw.x - pos.x;
       const dz = dw.z - pos.z;
       const d = Math.hypot(dx, dz);
@@ -2657,9 +2764,22 @@ export class SceneManager {
       if ((dx / (d || 1)) * fwd.x + (dz / (d || 1)) * fwd.z < 0.2) continue;
       const o = p.objects.find((x) => x.id === id);
       if (!o) continue;
-      if (!best || d < best.d) best = { id, name: o.name, d };
+      if (!best || d < best.d) best = { id, name: o.name, d, kind: e.doorPivot ? 'door' : 'enter' };
     }
-    st.setDoorPrompt(best ? { kind: 'enter', objectId: best.id, label: `Wejdź do: ${best.name}` } : null);
+    if (!best) st.setDoorPrompt(null);
+    else if (best.kind === 'door') st.setDoorPrompt({ kind: 'door', objectId: best.id, label: this.openDoors.has(best.id) ? 'Zamknij drzwi' : 'Otwórz drzwi' });
+    else st.setDoorPrompt({ kind: 'enter', objectId: best.id, label: `Wejdź do: ${best.name}` });
+  }
+
+  /** Punkt drzwi wpisu w świecie: środek obiektu dla drzwi z Konstrukcji, próg z `DOORS` dla budynku. */
+  private doorWorld(e: Entry): THREE.Vector3 {
+    const spec = e.type === 'door' ? null : DOORS[e.type]?.local;
+    return spec ? e.group.localToWorld(tmpV.set(spec[0], spec[1], spec[2])) : tmpV.copy(e.group.position);
+  }
+
+  private doorDistance(e: Entry): number {
+    const dw = this.doorWorld(e);
+    return Math.hypot(dw.x - this.rig.position.x, dw.z - this.rig.position.z);
   }
 
   /** Wchodzi, wychodzi albo otwiera/zamyka drzwi, na których stoi podpowiedź. */
@@ -2683,7 +2803,7 @@ export class SceneManager {
     this.doorAnims = this.doorAnims.filter((a) => a.id !== id);
     this.doorAnims.push({ id, from: e.doorPivot.rotation.y, to: opening ? -(Math.PI * 100) / 180 : 0, t: 0, dur: 0.35 });
     const o = this.lastPalace?.objects.find((x) => x.id === id);
-    if (this.physics && o) this.physics.setLeaf(id, !opening, e.group.position, e.group.quaternion, e.group.scale);
+    if (this.physics && o) this.physics.setLeaf(id, !opening, e.group.position, e.group.quaternion, e.group.scale, leafFor(o.type));
   }
 
   /** Joystick lewego kontrolera przesuwa, prawy obraca skokowo o 30°. */
@@ -2776,7 +2896,7 @@ export class SceneManager {
     let pz = z;
     for (let iter = 0; iter < 3; iter++) {
       for (const e of this.entries.values()) {
-        if (e.id === ignoreId) continue;
+        if (e.id === ignoreId || e.inplace) continue; // do budynku z wnętrzem w miejscu się wchodzi
         const r = e.footprint * 0.75 * hs(e) + margin;
         const dx = px - e.group.position.x;
         const dz = pz - e.group.position.z;

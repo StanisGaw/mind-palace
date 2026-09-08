@@ -51,6 +51,11 @@ export function normalizeData(data: AppData): AppData {
     const objIds = new Set(p.objects.map((o) => o.id));
     for (const o of p.objects) {
       if (o.anchorId && (!objIds.has(o.anchorId) || o.anchorId === o.id)) delete o.anchorId;
+      // budynek z wnętrzem w miejscu nie ma osobnego pałacu-wnętrza
+      if (o.interiorMode === 'inplace') {
+        delete o.interiorId;
+        o.floors = Math.min(FLOOR_MAX, Math.max(1, Math.round(o.floors ?? 1)));
+      }
       if (!o.interiorId) continue;
       const inside = byId.get(o.interiorId);
       if (!inside || inside.parentObjectId !== o.id) delete o.interiorId;

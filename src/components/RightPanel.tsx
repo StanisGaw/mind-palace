@@ -4,7 +4,7 @@ import { describeDue, isDue } from '../lib/srs';
 import { useCurrentPalace, useStore } from '../store';
 import { usePref } from '../lib/prefs';
 import type { Vec3 } from '../types';
-import { WALL_SEGMENT, wallChains } from '../lib/rooms';
+import { SHELLS, WALL_SEGMENT, isInPlace, wallChains } from '../lib/rooms';
 import { I } from './Icons';
 import { Tip } from './Tip';
 
@@ -338,6 +338,15 @@ function Inspector({ id }: { id: string }) {
   const anchor = obj.anchorId ? palace.objects.find((o) => o.id === obj.anchorId) : undefined;
   const stacked = palace.objects.filter((o) => o.anchorId === id).length;
   const groupSize = obj.groupId ? palace.objects.filter((o) => o.groupId === obj.groupId).length : 0;
+  const setInteriorMode = useStore((s) => s.setInteriorMode);
+  const setBuildingFloors = useStore((s) => s.setBuildingFloors);
+  const setActiveBuilding = useStore((s) => s.setActiveBuilding);
+  const setEditFloor = useStore((s) => s.setEditFloor);
+  const activeBuildingId = useStore((s) => s.activeBuildingId);
+  const editFloor = useStore((s) => s.editFloor);
+  const camera = useStore((s) => s.camera);
+  const inPlace = isInPlace(obj);
+  const insideCount = inPlace ? palace.objects.filter((o) => o.anchorId === id).length : 0;
   const [title, setTitle] = useState(obj.note?.title ?? '');
   const [body, setBody] = useState(obj.note?.body ?? '');
   const [name, setName] = useState(obj.name);
@@ -380,7 +389,20 @@ function Inspector({ id }: { id: string }) {
           <input className="palace-name" style={{ width: '100%', fontSize: 17 }} value={name} onChange={(e) => setName(e.target.value)} aria-label="Nazwa obiektu" />
         </div>
       </div>
-      {hasInterior(obj.type) && (
+      {hasInterior(obj.type) && !palace.interior && (
+        <div className="field">
+          <label>Wnętrze</label>
+          <div className="shape-row">
+            <button className={'shape-btn' + (inPlace ? ' on' : '')} title="Otwierasz drzwi i wchodzisz — wnętrze jest w tej scenie" onClick={() => setInteriorMode(id, 'inplace')}>
+              W budynku
+            </button>
+            <button className={'shape-btn' + (!inPlace ? ' on' : '')} title="Osobna scena ładowana po wejściu (dla dużych wnętrz)" onClick={() => setInteriorMode(id, 'nested')}>
+              Osobna scena
+            </button>
+          </div>
+        </div>
+      )}
+      {hasInterior(obj.type) && !inPlace && (
         <button className="btn primary" style={{ justifyContent: 'center' }} onClick={() => enterInterior(id)}>
           <I.Door width={15} height={15} /> Wejdź do środka
           {interior && (
@@ -389,6 +411,41 @@ function Inspector({ id }: { id: string }) {
             </span>
           )}
         </button>
+      )}
+      {inPlace && (
+        <div className="field">
+          <label>Piętra ({obj.floors ?? 1})</label>
+          <div className="shape-row">
+            <button className="shape-btn" onClick={() => setBuildingFloors(id, (obj.floors ?? 1) - 1)} disabled={(obj.floors ?? 1) <= 1}>
+              − Mniej
+            </button>
+            <button className="shape-btn" onClick={() => setBuildingFloors(id, (obj.floors ?? 1) + 1)} disabled={(obj.floors ?? 1) >= 4}>
+              + Więcej
+            </button>
+          </div>
+          {activeBuildingId === id && (obj.floors ?? 1) > 1 && (
+            <div className="shape-row">
+              {Array.from({ length: obj.floors ?? 1 }, (_, i) => (
+                <button key={i} className={'shape-btn' + (editFloor === i ? ' on' : '')} onClick={() => setEditFloor(i)}>
+                  {i === 0 ? 'Parter' : `Piętro ${i}`}
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            className="btn small"
+            style={{ justifyContent: 'center', marginTop: 6 }}
+            onClick={() => {
+              setActiveBuilding(id);
+              camera('center');
+            }}
+          >
+            <I.Door width={14} height={14} /> Pokaż wnętrze{insideCount > 0 ? ` · ${insideCount} obiektów` : ''}
+          </button>
+          <p className="hint" style={{ marginTop: 6 }}>
+            Klik w budynek chowa dach, klik w pustkę go przywraca. W spacerze otwierasz drzwi klawiszem F i wchodzisz. Skala co najmniej {SHELLS[obj.type]?.minScale ?? 1}, większa daje przestronniejsze wnętrze.
+          </p>
+        </div>
       )}
       <div className="eyebrow">Wspomnienie</div>
       <div className="field">

@@ -26,7 +26,7 @@ export interface Room {
   dispose(): void;
 }
 
-interface Rect {
+export interface Rect {
   x0: number;
   x1: number;
   z0: number;
@@ -34,7 +34,7 @@ interface Rect {
 }
 
 /** Wycina prostokątny otwór z listy prostokątów (podział na do czterech pasów wokół dziury). */
-function subtractRect(rects: Rect[], hole: Rect): Rect[] {
+export function subtractRect(rects: Rect[], hole: Rect): Rect[] {
   const out: Rect[] = [];
   for (const r of rects) {
     if (hole.x1 <= r.x0 || hole.x0 >= r.x1 || hole.z1 <= r.z0 || hole.z0 >= r.z1) {
