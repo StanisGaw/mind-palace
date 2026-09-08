@@ -29,11 +29,11 @@ export function colliderKind(id: string): 'trimesh' | 'box' | 'cylinder' | 'none
 
 export const CATALOG: CatalogItem[] = [
   // Budynki
-  { id: 'palace', name: 'Pałac', category: 'building', emoji: '🏛️', description: 'Kopuła i kolumnada — miejsce na najważniejsze idee.', footprint: 2.4 },
-  { id: 'library', name: 'Biblioteka', category: 'building', emoji: '📚', description: 'Budynek z portykiem, dobry na wiedzę i fakty.', footprint: 2.2 },
+  { id: 'palace', name: 'Pałac', category: 'building', emoji: '🏛️', description: 'Kopuła i kolumnada — miejsce na najważniejsze idee.', footprint: 2.6 },
+  { id: 'library', name: 'Biblioteka', category: 'building', emoji: '📚', description: 'Budynek z portykiem, dobry na wiedzę i fakty.', footprint: 2.4 },
   { id: 'temple', name: 'Świątynia', category: 'building', emoji: '⛩️', description: 'Mały pawilon z dachem dwuspadowym.', footprint: 1.8 },
   { id: 'tower', name: 'Wieża', category: 'building', emoji: '🗼', description: 'Wysoka wieża widoczna z każdego miejsca.', footprint: 1.2 },
-  { id: 'house', name: 'Domek', category: 'building', emoji: '🏠', description: 'Przytulny domek z kominem.', footprint: 1.6 },
+  { id: 'house', name: 'Domek', category: 'building', emoji: '🏠', description: 'Przytulny domek z kominem.', footprint: 2.0 },
   { id: 'gazebo', name: 'Altana', category: 'building', emoji: '⛺', description: 'Otwarta altana ogrodowa.', footprint: 1.5, collider: 'trimesh' },
   // Przedmioty
   { id: 'fountain', name: 'Fontanna', category: 'object', emoji: '⛲', description: 'Woda w centrum ogrodu.', footprint: 1.4, collider: 'trimesh' },

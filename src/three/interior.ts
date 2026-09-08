@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { RoomSpec } from '../types';
-import { discRects, finishMat, glassMat, mat, scaleUv, spiralStairs, wallGeometry, woodMat, type Trimesh } from './builders';
+import { discSlabGeometry, finishMat, glassMat, mat, scaleUv, spiralStairs, trimeshOf, wallGeometry, woodMat, type Trimesh } from './builders';
 import { SHELLS, SHELL_WINDOWS, type Opening, type WallHole } from '../lib/rooms';
 import { skyTexture } from './art';
 
@@ -359,30 +359,24 @@ function buildTowerRoom(spec: RoomSpec, opts: RoomOpts): Room {
     }
   }
 
-  // kręcone schody między kondygnacjami i stropy z otworem nad ich końcem
+  // kręcone schody jako jeden ciągły bieg przez kondygnacje (3/4 obrotu na każdą) i stropy z wycinkiem nad
+  // górną częścią biegu niżej
   const slabs: THREE.Object3D[] = [];
-  const stairW = Math.min(1.3, R * 0.45);
+  const stairW = Math.min(1.2, R * 0.42);
+  const turn = Math.PI * 1.5;
   for (let k = 0; k < floors - 1; k++) {
-    const { hole, ribbon } = spiralStairs(
+    const { sector, ribbon } = spiralStairs(
       g,
-      { cx: 0, cz: 0, r: R - WALL_T / 2 - 0.05, inner: R - WALL_T / 2 - 0.05 - stairW, y0: k * h, height: h, start: Math.PI / 2, turn: Math.PI * 1.5, steps: Math.max(10, Math.round(h / 0.2)) },
+      { cx: 0, cz: 0, r: R - WALL_T / 2 - 0.05, inner: R - WALL_T / 2 - 0.05 - stairW, y0: k * h, height: h, start: Math.PI / 2 + k * turn, turn, steps: Math.max(10, Math.round(h / 0.19)) },
       mat('#d9d4c7'),
     );
     trimeshes.push(ribbon);
     const y = (k + 1) * h;
-    let rects: Rect[] = discRects(R - WALL_T / 2 + 0.02);
-    rects = subtractRect(rects, hole);
-    for (const op of opts.openings[k] ?? []) rects = subtractRect(rects, { x0: op.cx - op.hx, x1: op.cx + op.hx, z0: op.cz - op.hz, z1: op.cz + op.hz });
+    const holes: Rect[] = (opts.openings[k] ?? []).map((op) => ({ x0: op.cx - op.hx, x1: op.cx + op.hx, z0: op.cz - op.hz, z1: op.cz + op.hz }));
+    const geo = discSlabGeometry(R - WALL_T / 2 + 0.02, sector, holes, SLAB_T);
     const slabGroup = new THREE.Group();
-    for (const r of rects) {
-      const sx = r.x1 - r.x0;
-      const sz = r.z1 - r.z0;
-      if (sx < 0.02 || sz < 0.02) continue;
-      const cx = (r.x0 + r.x1) / 2;
-      const cz = (r.z0 + r.z1) / 2;
-      slabGroup.add(mesh(new THREE.BoxGeometry(sx, SLAB_T, sz), slabMat, cx, y + SLAB_T / 2, cz, false));
-      colliders.push({ size: [sx, SLAB_T, sz], pos: [cx, y + SLAB_T / 2, cz] });
-    }
+    slabGroup.add(mesh(geo, slabMat, 0, y, 0, false));
+    trimeshes.push(trimeshOf(geo, [0, y, 0]));
     g.add(slabGroup);
     slabs.push(slabGroup);
   }

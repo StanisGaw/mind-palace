@@ -876,7 +876,7 @@ export class SceneManager {
     const base: Partial<BuildCtx> = { floorHeight };
     if (o.colors && Object.keys(o.colors).length) base.colors = o.colors;
     if (o.type === 'wall') return { ...base, scaleX: o.scale[0], openings: doorOffsets(o, p.objects).map((t) => Math.round(t * 100) / 100) };
-    if (isInPlace(o)) return { ...base, floors: o.floors ?? 1, slabOpenings: buildingOpenings(o, p.objects), facade: facadeHoles(o, p.objects), finish: o.finish };
+    if (isInPlace(o)) return { ...base, floors: o.floors ?? 1, scaleY: Math.round(o.scale[1] * 100) / 100, slabOpenings: buildingOpenings(o, p.objects), facade: facadeHoles(o, p.objects), finish: o.finish };
     if (o.type === 'pathway') return { ...base, scaleX: o.scale[0], scaleZ: o.scale[2], finish: o.finish };
     // taras: schodki od podłogi parteru do ziemi
     if (o.type === 'terrace' && b) return { ...base, drop: Math.round((buildingFloorY(b, 0) - b.position[1]) * 100) / 100 };

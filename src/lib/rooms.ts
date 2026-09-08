@@ -235,9 +235,11 @@ export interface ShellSpec {
 export const TOWER_R = 1.0;
 
 export const SHELLS: Record<string, ShellSpec> = {
-  house: { inner: { w: 1.88, d: 1.68, h: 1.4 }, cx: 0, cz: 0, floorY: 0.16, door: { x: -0.4, z: 0.9, w: 0.5, h: 1.0 }, minScale: 2.0, defaultFloors: 1, maxFloors: 2 },
-  palace: { inner: { w: 3.28, d: 2.28, h: 1.9 }, cx: 0, cz: -0.2, floorY: 0.44, door: { x: 0, z: 1.0, w: 0.6, h: 1.1 }, minScale: 1.7, defaultFloors: 1, maxFloors: 2 },
-  library: { inner: { w: 3.08, d: 2.28, h: 1.7 }, cx: 0, cz: -0.2, floorY: 0.24, door: { x: 0, z: 1.0, w: 0.7, h: 1.15 }, minScale: 1.65, defaultFloors: 1, maxFloors: 2 },
+  // wnętrza na tyle duże, żeby zmieścić klatkę schodową (bieg 1,15 × wysokość kondygnacji) i wejście:
+  // domek 5,2 × 4,8 m przy skali 2, pałac 5,6 × 4,9 m przy 1,7, biblioteka 5,1 × 4,8 m przy 1,65
+  house: { inner: { w: 2.6, d: 2.4, h: 1.4 }, cx: 0, cz: 0, floorY: 0.16, door: { x: -0.6, z: 1.26, w: 0.5, h: 1.0 }, minScale: 2.0, defaultFloors: 1, maxFloors: 2 },
+  palace: { inner: { w: 3.28, d: 2.88, h: 1.9 }, cx: 0, cz: -0.2, floorY: 0.44, door: { x: 0, z: 1.3, w: 0.6, h: 1.1 }, minScale: 1.7, defaultFloors: 1, maxFloors: 2 },
+  library: { inner: { w: 3.08, d: 2.88, h: 1.7 }, cx: 0, cz: -0.2, floorY: 0.24, door: { x: 0, z: 1.3, w: 0.7, h: 1.15 }, minScale: 1.65, defaultFloors: 1, maxFloors: 2 },
   temple: { inner: { w: 2.4, d: 2.0, h: 1.5 }, cx: 0, cz: 0, floorY: 0.36, minScale: 1.6, defaultFloors: 1, maxFloors: 1 },
   // wieża: mur o promieniu TOWER_R, kondygnacja 1,4 (3,5 m przy skali 2,5) — węższa i niższa była za ciasna
   // dla postaci obok kręconych schodów
@@ -293,6 +295,15 @@ export function localXZ(b: PalaceObject, x: number, z: number): [number, number]
   const s = Math.sin(b.rotation[1]);
   // odwrotność obrotu R_y(yaw): lokalny X = (cos, -sin) w świecie
   return [(dx * c - dz * s) / b.scale[0], (dx * s + dz * c) / b.scale[2]];
+}
+
+/** Punkt lokalny modelu budynku w świecie (odwrotność `localXZ`). */
+export function worldXZ(b: PalaceObject, lx: number, lz: number): [number, number] {
+  const x = lx * b.scale[0];
+  const z = lz * b.scale[2];
+  const c = Math.cos(b.rotation[1]);
+  const s = Math.sin(b.rotation[1]);
+  return [b.position[0] + x * c + z * s, b.position[2] - x * s + z * c];
 }
 
 /**
@@ -394,9 +405,9 @@ export interface ShellWindow {
  */
 export const SHELL_WINDOWS: Record<string, ShellWindow[]> = {
   house: [
-    { wall: 'front', u: 0.5, w: 0.4, h: 0.4, sill: 0.65 },
-    { wall: 'back', u: -0.45, w: 0.4, h: 0.4, sill: 0.65 },
-    { wall: 'back', u: 0.45, w: 0.4, h: 0.4, sill: 0.65 },
+    { wall: 'front', u: 0.6, w: 0.4, h: 0.4, sill: 0.65 },
+    { wall: 'back', u: -0.7, w: 0.4, h: 0.4, sill: 0.65 },
+    { wall: 'back', u: 0.7, w: 0.4, h: 0.4, sill: 0.65 },
     { wall: 'left', u: 0.1, w: 0.4, h: 0.4, sill: 0.65 },
     { wall: 'right', u: 0.1, w: 0.4, h: 0.4, sill: 0.65 },
   ],

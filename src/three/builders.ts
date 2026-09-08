@@ -145,18 +145,76 @@ function shellFloor(g: THREE.Group, w: number, d: number, x: number, y: number, 
   return f;
 }
 
-/** Prostokąty przybliżające koło o promieniu `r` (ośmiokąt z pięciu nienachodzących pasów) — stropy okrągłych wnętrz. */
-export function discRects(r: number, cx = 0, cz = 0): Rect[] {
-  const a = 0.7 * r;
-  const b = 0.97 * r;
-  const s = 0.3 * r;
-  return [
-    { x0: cx - a, x1: cx + a, z0: cz - a, z1: cz + a },
-    { x0: cx + a, x1: cx + b, z0: cz - s, z1: cz + s },
-    { x0: cx - b, x1: cx - a, z0: cz - s, z1: cz + s },
-    { x0: cx - s, x1: cx + s, z0: cz + a, z1: cz + b },
-    { x0: cx - s, x1: cx + s, z0: cz - b, z1: cz - a },
-  ];
+/** Wycinek pierścienia nad biegiem kręconych schodów (kąty jak w `SpiralSpec`), który strop musi omijać. */
+export interface StairSector {
+  a0: number;
+  a1: number;
+  inner: number;
+  outer: number;
+}
+
+/**
+ * Strop okrągłego wnętrza jako jedna bryła: koło o promieniu `r` bez wycinka pierścienia nad schodami
+ * i bez prostokątnych otworów (schody z Konstrukcji). Kształt leży w płaszczyźnie XZ, po obrocie o −90° wokół X
+ * wytłoczenie rośnie w górę; oś Y kształtu to −Z świata, stąd punkty (sin a, −cos a).
+ */
+export function discSlabGeometry(r: number, sector: StairSector | null, holes: Rect[], thickness: number): THREE.ExtrudeGeometry {
+  const shape = new THREE.Shape();
+  const pt = (a: number, rr: number): [number, number] => [Math.sin(a) * rr, -Math.cos(a) * rr];
+  if (sector && sector.a1 - sector.a0 > 0.01 && sector.inner > 0.05) {
+    // zewnętrzny łuk dłuższą drogą od końca wycinka do jego początku, promień do środka, wewnętrzny łuk pod wycinkiem, promień na zewnątrz
+    const span = Math.PI * 2 - (sector.a1 - sector.a0);
+    const n = 48;
+    for (let i = 0; i <= n; i++) {
+      const [x, y] = pt(sector.a1 + (span * i) / n, r);
+      if (i === 0) shape.moveTo(x, y);
+      else shape.lineTo(x, y);
+    }
+    const m = 16;
+    for (let i = 0; i <= m; i++) {
+      const [x, y] = pt(sector.a0 + ((sector.a1 - sector.a0) * i) / m, sector.inner);
+      shape.lineTo(x, y);
+    }
+    shape.closePath();
+  } else {
+    shape.absarc(0, 0, r, 0, Math.PI * 2, false);
+  }
+  const inSector = (x: number, z: number) => {
+    if (!sector) return false;
+    const rr = Math.hypot(x, z);
+    if (rr < sector.inner) return false;
+    const a = Math.atan2(x, z);
+    const rel = ((a - sector.a0) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+    return rel <= sector.a1 - sector.a0;
+  };
+  for (const h of holes) {
+    // otwór wystający poza koło albo wchodzący w wycinek nad schodami dałby kształt samoprzecinający się — pomijamy go
+    const corners: [number, number][] = [[h.x0, h.z0], [h.x1, h.z0], [h.x0, h.z1], [h.x1, h.z1]];
+    if (corners.some(([x, z]) => Math.hypot(x, z) >= r || inSector(x, z))) continue;
+    const path = new THREE.Path();
+    path.moveTo(h.x0, -h.z0);
+    path.lineTo(h.x1, -h.z0);
+    path.lineTo(h.x1, -h.z1);
+    path.lineTo(h.x0, -h.z1);
+    path.closePath();
+    shape.holes.push(path);
+  }
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false });
+  geo.rotateX(-Math.PI / 2);
+  return geo;
+}
+
+/** Siatka trójkątów geometrii przesuniętej o `offset` — do kolizji pokoju ładowanego (bryły stropu nie są pudełkami). */
+export function trimeshOf(geo: THREE.BufferGeometry, offset: [number, number, number]): Trimesh {
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const vertices = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    vertices[i * 3] = pos.getX(i) + offset[0];
+    vertices[i * 3 + 1] = pos.getY(i) + offset[1];
+    vertices[i * 3 + 2] = pos.getZ(i) + offset[2];
+  }
+  const indices = geo.index ? new Uint32Array(geo.index.array) : new Uint32Array(Array.from({ length: pos.count }, (_, i) => i));
+  return { vertices, indices };
 }
 
 export interface SpiralSpec {
@@ -172,12 +230,14 @@ export interface SpiralSpec {
   start: number;
   turn: number;
   steps: number;
+  /** Prześwit pod stropem (w jednostkach schodów), poniżej którego strop nad biegiem musi mieć otwór. Domyślnie 2,3. */
+  headroom?: number;
 }
 
 /**
  * Kręcone schody wzdłuż muru: widoczne stopnie bez kolizji i niewidoczne pochylnie (jedyna bryła),
- * jak schody z Konstrukcji. Zwraca prostokąt otworu w stropie nad ostatnią ćwiartką i pochylnie
- * (do kolizji pokoju, gdy schody nie są częścią modelu obiektu).
+ * jak schody z Konstrukcji. Zwraca wycinek otworu w stropie i wstęgę (do kolizji pokoju, gdy schody
+ * nie są częścią modelu obiektu).
  */
 export interface Trimesh {
   vertices: Float32Array;
@@ -209,16 +269,15 @@ function helixRibbon(spec: SpiralSpec, rise: number): Trimesh {
 /**
  * Kręcone schody wzdłuż muru: widoczne stopnie bez kolizji i niewidoczna helikalna wstęga jako jedyna
  * bryła (w modelu obiektu trafia do siatki kolizji; pokój dostaje ją osobno przez `ribbon`).
- * Zwraca prostokąt otworu w stropie nad częścią schodów, gdzie prześwit spada poniżej 2,3 m.
+ * Zwraca wycinek pierścienia nad częścią schodów, gdzie prześwit pod stropem spada poniżej `headroom`.
  */
-export function spiralStairs(g: THREE.Group, spec: SpiralSpec, stepMat: THREE.Material): { hole: Rect; ribbon: Trimesh } {
+export function spiralStairs(g: THREE.Group, spec: SpiralSpec, stepMat: THREE.Material): { sector: StairSector; ribbon: Trimesh } {
   const rise = spec.height / spec.steps;
   const rm = (spec.r + spec.inner) / 2;
   const da = spec.turn / spec.steps;
   const run = rm * da;
   const width = spec.r - spec.inner;
-  const hole = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
-  const holeFrom = Math.max(0.1, 1 - 2.3 / spec.height);
+  const holeFrom = Math.max(0.1, 1 - (spec.headroom ?? 2.3) / spec.height);
   for (let i = 0; i < spec.steps; i++) {
     const a = spec.start + da * (i + 0.5);
     const x = spec.cx + Math.sin(a) * rm;
@@ -227,19 +286,9 @@ export function spiralStairs(g: THREE.Group, spec: SpiralSpec, stepMat: THREE.Ma
     // lokalna oś X to styczna (kierunek wznoszenia), lokalna Z to promień
     const step = add(g, box(run + 0.02, rise, width), stepMat, x, y, z, [0, a, 0]);
     step.userData.skipCollider = true;
-    if (i >= spec.steps * holeFrom) {
-      for (const rr of [spec.inner, spec.r]) {
-        for (const aa of [a - da / 2, a + da / 2]) {
-          const px = spec.cx + Math.sin(aa) * rr;
-          const pz = spec.cz + Math.cos(aa) * rr;
-          hole.x0 = Math.min(hole.x0, px);
-          hole.x1 = Math.max(hole.x1, px);
-          hole.z0 = Math.min(hole.z0, pz);
-          hole.z1 = Math.max(hole.z1, pz);
-        }
-      }
-    }
   }
+  // otwór w stropie: wycinek pierścienia nad stopniami, nad którymi prześwit spadłby poniżej `headroom`
+  const sector: StairSector = { a0: spec.start + da * Math.floor(spec.steps * holeFrom), a1: spec.start + spec.turn, inner: spec.inner - 0.06, outer: spec.r + 0.06 };
   const ribbon = helixRibbon(spec, rise);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(ribbon.vertices, 3));
@@ -248,7 +297,7 @@ export function spiralStairs(g: THREE.Group, spec: SpiralSpec, stepMat: THREE.Ma
   const mesh = new THREE.Mesh(geo, stepMat);
   mesh.visible = false;
   g.add(mesh);
-  return { hole: { x0: hole.x0 - 0.05, x1: hole.x1 + 0.05, z0: hole.z0 - 0.05, z1: hole.z1 + 0.05 }, ribbon };
+  return { sector, ribbon };
 }
 
 /** Ściana budynku: `wallNormal` (lokalny kierunek na zewnątrz) pozwala edytorowi chować ściany od strony kamery. */
@@ -427,16 +476,17 @@ function shellEntryRamp(g: THREE.Group, spec: ShellSpec, zOut: number) {
 
 function buildPalace(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.palace;
-  add(g, box(4.6, 0.28, 3.6), mat(C.stone), 0, 0.14, 0);
-  add(g, box(4.0, 0.16, 3.0), mat(C.cream2), 0, 0.36, 0);
+  add(g, box(4.6, 0.28, 4.2), mat(C.stone), 0, 0.14, 0);
+  add(g, box(4.0, 0.16, 3.6), mat(C.cream2), 0, 0.36, 0);
   shellBox(g, ctx, 'palace', mat(C.cream), mat(C.stone), mat(C.dark));
-  shellEntryRamp(g, spec, 2.3);
-  // portyk
-  columns(g, [[-1.15, 1.0], [-0.4, 1.0], [0.4, 1.0], [1.15, 1.0]], 1.7, 0.11, 0.44);
-  add(g, box(3.2, 0.22, 0.9), mat(C.cream2), 0, 0.44 + 1.7 + 0.11, 0.75);
+  shellEntryRamp(g, spec, 2.6);
+  // portyk przed licem ściany (z = 1,33): kolumny między drzwiami (|x| < 0,3) a oknami (|x| ∈ 0,87..1,23),
+  // żeby nie zasłaniały ani jednych, ani drugich
+  columns(g, [[-1.45, 1.52], [-0.55, 1.52], [0.55, 1.52], [1.45, 1.52]], 1.7, 0.11, 0.44);
+  add(g, box(3.4, 0.22, 0.6), mat(C.cream2), 0, 0.44 + 1.7 + 0.11, 1.4);
   const roof = roofGroup(g, roofLift(ctx, spec));
-  add(roof, prism(3.4, 0.6, 0.95), mat(C.cream), 0, 0.44 + 1.92, 0.75);
-  add(roof, box(3.46, 0.08, 2.46), mat(C.cream2), 0, 2.34 + 0.04, -0.2); // strop nad salą
+  add(roof, prism(3.6, 0.6, 0.7), mat(C.cream), 0, 0.44 + 1.92, 1.4);
+  add(roof, box(3.46, 0.08, 3.06), mat(C.cream2), 0, 2.34 + 0.04, -0.2); // strop nad salą
   // bęben + kopuła
   add(roof, cyl(1.05, 1.05, 0.45, 16), mat(C.cream2), 0, 0.44 + 1.9 + 0.22, -0.2);
   add(roof, cyl(1.15, 1.15, 0.1, 16), mat(C.stone), 0, 0.44 + 1.9 + 0.5, -0.2);
@@ -444,22 +494,23 @@ function buildPalace(g: THREE.Group, ctx: BuildCtx) {
   add(roof, dome, mat(C.dome, { flat: false }), 0, 0.44 + 1.9 + 0.55, -0.2);
   add(roof, sphere(0.12, 8), mat(C.domeDark), 0, 0.44 + 1.9 + 0.55 + 1.08, -0.2);
   // schody
-  add(g, box(2.2, 0.12, 0.5), mat(C.stone), 0, 0.06, 1.95);
-  add(g, box(2.2, 0.12, 0.3), mat(C.stoneDark), 0, 0.18, 1.85);
+  add(g, box(2.2, 0.12, 0.5), mat(C.stone), 0, 0.06, 2.25);
+  add(g, box(2.2, 0.12, 0.3), mat(C.stoneDark), 0, 0.18, 2.15);
 }
 
 function buildLibrary(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.library;
-  add(g, box(4.0, 0.24, 3.2), mat(C.stone), 0, 0.12, 0);
+  add(g, box(4.0, 0.24, 3.8), mat(C.stone), 0, 0.12, 0);
   shellBox(g, ctx, 'library', mat(C.cream), mat(C.stone), mat(C.dark));
-  shellEntryRamp(g, spec, 2.3);
-  columns(g, [[-1.2, 0.95], [-0.4, 0.95], [0.4, 0.95], [1.2, 0.95]], 1.6, 0.1, 0.24);
-  add(g, box(3.4, 0.18, 1.1), mat(C.cream2), 0, 0.24 + 1.6 + 0.09, 0.55);
+  shellEntryRamp(g, spec, 2.6);
+  // kolumny przed ścianą, poza drzwiami (|x| < 0,35) i oknami (|x| ∈ 0,83..1,17)
+  columns(g, [[-1.4, 1.45], [-0.55, 1.45], [0.55, 1.45], [1.4, 1.45]], 1.6, 0.1, 0.24);
+  add(g, box(3.3, 0.18, 0.55), mat(C.cream2), 0, 0.24 + 1.6 + 0.09, 1.35);
   const roof = roofGroup(g, roofLift(ctx, spec));
-  add(roof, box(3.26, 0.1, 2.46), mat(C.cream2), 0, 1.94 + 0.05, -0.2); // strop
-  add(roof, prism(3.6, 0.8, 3.1), mat(C.roof), 0, 0.24 + 1.78, -0.05);
-  add(g, box(0.9, 0.16, 0.14), mat(C.roofDark), 0, 0.24 + 1.35, 1.07);
-  add(g, box(1.6, 0.1, 0.6), mat(C.stone), 0, 0.05, 1.85);
+  add(roof, box(3.26, 0.1, 3.06), mat(C.cream2), 0, 1.94 + 0.05, -0.2); // strop
+  add(roof, prism(3.6, 0.8, 3.6), mat(C.roof), 0, 0.24 + 1.78, -0.2);
+  add(g, box(0.9, 0.16, 0.14), mat(C.roofDark), 0, 0.24 + 1.35, 1.37);
+  add(g, box(1.6, 0.1, 0.6), mat(C.stone), 0, 0.05, 2.15);
 }
 
 function buildTemple(g: THREE.Group, ctx: BuildCtx) {
@@ -504,14 +555,19 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
   }
   shellLeaf(g, door, spec.floorY, mat(C.dark));
   shellEntryRamp(g, spec, r + 0.7);
-  // wieża ma wbudowane kręcone schody wzdłuż muru: bez nich piętra byłyby nieosiągalne; bieg 0,5 szerokości
-  // zostawia pośrodku wolne koło o promieniu ~1 (2,6 m średnicy przy skali 2,5)
-  const holes: Rect[][] = [];
-  for (let k = 0; k < floors - 1; k++) {
-    const { hole } = spiralStairs(g, { cx: 0, cz: 0, r: r - 0.08, inner: r - 0.58, y0: spec.floorY + k * h, height: h, start: Math.PI / 2, turn: Math.PI * 1.5, steps: Math.max(8, Math.round((h * 2.5) / 0.27)) }, mat(C.stoneDark));
-    holes.push([hole]);
+  // wieża ma wbudowane kręcone schody wzdłuż muru: jeden ciągły bieg przez wszystkie kondygnacje (każda
+  // kondygnacja to 3/4 obrotu, następny bieg zaczyna się tam, gdzie poprzedni doszedł do stropu). Bieg 0,42
+  // szerokości zostawia pośrodku każdej izby wolne koło o promieniu ~1,3 m przy skali 2,5.
+  const sy = ctx.scaleY ?? spec.minScale;
+  const turn = Math.PI * 1.5;
+  const steps = Math.max(8, Math.round((h * sy) / 0.19));
+  for (let k = 1; k < floors; k++) {
+    const { sector } = spiralStairs(g, { cx: 0, cz: 0, r: r - 0.08, inner: r - 0.5, y0: spec.floorY + (k - 1) * h, height: h, start: Math.PI / 2 + (k - 1) * turn, turn, steps, headroom: 2.2 / sy }, mat(C.stoneDark));
+    const holes = (ctx.slabOpenings?.[k - 1] ?? []).map((op) => ({ x0: op.cx - op.hx, x1: op.cx + op.hx, z0: op.cz - op.hz, z1: op.cz + op.hz }));
+    const slab = add(g, discSlabGeometry(r - 0.05, sector, holes, 0.04), floorFinish, 0, spec.floorY + k * h - 0.04, 0);
+    slab.userData.floorSurface = true;
+    slab.userData.slab = k;
   }
-  shellSlabs(g, ctx, discRects(r - 0.06), spec.floorY, h, floorFinish, holes);
   const lift = top - 3.9; // gzyms i stożek siedzą na szczycie muru
   const roof = roofGroup(g, lift);
   add(roof, cyl(r + 0.1, r + 0.1, 0.22, 12), mat(C.cream2), 0, 3.9 + 0.11, 0);
@@ -521,12 +577,12 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
 
 function buildHouse(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.house;
-  add(g, box(2.4, 0.16, 2.2), mat(C.stone), 0, 0.08, 0);
+  add(g, box(3.1, 0.16, 2.9), mat(C.stone), 0, 0.08, 0);
   shellBox(g, ctx, 'house', mat(C.cream), woodMat(C.wood), mat(C.dark));
-  shellEntryRamp(g, spec, 1.6);
+  shellEntryRamp(g, spec, 2.0);
   const roof = roofGroup(g, roofLift(ctx, spec));
-  add(roof, prism(2.3, 0.9, 2.1), mat(C.roof), 0, 1.56, 0);
-  add(roof, box(0.3, 0.7, 0.3), mat(C.stoneDark), 0.6, 1.9, -0.4);
+  add(roof, prism(3.0, 1.0, 2.8), mat(C.roof), 0, 1.56, 0);
+  add(roof, box(0.3, 0.7, 0.3), mat(C.stoneDark), 0.9, 1.98, -0.6);
 }
 
 function buildGazebo(g: THREE.Group) {
@@ -914,6 +970,8 @@ export interface BuildCtx {
   /** Budynek z wnętrzem w miejscu: liczba kondygnacji i otwory w stropach (lokalne jednostki modelu). */
   floors?: number;
   slabOpenings?: Opening[][];
+  /** Skala Y budynku — schody wbudowane liczą wysokość stopnia i prześwit w metrach świata. */
+  scaleY?: number;
   /** Otwory elewacji (okna, balkony, tarasy) na ścianach powłoki: klucz ściany → otwory w jej układzie (u wzdłuż, v wysokość). */
   facade?: Record<string, WallHole[]>;
   /** Taras: wysokość podłogi parteru nad ziemią (schodki w dół), metry świata. */
@@ -1709,11 +1767,11 @@ export function shellLeafLocal(type: string): { size: [number, number, number]; 
  * `local` to sama framuga, `outside` to miejsce, w którym staje gracz po wyjściu.
  */
 export const DOORS: Record<string, { local: [number, number, number]; outside: [number, number, number] }> = {
-  palace: { local: [0, 0.44, 1.0], outside: [0, 0, 3.1] },
-  library: { local: [0, 0.24, 1.0], outside: [0, 0, 3.0] },
+  palace: { local: [0, 0.44, 1.3], outside: [0, 0, 3.4] },
+  library: { local: [0, 0.24, 1.3], outside: [0, 0, 3.3] },
   temple: { local: [0, 0.36, 0.9], outside: [0, 0, 2.6] },
   tower: { local: [0, 0.3, 1.05], outside: [0, 0, 2.8] },
-  house: { local: [-0.4, 0.16, 0.92], outside: [-0.4, 0, 2.4] },
+  house: { local: [-0.6, 0.16, 1.28], outside: [-0.6, 0, 2.8] },
 };
 
 /** Punkt zaczepienia emitera cząsteczek w lokalnych współrzędnych modelu. */

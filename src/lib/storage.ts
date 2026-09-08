@@ -2,7 +2,8 @@ import type { AppData, GroundSpec, Palace, PalaceObject, PalaceSettings, RoomPre
 import { catalogItem, ROOMS } from '../catalog';
 import { uid } from './ids';
 import { hashString } from '../three/noise';
-import { FLOOR_MAX, SHELLS, attachLegacyDoors, buildingOf, roomLamps } from './rooms';
+import { FLOOR_MAX, SHELLS, attachLegacyDoors, buildingOf, facadeSnap, isFacade, roomLamps } from './rooms';
+import { yawRotation } from './transform';
 
 const KEY = 'mneme.data.v1';
 
@@ -62,6 +63,7 @@ export function normalizeData(data: AppData): AppData {
       if (!inside || inside.parentObjectId !== o.id) delete o.interiorId;
     }
     migrateShellFloors(p.objects);
+    migrateShellFacade(p.objects);
     // grupa jednoosobowa to brak grupy
     const groupSize = new Map<string, number>();
     for (const o of p.objects) if (o.groupId) groupSize.set(o.groupId, (groupSize.get(o.groupId) ?? 0) + 1);
@@ -207,7 +209,7 @@ const OLD_INNER_H: Record<string, number> = { house: 1.4, palace: 1.9, library: 
  */
 function migrateShellFloors(objects: PalaceObject[]) {
   for (const b of objects) {
-    if (b.interiorMode !== 'inplace' || b.shellVersion === 3) continue;
+    if (b.interiorMode !== 'inplace' || (b.shellVersion ?? 0) >= 3) continue;
     const spec = SHELLS[b.type];
     if (!spec) continue;
     const oldFloors = Math.max(1, b.floors ?? 1);
@@ -227,6 +229,26 @@ function migrateShellFloors(objects: PalaceObject[]) {
     if (b.type === 'tower' && b.shellVersion !== 2) b.floors = Math.max(spec.defaultFloors, oldFloors);
     b.floors = Math.min(spec.maxFloors, Math.max(1, b.floors ?? 1));
     b.shellVersion = 3;
+  }
+}
+
+/**
+ * Wersja 4 powłok: większe wnętrza domku, pałacu i biblioteki (mury odsunęły się o 0,3–0,36 jednostki modelu).
+ * Okna, balkony i tarasy zakotwiczone w budynku wisiałyby w głębi pokoju, więc przyciągamy je ponownie do nowego
+ * lica tej samej ściany; obiekty w środku zostają (wnętrze tylko urosło). Jednorazowo, przez znacznik `shellVersion`.
+ */
+function migrateShellFacade(objects: PalaceObject[]) {
+  for (const b of objects) {
+    if (b.interiorMode !== 'inplace' || b.shellVersion !== 3) continue;
+    if (!SHELLS[b.type]) continue;
+    for (const o of objects) {
+      if (o.anchorId !== b.id || !isFacade(o.type)) continue;
+      const hit = facadeSnap(b, o.type, o.position[0], o.position[2]);
+      if (!hit) continue;
+      o.position = [hit.x, o.position[1], hit.z];
+      o.rotation = yawRotation(hit.yaw);
+    }
+    b.shellVersion = 4;
   }
 }
 
