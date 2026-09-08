@@ -55,83 +55,80 @@ function Library({ q }: { q: string }) {
   const setPlacing = useStore((s) => s.setPlacing);
   const select = useStore((s) => s.select);
   const isInterior = !!useCurrentPalace().interior;
-  const [collapsed, setCollapsed] = usePref<string[]>('libCollapsed', []);
-  const [hidden, setHidden] = usePref<string[]>('libHidden', []);
+  // jedna aktywna kategoria albo „Wszystkie”; wyszukiwanie działa w ramach aktywnej
+  const [category, setCategory] = usePref<string>('libCategory', 'all');
   // we wnętrzu nie stawiamy budynków, gór ani bramy; wyposażenie idzie na wierzch. Na planszy Konstrukcja
   // (ścianki, drzwi, schody) służy budynkom z wnętrzem w miejscu
   const cats: Category[] = isInterior
     ? (['structure', 'furniture', ...CATEGORY_ORDER.filter((c) => !['building', 'landscape', 'special', 'furniture', 'structure'].includes(c))] as Category[])
     : (['building', ...CATEGORY_ORDER.filter((c) => c !== 'building')] as Category[]);
-  const searching = q.trim().length > 0;
+  const active = cats.includes(category as Category) ? (category as Category) : 'all';
   const filtered = useMemo(
     () => CATALOG.filter((c) => !c.hidden && (!q || c.name.toLowerCase().includes(q.toLowerCase()) || c.description.toLowerCase().includes(q.toLowerCase()))),
     [q],
   );
-  const toggle = (list: string[], set: (v: string[]) => void, cat: string) =>
-    set(list.includes(cat) ? list.filter((c) => c !== cat) : [...list, cat]);
-  const visibleCats = cats.filter((c) => searching || !hidden.includes(c));
+  const shownCats = active === 'all' ? cats : [active];
 
+  const row = (item: (typeof CATALOG)[number]) => (
+    <button
+      key={item.id}
+      className={'item-row' + (placing?.type === item.id && !placing.ids ? ' placing' : '')}
+      title={placing?.type === item.id && !placing.ids ? (item.id === 'wall' ? 'Kliknij początek i koniec ścianki (Esc anuluje)' : 'Kliknij scenę, aby postawić (Esc anuluje)') : item.description}
+      onClick={() => {
+        if (viewMode !== 'editor') {
+          addObject(item.id);
+          showToast(`Dodano: ${item.name}. Wróć do edytora, aby ustawić obiekt.`);
+          return;
+        }
+        // w edytorze najpierw pokazujemy podgląd, obiekt powstaje dopiero po kliknięciu w scenę
+        if (placing?.type === item.id && !placing.ids) setPlacing(null);
+        else {
+          select(null);
+          setPlacing({ type: item.id });
+        }
+      }}
+    >
+      <span className="ico">{item.emoji}</span>
+      <span className="txt">
+        <div className="name">{item.name}</div>
+        <div className="sub">{item.description}</div>
+      </span>
+      <span className="add">{placing?.type === item.id && !placing.ids ? (item.id === 'wall' ? 'Początek i koniec' : 'Kliknij scenę') : '+ Dodaj'}</span>
+    </button>
+  );
+
+  const total = shownCats.reduce((n, cat) => n + filtered.filter((c) => c.category === cat).length, 0);
   return (
     <div>
       {isInterior && <RoomPresets />}
       <div className="cat-chips">
+        <button className={'cat-chip' + (active === 'all' ? ' on' : '')} onClick={() => setCategory('all')} title="Pokaż wszystkie kategorie">
+          Wszystkie
+        </button>
         {cats.map((cat) => (
-          <button
-            key={cat}
-            className={'cat-chip' + (hidden.includes(cat) ? '' : ' on')}
-            onClick={() => toggle(hidden, setHidden, cat)}
-            title={hidden.includes(cat) ? 'Pokaż kategorię' : 'Ukryj kategorię'}
-          >
+          <button key={cat} className={'cat-chip' + (active === cat ? ' on' : '')} onClick={() => setCategory(cat)} title={`Pokaż tylko: ${CATEGORY_LABELS[cat]}`}>
             {CATEGORY_LABELS[cat]}
           </button>
         ))}
       </div>
-      {visibleCats.map((cat) => {
+      {shownCats.map((cat) => {
         const items = filtered.filter((c) => c.category === cat);
         if (items.length === 0) return null;
-        const isCollapsed = !searching && collapsed.includes(cat);
         return (
           <div key={cat}>
-            <button className={'cat-head' + (isCollapsed ? ' collapsed' : '')} onClick={() => toggle(collapsed, setCollapsed, cat)}>
-              <span className="cat-title">
-                {CATEGORY_LABELS[cat]}
-                <span className="cnt">{items.length}</span>
-              </span>
-              <I.Down className="chev" width={14} height={14} />
-            </button>
-            {!isCollapsed &&
-              items.map((item) => (
-                <button
-                  key={item.id}
-                  className={'item-row' + (placing?.type === item.id ? ' placing' : '')}
-                  title={placing?.type === item.id ? (item.id === 'wall' ? 'Kliknij początek i koniec ścianki (Esc anuluje)' : 'Kliknij scenę, aby postawić (Esc anuluje)') : item.description}
-                  onClick={() => {
-                    if (viewMode !== 'editor') {
-                      addObject(item.id);
-                      showToast(`Dodano: ${item.name}. Wróć do edytora, aby ustawić obiekt.`);
-                      return;
-                    }
-                    // w edytorze najpierw pokazujemy podgląd, obiekt powstaje dopiero po kliknięciu w scenę
-                    if (placing?.type === item.id) setPlacing(null);
-                    else {
-                      select(null);
-                      setPlacing({ type: item.id });
-                    }
-                  }}
-                >
-                  <span className="ico">{item.emoji}</span>
-                  <span className="txt">
-                    <div className="name">{item.name}</div>
-                    <div className="sub">{item.description}</div>
-                  </span>
-                  <span className="add">{placing?.type === item.id ? (item.id === 'wall' ? 'Początek i koniec' : 'Kliknij scenę') : '+ Dodaj'}</span>
-                </button>
-              ))}
+            {active === 'all' && (
+              <div className="cat-head static">
+                <span className="cat-title">
+                  {CATEGORY_LABELS[cat]}
+                  <span className="cnt">{items.length}</span>
+                </span>
+              </div>
+            )}
+            {items.map(row)}
           </div>
         );
       })}
-      {filtered.length === 0 && <div className="empty">Nic nie znaleziono.</div>}
-      {filtered.length > 0 && visibleCats.length === 0 && <div className="empty">Wszystkie kategorie są ukryte.</div>}
+      {total === 0 && <div className="empty">{q ? `Nic nie znaleziono${active === 'all' ? '' : ` w kategorii ${CATEGORY_LABELS[active]}`}.` : 'Ta kategoria jest pusta.'}</div>}
     </div>
   );
 }
