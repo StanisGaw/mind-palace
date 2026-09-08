@@ -232,7 +232,7 @@ export interface SwarmOpts {
   origin: [number, number, number];
   radius: number;
   height: number;
-  kind: 'firefly' | 'butterfly';
+  kind: 'firefly' | 'butterfly' | 'insect';
   colors: string[];
   size: number;
   speed: number;
@@ -323,12 +323,13 @@ export class SwarmEmitter implements Updatable {
     const firefly = opts.kind === 'firefly';
     const material = new THREE.PointsMaterial({
       size: opts.size,
-      map: firefly ? glowTexture() : wingTexture(),
+      // owady to małe ciemne kropki (miękki punkt bez blasku), motyle sprite skrzydeł
+      map: opts.kind === 'butterfly' ? wingTexture() : glowTexture(),
       vertexColors: true,
       transparent: true,
       depthWrite: false,
       blending: firefly ? THREE.AdditiveBlending : THREE.NormalBlending,
-      alphaTest: firefly ? 0 : 0.4,
+      alphaTest: firefly ? 0 : opts.kind === 'insect' ? 0.5 : 0.4,
       sizeAttenuation: true,
     });
     this.object = new THREE.Points(geo, material);
@@ -341,18 +342,22 @@ export class SwarmEmitter implements Updatable {
     const o = this.opts;
     const t = this.t;
     const firefly = o.kind === 'firefly';
+    const insect = o.kind === 'insect';
     for (let i = 0; i < o.count; i++) {
       const p0 = this.phase[i * 4];
       const p1 = this.phase[i * 4 + 1];
       const p2 = this.phase[i * 4 + 2];
       const p3 = this.phase[i * 4 + 3];
       // wędrówka wokół kotwicy: dwa niewspółmierne okresy na osi, żeby tor nie był kołem
-      const wander = firefly ? 0.6 : 0.9;
-      this.positions[i * 3] = this.anchors[i * 3] + Math.sin(t * 0.7 + p0) * wander + Math.sin(t * 1.9 + p1) * 0.15;
-      this.positions[i * 3 + 1] = this.anchors[i * 3 + 1] + Math.sin(t * 0.9 + p2) * (firefly ? 0.25 : 0.4) + (firefly ? 0 : Math.abs(Math.sin(t * 9 + p3)) * 0.05);
-      this.positions[i * 3 + 2] = this.anchors[i * 3 + 2] + Math.cos(t * 0.6 + p1) * wander + Math.cos(t * 2.3 + p3) * 0.15;
-      // świetlik mruga (krótkie błyski), motyl tylko lekko ciemnieje przy złożonych skrzydłach
-      const blink = firefly ? Math.max(0, Math.sin(t * 2.2 + p3) - 0.55) / 0.45 : 0.75 + 0.25 * Math.abs(Math.sin(t * 9 + p3));
+      // owady bzyczą szybko i nerwowo blisko kotwicy, reszta wędruje szerzej i spokojniej
+      const wander = firefly ? 0.6 : insect ? 0.35 : 0.9;
+      const jitter = insect ? 0.12 : 0.15;
+      const fast = insect ? 4 : 1;
+      this.positions[i * 3] = this.anchors[i * 3] + Math.sin(t * 0.7 * fast + p0) * wander + Math.sin(t * 1.9 * fast + p1) * jitter;
+      this.positions[i * 3 + 1] = this.anchors[i * 3 + 1] + Math.sin(t * 0.9 * fast + p2) * (firefly ? 0.25 : insect ? 0.2 : 0.4) + (firefly || insect ? 0 : Math.abs(Math.sin(t * 9 + p3)) * 0.05);
+      this.positions[i * 3 + 2] = this.anchors[i * 3 + 2] + Math.cos(t * 0.6 * fast + p1) * wander + Math.cos(t * 2.3 * fast + p3) * jitter;
+      // świetlik mruga (krótkie błyski), motyl tylko lekko ciemnieje przy złożonych skrzydłach, owad ma stały kolor
+      const blink = firefly ? Math.max(0, Math.sin(t * 2.2 + p3) - 0.55) / 0.45 : insect ? 1 : 0.75 + 0.25 * Math.abs(Math.sin(t * 9 + p3));
       const k = firefly ? 0.15 + blink : blink;
       this.colors[i * 3] = this.base[i * 3] * k;
       this.colors[i * 3 + 1] = this.base[i * 3 + 1] * k;

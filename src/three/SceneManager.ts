@@ -835,7 +835,9 @@ export class SceneManager {
                 ? new PuffEmitter({ count: 16, origin: anchor, radius: 0.4, rise: 0.45, life: 1.6, scaleFrom: 0.12, scaleTo: 0.42, color: '#ffffff', opacity: 0.26 })
                 : item.emitter === 'fireflies'
                   ? new SwarmEmitter({ count: 26, origin: [0, 0.4, 0], radius: 2.2, height: 1.6, kind: 'firefly', colors: ['#d8ff7a', '#f4ffb0', '#b8f060'], size: 0.09, speed: 0.8 })
-                  : new SwarmEmitter({ count: 12, origin: [0, 0.5, 0], radius: 2.0, height: 1.2, kind: 'butterfly', colors: ['#f2b64c', '#e88a8a', '#8fb7e6', '#f6f0d8', '#c9a2d8'], size: 0.14, speed: 1.0 });
+                  : item.emitter === 'insects'
+                    ? new SwarmEmitter({ count: 40, origin: [0, 0.5, 0], radius: 1.2, height: 1.0, kind: 'insect', colors: ['#e8b93c', '#3a2e1c', '#d9a72e'], size: 0.045, speed: 1.0 })
+                    : new SwarmEmitter({ count: 12, origin: [0, 0.5, 0], radius: 2.0, height: 1.2, kind: 'butterfly', colors: ['#f2b64c', '#e88a8a', '#8fb7e6', '#f6f0d8', '#c9a2d8'], size: 0.14, speed: 1.0 });
           e.emitter.object.userData.noPick = true;
           e.group.add(e.emitter.object);
         }

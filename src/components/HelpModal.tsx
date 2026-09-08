@@ -48,7 +48,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         <ul>
           <li>W bibliotece, w kategorii <b>Zwierzęta</b>, stawiasz punkty pojawiania. W edytorze widać znacznik, a w trybie chodzenia zwierzę ożywa.</li>
           <li>Pies podbiega i siada obok Ciebie, kot ucieka, wiewiórka wspina się na drzewo, wilk warczy z dystansu, ptaki krążą, a smok co jakiś czas przelatuje nad głową i zionie ogniem. Kliknięcie zwierzęcia wywołuje reakcję.</li>
-          <li><b>Świetliki</b> (słoik) i <b>motyle</b> (kępa kwiatów) to roje krążące wokół znacznika — także w edytorze. Świetliki mrugają i najładniej wyglądają nocą.</li>
+          <li><b>Świetliki</b> (słoik), <b>owady</b> (ul z pszczołami) i <b>motyle</b> (kępa kwiatów) to roje krążące wokół znacznika — także w edytorze. Świetliki mrugają i najładniej wyglądają nocą.</li>
         </ul>
         <h3>Wnętrza budynków</h3>
         <ul>

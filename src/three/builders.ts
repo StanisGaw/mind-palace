@@ -1267,6 +1267,19 @@ function buildFireflyJar(g: THREE.Group) {
   g.add(light);
 }
 
+/** Ul na podstawce — znacznik roju pszczół. */
+function buildBeehive(g: THREE.Group) {
+  add(g, box(0.5, 0.06, 0.5), woodMat(C.woodDark), 0, 0.03, 0);
+  for (const [x, z] of [[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]] as [number, number][]) add(g, box(0.05, 0.3, 0.05), woodMat(C.woodDark), x, 0.21, z);
+  add(g, box(0.44, 0.04, 0.44), woodMat(C.wood), 0, 0.38, 0);
+  add(g, box(0.4, 0.5, 0.4), woodMat(C.wood), 0, 0.65, 0);
+  for (const y of [0.52, 0.66, 0.8]) add(g, box(0.41, 0.015, 0.41), woodMat(C.woodDark), 0, y, 0);
+  add(g, box(0.12, 0.03, 0.02), mat(C.dark), 0, 0.43, 0.2); // wylot
+  add(g, box(0.16, 0.02, 0.06), woodMat(C.woodDark), 0, 0.41, 0.23); // mostek
+  add(g, box(0.5, 0.05, 0.5), woodMat(C.woodDark), 0, 0.925, 0);
+  add(g, prism(0.56, 0.16, 0.56), mat(C.roofDark), 0, 1.0, 0);
+}
+
 /** Kępa kwiatów — znacznik roju motyli. */
 function buildButterflyPatch(g: THREE.Group) {
   add(g, cyl(0.28, 0.32, 0.08, 10), mat(C.soil), 0, 0.04, 0);
@@ -1540,6 +1553,7 @@ const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   globe: buildGlobe,
   dishes: buildDishes,
   fireflies: buildFireflyJar,
+  insects: buildBeehive,
   butterflies: buildButterflyPatch,
   door: buildDoor,
   window: buildWindow,

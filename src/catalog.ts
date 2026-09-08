@@ -9,7 +9,7 @@ export interface CatalogItem {
   emoji: string; // ikona w liście
   footprint: number; // przybliżony promień (do rozmieszczania)
   maxScale?: number; // górna granica suwaka wielkości (domyślnie 10)
-  emitter?: 'smoke' | 'mist' | 'fireflies' | 'butterflies'; // system cząsteczek doczepiony do obiektu
+  emitter?: 'smoke' | 'mist' | 'fireflies' | 'butterflies' | 'insects'; // system cząsteczek doczepiony do obiektu
   collider?: 'trimesh' | 'box' | 'cylinder' | 'none'; // bryła kolizji (domyślnie 'box')
   unique?: boolean; // tylko jeden taki obiekt na pałac (brama)
   spawn?: AnimalKind; // punkt pojawiania zwierzęcia
@@ -92,6 +92,7 @@ export const CATALOG: CatalogItem[] = [
   { id: 'spawn_squirrel', name: 'Wiewiórka', category: 'animal', emoji: '🐿️', description: 'Biega między drzewami, wspina się przy zagrożeniu.', footprint: 0.4, collider: 'none', spawn: 'squirrel' },
   { id: 'spawn_wolf', name: 'Wilk', category: 'animal', emoji: '🐺', description: 'Patroluje teren i warczy z bezpiecznej odległości.', footprint: 0.6, collider: 'none', spawn: 'wolf' },
   { id: 'fireflies', name: 'Świetliki', category: 'animal', emoji: '✨', description: 'Słoik, wokół którego wieczorem roją się świecące owady.', footprint: 0.3, collider: 'none', emitter: 'fireflies' },
+  { id: 'insects', name: 'Owady', category: 'animal', emoji: '🐝', description: 'Ul, wokół którego bzyczy rój pszczół.', footprint: 0.4, collider: 'box', emitter: 'insects' },
   { id: 'butterflies', name: 'Motyle', category: 'animal', emoji: '🦋', description: 'Kępa kwiatów z motylami krążącymi w pobliżu.', footprint: 0.4, collider: 'none', emitter: 'butterflies' },
   { id: 'spawn_dragon', name: 'Smok', category: 'animal', emoji: '🐉', description: 'Krąży wysoko, przelatuje nad głową i zionie ogniem.', footprint: 0.8, collider: 'none', spawn: 'dragon' },
   // Specjalne

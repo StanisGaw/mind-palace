@@ -34,8 +34,8 @@ npm run build        # produkcyjny build do dist/
   i dla każdego budynku z wnętrzem w miejscu.
 - **Zwierzęta** — punkty pojawiania (ptaki, pies, kot, wiewiórka, wilk, smok) stawiane w edytorze
   ożywają w trybie chodzenia: pies podbiega i siada, kot ucieka, wiewiórka wspina się na drzewo,
-  wilk warczy z dystansu, smok krąży, przelatuje nad głową i zionie ogniem. Świetliki i motyle to roje
-  cząstek krążące wokół znacznika (słoik, kępa kwiatów).
+  wilk warczy z dystansu, smok krąży, przelatuje nad głową i zionie ogniem. Świetliki, owady i motyle to roje
+  cząstek krążące wokół znacznika (słoik, ul, kępa kwiatów).
 - **Elewacja i dekoracje** — budynki mają wbudowane okna z szybami, te same na bryle, w powłoce
   w miejscu i w pokoju ładowanym (z widokiem „dnia” za szybą). Okno, balkon i taras z biblioteki
   stawia się na murze budynku z wnętrzem w miejscu (mur dostaje otwór; balkon na piętrze, taras przy
