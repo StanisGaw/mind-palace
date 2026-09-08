@@ -55,6 +55,10 @@ export function normalizeData(data: AppData): AppData {
       const inside = byId.get(o.interiorId);
       if (!inside || inside.parentObjectId !== o.id) delete o.interiorId;
     }
+    // grupa jednoosobowa to brak grupy
+    const groupSize = new Map<string, number>();
+    for (const o of p.objects) if (o.groupId) groupSize.set(o.groupId, (groupSize.get(o.groupId) ?? 0) + 1);
+    for (const o of p.objects) if (o.groupId && (groupSize.get(o.groupId) ?? 0) < 2) delete o.groupId;
     // łańcuch kotwic nie może tworzyć cyklu
     for (const o of p.objects) {
       const seen = new Set<string>([o.id]);

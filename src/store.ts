@@ -80,6 +80,10 @@ interface State {
   updateObject(id: string, patch: Partial<PalaceObject>, opts?: { undo?: boolean }): void;
   duplicateObject(id: string): void;
   select(id: string | null): void;
+  /** Zaznacza sam obiekt, bez reszty jego grupy (edycja członka grupy). */
+  selectOnly(id: string): void;
+  groupSelected(): void;
+  ungroupSelected(): void;
   setSelection(ids: string[]): void;
   toggleSelected(id: string): void;
   updateObjects(list: { id: string; patch: Partial<PalaceObject> }[], opts?: { undo?: boolean }): void;
@@ -177,6 +181,15 @@ export function selectionRoots(objects: PalaceObject[], ids: string[]): PalaceOb
     if (!underSelected) out.push(o);
   }
   return out;
+}
+
+/** Podane id plus wszyscy członkowie ich grup (kolejność: najpierw podane, potem reszta). */
+export function expandGroups(objects: PalaceObject[], ids: string[]): string[] {
+  const out = new Set(ids);
+  const groups = new Set<string>();
+  for (const o of objects) if (out.has(o.id) && o.groupId) groups.add(o.groupId);
+  if (groups.size > 0) for (const o of objects) if (o.groupId && groups.has(o.groupId)) out.add(o.id);
+  return Array.from(out);
 }
 
 /** Jak `selectionRoots`, ale bez drzwi, których ścianka nie jest zaznaczona — drzwi ruszają się tylko po swojej ściance. */
@@ -627,7 +640,7 @@ export const useStore = create<State>((set, get) => ({
     }
     const nid = uid();
     get().setPalace((pl) => {
-      pl.objects.push({ ...JSON.parse(JSON.stringify(src)), id: nid, note: undefined, interiorId: undefined, anchorId: undefined, position: [src.position[0] + 1.5, 0, src.position[2] + 1.5] });
+      pl.objects.push({ ...JSON.parse(JSON.stringify(src)), id: nid, note: undefined, interiorId: undefined, anchorId: undefined, groupId: undefined, position: [src.position[0] + 1.5, 0, src.position[2] + 1.5] });
     });
     set({ selectedIds: [nid] });
   },
@@ -638,10 +651,17 @@ export const useStore = create<State>((set, get) => ({
     const srcs = p.objects.filter((o) => ids.includes(o.id));
     if (srcs.length === 0) return;
     const copyIdOf = new Map(srcs.map((src) => [src.id, uid()]));
+    // kopie tworzą własne grupy, żeby nie wtopić się w oryginalne
+    const groupIdOf = new Map<string, string>();
     const copies: PalaceObject[] = [];
     let skippedDoors = 0;
     for (const src of srcs) {
-      const base: PalaceObject = { ...(JSON.parse(JSON.stringify(src)) as PalaceObject), id: copyIdOf.get(src.id)!, note: undefined, interiorId: undefined, anchorId: undefined };
+      let groupId: string | undefined;
+      if (src.groupId) {
+        groupId = groupIdOf.get(src.groupId) ?? uid('g');
+        groupIdOf.set(src.groupId, groupId);
+      }
+      const base: PalaceObject = { ...(JSON.parse(JSON.stringify(src)) as PalaceObject), id: copyIdOf.get(src.id)!, note: undefined, interiorId: undefined, anchorId: undefined, groupId };
       if (src.type !== 'door') {
         copies.push({ ...base, position: [src.position[0] + 1.5, groundYOf(p, src.position[1]), src.position[2] + 1.5] });
         continue;
@@ -691,14 +711,33 @@ export const useStore = create<State>((set, get) => ({
   },
 
   select(id) {
-    set({ selectedIds: id ? [id] : [] });
+    set({ selectedIds: id ? expandGroups(get().palace().objects, [id]) : [] });
+  },
+  selectOnly(id) {
+    set({ selectedIds: [id] });
   },
   setSelection(ids) {
-    set({ selectedIds: Array.from(new Set(ids)) });
+    set({ selectedIds: expandGroups(get().palace().objects, ids) });
   },
   toggleSelected(id) {
     const cur = get().selectedIds;
-    set({ selectedIds: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] });
+    const members = expandGroups(get().palace().objects, [id]);
+    const allIn = members.every((m) => cur.includes(m));
+    set({ selectedIds: allIn ? cur.filter((x) => !members.includes(x)) : Array.from(new Set([...cur, ...members])) });
+  },
+  groupSelected() {
+    const ids = new Set(get().selectedIds);
+    if (ids.size < 2) return;
+    const gid = uid('g');
+    get().setPalace((pl) => {
+      for (const o of pl.objects) if (ids.has(o.id)) o.groupId = gid;
+    });
+  },
+  ungroupSelected() {
+    const ids = new Set(get().selectedIds);
+    get().setPalace((pl) => {
+      for (const o of pl.objects) if (ids.has(o.id)) delete o.groupId;
+    });
   },
   setHover(id) {
     if (get().hoverId !== id) set({ hoverId: id });

@@ -158,6 +158,7 @@ function SceneList({ q }: { q: string }) {
             <span className="txt">
               <div className="name">
                 {o.name}
+                {o.groupId && <span className="badge-group" title="Obiekt należy do grupy">grupa</span>}
                 {!insideGround(palace.settings.ground, o.position[0], o.position[2]) && (
                   <span className="off-plate" title="Stoi poza planszą, w krajobrazie">
                     poza planszą

@@ -2296,9 +2296,14 @@ export class SceneManager {
           const dbl = this.lastClick && this.lastClick.id === hit && now - this.lastClick.t < 350;
           this.lastClick = { id: hit, t: now };
           const type = this.lastPalace?.objects.find((o) => o.id === hit)?.type;
+          const grouped = !!this.lastPalace?.objects.find((o) => o.id === hit)?.groupId;
           if (dbl && type && hasInterior(type)) {
             this.lastClick = null;
             st.enterInterior(hit);
+          } else if (dbl && grouped) {
+            // dwuklik wchodzi do grupy: zaznacza sam obiekt, żeby dało się edytować jego notatkę
+            this.lastClick = null;
+            st.selectOnly(hit);
           } else if (this.downInfo.shift) st.toggleSelected(hit);
           else st.select(hit);
         } else if (!st.review && !this.downInfo.shift) st.select(null);

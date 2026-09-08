@@ -29,7 +29,8 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         <h3>Narzędzia edytora</h3>
         <ul>
           <li><kbd>V</kbd> zaznacza i nigdy nie rusza kamery: przeciągnięcie po pustym miejscu rysuje <b>ramkę</b>, <kbd>Shift</kbd>+klik dodaje lub odejmuje obiekt. Kilka zaznaczonych obiektów przesuwasz razem, usuwasz <kbd>Del</kbd> albo rozstawiasz w siatce (kolumny i odstępy w prawym panelu).</li>
-          <li><kbd>M</kbd> pokazuje uchwyt: <b>strzałki</b> przesuwają, <b>pierścienie</b> obracają wokół osi X, Y i Z (kilka obiektów naraz tylko w poziomie). Kąty można też wpisać w prawym panelu.</li>
+          <li><kbd>M</kbd> pokazuje uchwyt: <b>strzałki</b> przesuwają, <b>pierścień</b> obraca w poziomie. Przechył w przód i na boki ustawisz suwakami w prawym panelu.</li>
+          <li><b>Grupy</b>: zaznacz kilka obiektów i kliknij „Grupuj” — odtąd klik w dowolny z nich zaznacza całość, a przesuwanie, duplikowanie i usuwanie działają na wszystkie. Dwuklik wybiera jeden element (np. do notatki), „Rozgrupuj” rozdziela. Współliniowe ścianki scala „Scal ścianki”.</li>
           <li>W prawym panelu skalujesz osobno szerokość, wysokość i głębokość; kłódka trzyma proporcje.</li>
         </ul>
         <h3>Plansza, nawierzchnia i krajobrazy</h3>

@@ -32,6 +32,9 @@ function MultiInspector({ ids }: { ids: string[] }) {
   const arrangeSelected = useStore((s) => s.arrangeSelected);
   const mergeWalls = useStore((s) => s.mergeWalls);
   const showToast = useStore((s) => s.showToast);
+  const groupSelected = useStore((s) => s.groupSelected);
+  const ungroupSelected = useStore((s) => s.ungroupSelected);
+  const selectOnly = useStore((s) => s.selectOnly);
   const n = ids.length;
   const [columns, setColumns] = useState(Math.ceil(Math.sqrt(n)));
   const [gapX, setGapX] = useState(2);
@@ -40,6 +43,9 @@ function MultiInspector({ ids }: { ids: string[] }) {
   const withInterior = chosen.filter((o) => o.interiorId && palaces.some((p) => p.id === o.interiorId && p.objects.length > 0)).length;
   const stacked = palace.objects.filter((o) => o.anchorId && ids.includes(o.anchorId) && !ids.includes(o.id)).length;
   const mergeable = wallChains(chosen.filter((o) => o.type === 'wall')).filter((c) => c.length > 1);
+  // zaznaczenie jest dokładnie jedną grupą, gdy wszyscy mają ten sam groupId i nikt z grupy nie został poza nim
+  const gid = chosen[0]?.groupId;
+  const isGroup = !!gid && chosen.every((o) => o.groupId === gid) && palace.objects.filter((o) => o.groupId === gid).length === chosen.length;
   const num = (value: number, set: (v: number) => void, min: number, step: number) => (
     <input className="num" type="number" min={min} step={step} value={value} onChange={(e) => set(Math.max(min, Number(e.target.value) || min))} />
   );
@@ -51,10 +57,28 @@ function MultiInspector({ ids }: { ids: string[] }) {
       <div>
         <div className="eyebrow">Zaznaczenie</div>
         <div className="headline" style={{ marginBottom: 6 }}>
-          Zaznaczono {n} {plural(n, 'obiekt', 'obiekty', 'obiektów')}
+          {isGroup ? `Grupa: ${n} ${plural(n, 'obiekt', 'obiekty', 'obiektów')}` : `Zaznaczono ${n} ${plural(n, 'obiekt', 'obiekty', 'obiektów')}`}
         </div>
-        <p className="lead" style={{ marginTop: 0 }}>Narzędziem „Przesuń” ruszasz je razem. Shift + klik dodaje lub odejmuje obiekt.</p>
+        <p className="lead" style={{ marginTop: 0 }}>
+          {isGroup ? 'Klik w dowolny element zaznacza całą grupę. Dwuklik (albo „Edytuj” niżej) wybiera jeden obiekt, np. do notatki.' : 'Narzędziem „Przesuń” ruszasz je razem. Shift + klik dodaje lub odejmuje obiekt.'}
+        </p>
       </div>
+      {isGroup && (
+        <div className="field">
+          <label>Elementy grupy</label>
+          {chosen.map((o) => (
+            <div className="row scale-row" key={o.id} style={{ justifyContent: 'space-between' }}>
+              <span>
+                {catalogItem(o.type).emoji} {o.name}
+                {o.note ? ' ✎' : ''}
+              </span>
+              <button className="btn small" onClick={() => selectOnly(o.id)}>
+                Edytuj
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="field">
         <label>Rozstaw w siatce</label>
         <div className="row scale-row" style={{ justifyContent: 'space-between' }}>
@@ -74,6 +98,15 @@ function MultiInspector({ ids }: { ids: string[] }) {
         </button>
       </div>
       <div className="actions">
+        {isGroup ? (
+          <button className="btn small" title="Obiekty znów zaznaczają się osobno" onClick={() => ungroupSelected()}>
+            Rozgrupuj
+          </button>
+        ) : (
+          <button className="btn small" title="Zaznaczone obiekty będą się zaznaczać, przesuwać i znikać razem" onClick={() => groupSelected()}>
+            Grupuj
+          </button>
+        )}
         {mergeable.length > 0 && (
           <button
             className="btn small"
@@ -304,6 +337,7 @@ function Inspector({ id }: { id: string }) {
   const pushUndo = useStore((s) => s.pushUndo);
   const anchor = obj.anchorId ? palace.objects.find((o) => o.id === obj.anchorId) : undefined;
   const stacked = palace.objects.filter((o) => o.anchorId === id).length;
+  const groupSize = obj.groupId ? palace.objects.filter((o) => o.groupId === obj.groupId).length : 0;
   const [title, setTitle] = useState(obj.note?.title ?? '');
   const [body, setBody] = useState(obj.note?.body ?? '');
   const [name, setName] = useState(obj.name);
@@ -385,6 +419,16 @@ function Inspector({ id }: { id: string }) {
         <span>{onPath ? `Na ścieżce pamięci (przystanek ${idx + 1})` : 'Dodaj do ścieżki pamięci'}</span>
         <span className="sw" />
       </button>
+      {groupSize > 1 && (
+        <div className="anchor-row">
+          <span>
+            W grupie: <b>{groupSize} {plural(groupSize, 'obiekt', 'obiekty', 'obiektów')}</b>
+          </span>
+          <button className="btn small" onClick={() => select(id)}>
+            Zaznacz grupę
+          </button>
+        </div>
+      )}
       {anchor && obj.type === 'door' && (
         <div className="anchor-row">
           <span>

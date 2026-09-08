@@ -29,6 +29,7 @@ export interface PalaceObject {
   note?: Note;
   interiorId?: string; // id pałacu-wnętrza (tylko budynki)
   anchorId?: string; // obiekt, na którym stoi ten obiekt (rusza się razem z nim)
+  groupId?: string; // grupa: kliknięcie zaznacza wszystkich członków, ruszają się i giną razem
 }
 
 /** Wymiary proceduralnego wnętrza budynku. */
@@ -100,6 +101,7 @@ export interface PresetObject {
   scale?: Vec3;
   span?: { axis: 'x' | 'z'; frac: number }; // ściany: długość jako ułamek wymiaru pokoju
   anchor?: number; // indeks obiektu w układzie, w którym ten obiekt jest zakotwiczony (drzwi w ściance)
+  group?: number; // numer grupy w układzie (obiekty z tym samym numerem tworzą grupę)
 }
 
 /** Gotowy układ pokoju: wbudowany albo zapisany przez użytkownika. */

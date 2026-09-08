@@ -165,6 +165,7 @@ export const ROOM_PRESETS: RoomPreset[] = [
 /** Zamienia układ na liście `PalaceObject` we współrzędnych bieżącego pokoju. */
 export function instantiatePreset(preset: RoomPreset, spec: RoomSpec): PalaceObject[] {
   const ids = preset.objects.map(() => uid());
+  const groupIds = new Map<number, string>();
   const objects = preset.objects.map((po, i) => {
     const item = catalogItem(po.type);
     let scale: Vec3 = po.scale ?? [1, 1, 1];
@@ -174,6 +175,11 @@ export function instantiatePreset(preset: RoomPreset, spec: RoomSpec): PalaceObj
       scale = [factor, scale[1], scale[2]];
     }
     const anchorId = po.anchor !== undefined && po.anchor !== i ? ids[po.anchor] : undefined;
+    let groupId: string | undefined;
+    if (po.group !== undefined) {
+      groupId = groupIds.get(po.group) ?? uid('g');
+      groupIds.set(po.group, groupId);
+    }
     return {
       id: ids[i],
       type: po.type,
@@ -182,6 +188,7 @@ export function instantiatePreset(preset: RoomPreset, spec: RoomSpec): PalaceObj
       rotation: yawRotation(po.rotationY),
       scale,
       anchorId,
+      groupId,
     };
   });
   // własne presety sprzed kotwiczenia drzwi w ściance: drzwi-segment dostaje ściankę
@@ -192,6 +199,7 @@ export function instantiatePreset(preset: RoomPreset, spec: RoomSpec): PalaceObj
 export function capturePreset(name: string, palace: Palace, spec: RoomSpec): RoomPreset {
   const kept = palace.objects.filter((o) => !o.note);
   const indexOf = new Map(kept.map((o, i) => [o.id, i]));
+  const groupNo = new Map<string, number>();
   const objects: PresetObject[] = kept.map((o) => {
       const floor = floorOf(o.position[1], spec.height);
       const po: PresetObject = {
@@ -204,6 +212,10 @@ export function capturePreset(name: string, palace: Palace, spec: RoomSpec): Roo
       };
       const anchor = o.anchorId ? indexOf.get(o.anchorId) : undefined;
       if (anchor !== undefined) po.anchor = anchor;
+      if (o.groupId) {
+        if (!groupNo.has(o.groupId)) groupNo.set(o.groupId, groupNo.size);
+        po.group = groupNo.get(o.groupId);
+      }
       if (o.type === 'wall') {
         // długość ściany zapisujemy jako ułamek wymiaru pokoju, żeby preset pasował do innej skali
         const alongX = Math.cos(o.rotation[1]) ** 2 > 0.5;
