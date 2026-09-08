@@ -1423,6 +1423,8 @@ export class SceneManager {
     this.ghost.position.copy(mid);
     this.ghost.rotation.y = rot;
     this.ghost.scale.x = Math.max(len, WALL_THICKNESS) / WALL_SEGMENT;
+    // końce ścieżki w podglądzie zostają kołami mimo rozciągania podglądu wzdłuż X
+    if (isPath) this.ghost.traverse((c) => { if (c.userData.pathCap) c.scale.x = 1 / this.ghost!.scale.x; });
     this.ghostPos.copy(mid);
     this.ghostRot = rot;
     if (!this.wallLabel) {
@@ -2813,7 +2815,7 @@ export class SceneManager {
     if (this.room) {
       const inEditor = this.mode === 'editor';
       const editFloor = useStore.getState().editFloor;
-      for (const wmesh of this.room.walls) {
+      for (const wmesh of [...this.room.walls, ...this.room.windows]) {
         if (!inEditor) {
           wmesh.visible = true;
           continue;

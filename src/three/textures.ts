@@ -422,7 +422,7 @@ export function getTexture(id: string | undefined, customUrl?: string): THREE.Te
 
 /** Tekstura po id z dowolnego źródła: wbudowana albo własna (`c_…` z pamięci przeglądarki). */
 export function textureById(id: string | undefined): THREE.Texture | null {
-  if (!id) return null;
+  if (typeof id !== 'string' || !id) return null; // dane z importu mogą mieć zły typ
   const custom = id.startsWith('c_') ? loadCustomTextures().find((t) => t.id === id) : undefined;
   return getTexture(id, custom?.dataUrl);
 }

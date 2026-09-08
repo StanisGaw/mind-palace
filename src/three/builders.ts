@@ -400,6 +400,7 @@ function shellWindowFrame(g: THREE.Group, wall: FacadeWall, h: WallHole) {
   const win = new THREE.Group();
   win.position.set(wall.cx + wall.tx * u, (h.v0 + h.v1) / 2, wall.cz + wall.tz * u);
   win.rotation.y = Math.atan2(wall.nx, wall.nz);
+  win.userData.wallNormal = [wall.nx, wall.nz]; // chowa się razem ze ścianą od strony kamery
   const frame = woodMat(C.woodDark);
   const t = 0.02;
   const depth = SHELL_WALL_T + 0.02;
@@ -827,6 +828,7 @@ function buildPath(g: THREE.Group, ctx: BuildCtx) {
     const cap = add(g, scaleUv(cyl(PATH_WIDTH / 2, PATH_WIDTH / 2, h, 16), (PATH_WIDTH * sz) / PATH_TILE, (PATH_WIDTH * sz) / PATH_TILE), m, x, h / 2, 0);
     cap.castShadow = false;
     cap.scale.x = sz / sx; // koło w świecie mimo różnej skali X i Z obiektu
+    cap.userData.pathCap = true;
   }
 }
 

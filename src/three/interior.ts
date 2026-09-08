@@ -17,6 +17,8 @@ export interface Room {
   exitDoor: THREE.Mesh;
   /** Ściany z normalną skierowaną na zewnątrz — chowamy te od strony kamery. */
   walls: THREE.Mesh[];
+  /** Okna (rama, szyba, „dzień”) z tą samą normalną i piętrem co ich ściana — chowają się razem z nią. */
+  windows: THREE.Object3D[];
   /** Jeden wpis na granicę pięter — grupa pudełek omijających otwory nad schodami. */
   slabs: THREE.Object3D[];
   /** Miejsce, w którym gracz pojawia się po wejściu (zawsze parter). */
@@ -84,10 +86,12 @@ function dayMaterial() {
  * Okno pokoju: rama i szczebliny, szyba, parapet wewnętrzny i „dzień” za szybą. Grupa stoi na licu ściany
  * w punkcie (x, y, z) z lokalnym +Z na zewnątrz (`yaw` z normalnej ściany).
  */
-function roomWindow(g: THREE.Group, x: number, y: number, z: number, yaw: number, w: number, h: number) {
+function roomWindow(g: THREE.Group, x: number, y: number, z: number, yaw: number, w: number, h: number, floorIndex: number, normal: [number, number]): THREE.Group {
   const win = new THREE.Group();
   win.position.set(x, y, z);
   win.rotation.y = yaw;
+  win.userData.floorIndex = floorIndex;
+  win.userData.wallNormal = normal;
   const frame = woodMat('#8b6a4f');
   const t = 0.08;
   const depth = WALL_T + 0.02;
@@ -112,6 +116,7 @@ function roomWindow(g: THREE.Group, x: number, y: number, z: number, yaw: number
   day.rotation.y = Math.PI;
   day.receiveShadow = false;
   g.add(win);
+  return win;
 }
 
 /** Proceduralna powłoka budynku: podłoga, ściany każdej kondygnacji, stropy z otworami nad schodami, sufit. */
@@ -142,6 +147,7 @@ export function buildRoom(spec: RoomSpec, buildingType: string, opts: RoomOpts):
     return mm;
   };
   const walls: THREE.Mesh[] = [];
+  const windows: THREE.Object3D[] = [];
   /**
    * Ściana jako bryła z otworami (`holes` w metrach od środka ściany, `v` od jej dołu); `sx` wzdłuż X to ściana
    * przednia/tylna (u = x), `sz` wzdłuż Z to boczna (u = z). Kolider zostaje pudełkiem — okna są za wysoko, by przejść.
@@ -163,7 +169,7 @@ export function buildRoom(spec: RoomSpec, buildingType: string, opts: RoomOpts):
         const u = (hh.u0 + hh.u1) / 2;
         const wx = alongX ? x + u : x;
         const wz = alongX ? z : z + u;
-        roomWindow(g, wx, y - sy / 2 + (hh.v0 + hh.v1) / 2, wz, Math.atan2(normal[0], normal[1]), hh.u1 - hh.u0, hh.v1 - hh.v0);
+        windows.push(roomWindow(g, wx, y - sy / 2 + (hh.v0 + hh.v1) / 2, wz, Math.atan2(normal[0], normal[1]), hh.u1 - hh.u0, hh.v1 - hh.v0, floorIndex, normal));
       }
     }
     return mm;
@@ -249,6 +255,7 @@ export function buildRoom(spec: RoomSpec, buildingType: string, opts: RoomOpts):
     floor,
     exitDoor,
     walls,
+    windows,
     slabs,
     spawn: { pos: new THREE.Vector3(0, 0, d / 2 - 1.6), yaw: 0 },
     bounds: { hx: w / 2 - WALL_T / 2 - 0.35, hz: d / 2 - WALL_T / 2 - 0.35 },
@@ -295,6 +302,7 @@ function buildTowerRoom(spec: RoomSpec, opts: RoomOpts): Room {
   colliders.push({ size: [2 * R, SLAB_T, 2 * R], pos: [0, -SLAB_T / 2, 0] });
 
   const walls: THREE.Mesh[] = [];
+  const windows: THREE.Object3D[] = [];
   const segments = 16;
   const side = 2 * R * Math.tan(Math.PI / segments);
   const doorW = Math.min(DOOR_W, side - 0.3);
@@ -323,7 +331,7 @@ function buildTowerRoom(spec: RoomSpec, opts: RoomOpts): Room {
       mm.userData.wallNormal = [Math.sin(a), Math.cos(a)];
       walls.push(mm);
       g.add(mm);
-      if (hasWin) roomWindow(g, x, y0 + winSize.sill + winSize.h / 2, z, a, winSize.w, winSize.h);
+      if (hasWin) windows.push(roomWindow(g, x, y0 + winSize.sill + winSize.h / 2, z, a, winSize.w, winSize.h, k, [Math.sin(a), Math.cos(a)]));
       colliders.push({ size: [side + 0.02, sy, WALL_T], pos: [x, cy, z], quat: q });
       if (lintel) {
         // słupki po bokach drzwi w tym samym segmencie
@@ -390,6 +398,7 @@ function buildTowerRoom(spec: RoomSpec, opts: RoomOpts): Room {
     floor,
     exitDoor,
     walls,
+    windows,
     slabs,
     spawn: { pos: new THREE.Vector3(0, 0, R - 1.6), yaw: 0 },
     // kwadratowa granica na całą szerokość koła — mur zatrzymuje postać, a schody biegną przy nim
