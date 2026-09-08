@@ -312,3 +312,145 @@ export function buildingOpenings(b: PalaceObject, objects: PalaceObject[]): Open
   for (let i = 0; i < Math.max(1, b.floors ?? 1) - 1; i++) out.push(byFloor.get(i) ?? []);
   return out;
 }
+
+// ---------- elewacja: okna, balkony i tarasy w murze budynku ----------
+
+/** Otwory elewacji w metrach świata: szerokość, wysokość i parapet nad podłogą piętra. */
+export const FACADE: Record<string, { w: number; h: number; sill: number; minFloor: number; maxFloor: number }> = {
+  window: { w: 1.0, h: 1.2, sill: 0.9, minFloor: 0, maxFloor: 99 },
+  balcony: { w: 1.0, h: 2.1, sill: 0, minFloor: 1, maxFloor: 99 },
+  terrace: { w: 1.0, h: 2.1, sill: 0, minFloor: 0, maxFloor: 0 },
+};
+export const SHELL_WALL_T = 0.06;
+
+export function isFacade(type: string): boolean {
+  return type in FACADE;
+}
+
+/** Ściana powłoki w układzie lokalnym modelu: punkt środka lica zewnętrznego, normalna na zewnątrz, zakres `u` wzdłuż. */
+export interface FacadeWall {
+  key: string;
+  cx: number;
+  cz: number;
+  nx: number;
+  nz: number;
+  /** Kierunek osi `u` ściany — zgodny z układem, w którym `wallGeometry` wycina otwory (x modelu dla ścian
+   * przednich i tylnych, z modelu dla bocznych, styczna dla segmentów wieży). */
+  tx: number;
+  tz: number;
+  /** Połowa długości ściany wzdłuż `u`. */
+  half: number;
+}
+
+export function facadeWalls(b: PalaceObject): FacadeWall[] {
+  const spec = SHELLS[b.type];
+  if (!spec) return [];
+  if (b.type === 'tower') {
+    const r = 0.8 + 0.05;
+    const side = 2 * 0.8 * Math.tan(Math.PI / 12);
+    return Array.from({ length: 12 }, (_, i) => {
+      const a = (i / 12) * Math.PI * 2;
+      return { key: `seg${i}`, cx: Math.sin(a) * r, cz: Math.cos(a) * r, nx: Math.sin(a), nz: Math.cos(a), tx: Math.cos(a), tz: -Math.sin(a), half: side / 2 };
+    });
+  }
+  if (b.type === 'temple') return []; // świątynia nie ma murów
+  const { w, d } = spec.inner;
+  const t = SHELL_WALL_T;
+  return [
+    { key: 'front', cx: 0, cz: spec.cz + d / 2 + t, nx: 0, nz: 1, tx: 1, tz: 0, half: w / 2 + t },
+    { key: 'back', cx: 0, cz: spec.cz - d / 2 - t, nx: 0, nz: -1, tx: 1, tz: 0, half: w / 2 + t },
+    { key: 'left', cx: spec.cx - w / 2 - t, cz: 0, nx: -1, nz: 0, tx: 0, tz: 1, half: d / 2 },
+    { key: 'right', cx: spec.cx + w / 2 + t, cz: 0, nx: 1, nz: 0, tx: 0, tz: 1, half: d / 2 },
+  ];
+}
+
+/** Współrzędna `u` punktu lokalnego wzdłuż ściany. Środek ściany ma `u = 0` w układzie `wallGeometry` (x albo z modelu). */
+function wallU(wall: FacadeWall, lx: number, lz: number): number {
+  return lx * wall.tx + lz * wall.tz - (wall.tx * wall.cx + wall.tz * wall.cz);
+}
+
+export interface FacadeHit {
+  wall: FacadeWall;
+  u: number;
+  x: number;
+  z: number;
+  yaw: number;
+}
+
+/**
+ * Miejsce na elewacji dla punktu świata (x, z): najbliższa ściana budynku, do której lico jest bliżej niż
+ * 0,8 m, `u` przycięte tak, by otwór mieścił się w ścianie. Zwraca punkt na licu i obrót na zewnątrz.
+ */
+export function facadeSnap(b: PalaceObject, type: string, x: number, z: number): FacadeHit | null {
+  const spec = FACADE[type];
+  if (!spec || !isInPlace(b)) return null;
+  const [lx, lz] = localXZ(b, x, z);
+  const su = b.type === 'tower' ? b.scale[0] : b.scale[0];
+  let best: { wall: FacadeWall; u: number; d: number } | null = null;
+  for (const wall of facadeWalls(b)) {
+    const d = Math.abs((lx - wall.cx) * wall.nx + (lz - wall.cz) * wall.nz) * Math.max(b.scale[0], b.scale[2]);
+    if (d > 0.8) continue;
+    const alongScale = Math.abs(wall.nx) > 0.5 ? b.scale[2] : su; // ściany boczne biegną wzdłuż Z
+    const halfW = spec.w / 2 / alongScale;
+    const limit = wall.half - halfW - 0.02;
+    if (limit <= 0) continue;
+    const u = Math.max(-limit, Math.min(limit, wallU(wall, lx, lz)));
+    if (!best || d < best.d) best = { wall, u, d };
+  }
+  if (!best) return null;
+  const { wall, u } = best;
+  // punkt na licu: środek ściany plus `u` wzdłuż jej osi (ściany pudełka mają 0 na osi biegu, więc wzór jest wspólny)
+  const px = wall.cx + wall.tx * u;
+  const pz = wall.cz + wall.tz * u;
+  // lokalne → świat: skala, obrót wokół Y, przesunięcie
+  const c = Math.cos(b.rotation[1]);
+  const sn = Math.sin(b.rotation[1]);
+  const sx = px * b.scale[0];
+  const sz = pz * b.scale[2];
+  const wx = b.position[0] + sx * c + sz * sn;
+  const wz = b.position[2] - sx * sn + sz * c;
+  const nwx = wall.nx * c + wall.nz * sn;
+  const nwz = -wall.nx * sn + wall.nz * c;
+  return { wall, u: Math.round(u * 100) / 100, x: wx, z: wz, yaw: Math.atan2(nwx, nwz) };
+}
+
+/** Czy typ elewacji wolno postawić na tym piętrze. */
+export function facadeFloorOk(type: string, floor: number): boolean {
+  const spec = FACADE[type];
+  return !!spec && floor >= spec.minFloor && floor <= spec.maxFloor;
+}
+
+/** Otwory elewacji na ścianach budynku z pozycji obiektów w nim zakotwiczonych (jednostki lokalne modelu). */
+export function facadeHoles(b: PalaceObject, objects: PalaceObject[]): Record<string, { u0: number; u1: number; v0: number; v1: number }[]> {
+  const out: Record<string, { u0: number; u1: number; v0: number; v1: number }[]> = {};
+  const shell = SHELLS[b.type];
+  if (!shell) return out;
+  for (const o of objects) {
+    if (!isFacade(o.type) || o.anchorId !== b.id) continue;
+    const hit = facadeSnap(b, o.type, o.position[0], o.position[2]);
+    if (!hit) continue;
+    const spec = FACADE[o.type];
+    const floor = floorOfIn(b, o.position[1]);
+    if (!facadeFloorOk(o.type, floor)) continue;
+    const alongScale = Math.abs(hit.wall.nx) > 0.5 ? b.scale[2] : b.scale[0];
+    const halfW = spec.w / 2 / alongScale;
+    const v0 = shell.floorY + floor * shell.inner.h + spec.sill / b.scale[1];
+    const v1 = v0 + spec.h / b.scale[1];
+    (out[hit.wall.key] ??= []).push({ u0: hit.u - halfW, u1: hit.u + halfW, v0, v1 });
+  }
+  return out;
+}
+
+/** Czy miejsce na ścianie jest wolne od innych elementów elewacji na tym samym piętrze. */
+export function facadeSlotFree(b: PalaceObject, objects: PalaceObject[], hit: FacadeHit, type: string, floor: number, ignoreId?: string): boolean {
+  const w = FACADE[type].w;
+  for (const o of objects) {
+    if (!isFacade(o.type) || o.anchorId !== b.id || o.id === ignoreId) continue;
+    if (floorOfIn(b, o.position[1]) !== floor) continue;
+    const h = facadeSnap(b, o.type, o.position[0], o.position[2]);
+    if (!h || h.wall.key !== hit.wall.key) continue;
+    const alongScale = Math.abs(hit.wall.nx) > 0.5 ? b.scale[2] : b.scale[0];
+    if (Math.abs(h.u - hit.u) * alongScale < (w + FACADE[o.type].w) / 2 + 0.3) return false;
+  }
+  return true;
+}

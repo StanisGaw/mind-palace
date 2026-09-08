@@ -4,7 +4,7 @@ import { describeDue, isDue } from '../lib/srs';
 import { useCurrentPalace, useStore } from '../store';
 import { usePref } from '../lib/prefs';
 import type { Vec3 } from '../types';
-import { SHELLS, WALL_SEGMENT, isInPlace, maxFloorsOf, wallChains } from '../lib/rooms';
+import { SHELLS, WALL_SEGMENT, isFacade, isInPlace, maxFloorsOf, wallChains } from '../lib/rooms';
 import { I } from './Icons';
 import { Tip } from './Tip';
 
@@ -500,7 +500,14 @@ function Inspector({ id }: { id: string }) {
           </button>
         </div>
       )}
-      {anchor && obj.type !== 'door' && (
+      {anchor && isFacade(obj.type) && (
+        <div className="anchor-row">
+          <span>
+            Na murze: <b>{anchor.name}</b>
+          </span>
+        </div>
+      )}
+      {anchor && obj.type !== 'door' && !isFacade(obj.type) && (
         <div className="anchor-row">
           <span>
             Stoi na: <b>{anchor.name}</b>
@@ -533,8 +540,8 @@ function Inspector({ id }: { id: string }) {
           <span className="val">{obj.position[1].toFixed(2)} m</span>
         </div>
       </div>
-      {obj.type !== 'door' && <ScaleField id={id} scale={obj.scale} max={item.maxScale ?? 10} />}
-      {obj.type !== 'door' && <RotationField id={id} rotation={obj.rotation} />}
+      {obj.type !== 'door' && !isFacade(obj.type) && <ScaleField id={id} scale={obj.scale} max={item.maxScale ?? 10} />}
+      {obj.type !== 'door' && !isFacade(obj.type) && <RotationField id={id} rotation={obj.rotation} />}
       <div className="actions">
         <button className="btn small" onClick={() => flyTo(id)}>
           <I.Eye width={14} height={14} /> Pokaż

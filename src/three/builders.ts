@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { buildAnimalBody, type AnimalKind } from './wildlife';
-import { DOOR_OPENING, SHELLS, WALL_SEGMENT, WALL_THICKNESS, type Opening, type ShellSpec } from '../lib/rooms';
+import { DOOR_OPENING, FACADE, SHELLS, SHELL_WALL_T, WALL_SEGMENT, WALL_THICKNESS, type Opening, type ShellSpec } from '../lib/rooms';
 import { subtractRect, type Rect } from './interior';
 
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
@@ -97,7 +97,6 @@ function columns(g: THREE.Group, positions: [number, number][], h: number, r = 0
 // Budynek jest pusty w środku: podłoga (`floorSurface`), ściany z grubością, skrzydło drzwi na pivocie
 // (`doorLeaf`) i dach (`roof`), który edytor chowa dla aktywnego budynku. Z zewnątrz wygląda jak dawniej.
 
-const SHELL_WALL_T = 0.06;
 
 /** Oznacza wszystko w grupie jako dach — chowany w edytorze, gdy budynek jest aktywny. */
 function roofGroup(g: THREE.Group, lift = 0): THREE.Group {
@@ -685,6 +684,8 @@ export interface BuildCtx {
   slabOpenings?: Opening[][];
   /** Otwory elewacji (okna, balkony, tarasy) na ścianach powłoki: klucz ściany → otwory w jej układzie (u wzdłuż, v wysokość). */
   facade?: Record<string, WallHole[]>;
+  /** Taras: wysokość podłogi parteru nad ziemią (schodki w dół), metry świata. */
+  drop?: number;
 }
 
 /** Otwór w ścianie powłoki w układzie ściany: `u` wzdłuż niej (od jej środka), `v` to wysokość w modelu. */
@@ -794,13 +795,6 @@ function buildCeilingLamp(g: THREE.Group, ctx: BuildCtx) {
   g.add(light);
 }
 
-function buildWindow(g: THREE.Group) {
-  const winMat = mat('#eaf2ff', { emissive: '#e7f0ff', roughness: 0.4 });
-  const trimMat = mat('#c7c0ae', { roughness: 0.9 });
-  add(g, box(1.2, 1.5, 0.1), winMat, 0, 1.4, 0);
-  add(g, box(1.4, 1.7, 0.14), trimMat, 0, 1.4, -0.02);
-}
-
 function buildStairs(g: THREE.Group, ctx: BuildCtx) {
   const H = ctx.floorHeight;
   const len = 1.15 * H;
@@ -820,6 +814,95 @@ function buildStairs(g: THREE.Group, ctx: BuildCtx) {
   const rampLen = Math.hypot(len, H);
   const ramp = add(g, box(width + 0.1, 0.15, rampLen), mat(C.stone), 0, H / 2 + rise / 2 + 0.02 - 0.075, 0, [-Math.atan2(H, len), 0, 0]);
   ramp.visible = false;
+}
+
+// ---------- elewacja (obiekt stoi na licu muru, lokalne +Z to na zewnątrz) ----------
+
+/** Balustrada: słupki co 0,3 m i poręcz, wzdłuż odcinka od (x0,z0) do (x1,z1) na wysokości `y`. */
+function railing(g: THREE.Group, x0: number, z0: number, x1: number, z1: number, y: number, m: THREE.Material) {
+  const len = Math.hypot(x1 - x0, z1 - z0);
+  const n = Math.max(2, Math.round(len / 0.3) + 1);
+  const yaw = Math.atan2(x1 - x0, z1 - z0);
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    add(g, cyl(0.02, 0.02, 1.0, 6), m, x0 + (x1 - x0) * t, y + 0.5, z0 + (z1 - z0) * t);
+  }
+  add(g, box(0.05, 0.05, len + 0.05), m, (x0 + x1) / 2, y + 1.0, (z0 + z1) / 2, [0, yaw, 0]);
+  add(g, box(0.03, 0.03, len + 0.05), m, (x0 + x1) / 2, y + 0.5, (z0 + z1) / 2, [0, yaw, 0]);
+}
+
+/** Okno w murze: rama wpuszczona w otwór, słupek, przezroczysta tafla i parapet. */
+function buildWindow(g: THREE.Group) {
+  const { w, h, sill } = FACADE.window;
+  const frame = mat(C.woodDark);
+  const depth = 0.24;
+  const zc = -depth / 2 + 0.02;
+  add(g, box(0.08, h, depth), frame, -w / 2 + 0.04, sill + h / 2, zc);
+  add(g, box(0.08, h, depth), frame, w / 2 - 0.04, sill + h / 2, zc);
+  add(g, box(w, 0.08, depth), frame, 0, sill + 0.04, zc);
+  add(g, box(w, 0.08, depth), frame, 0, sill + h - 0.04, zc);
+  add(g, box(0.04, h - 0.16, 0.05), frame, 0, sill + h / 2, zc);
+  add(g, box(w - 0.16, 0.04, 0.05), frame, 0, sill + h / 2, zc);
+  const glass = new THREE.Mesh(box(w - 0.16, h - 0.16, 0.02), mat('#cfe3ef', { roughness: 0.1, metalness: 0.2 }));
+  const gm = (glass.material as THREE.MeshStandardMaterial).clone();
+  gm.transparent = true;
+  gm.opacity = 0.35;
+  glass.material = gm;
+  glass.userData.ownMaterial = true;
+  glass.position.set(0, sill + h / 2, zc);
+  g.add(glass);
+  add(g, box(w + 0.16, 0.06, 0.16), mat(C.stone), 0, sill - 0.03, 0.08); // parapet zewnętrzny
+}
+
+/** Balkon na piętrze: płyta na wspornikach, balustrada z trzech stron, próg w otworze. */
+function buildBalcony(g: THREE.Group) {
+  const { w } = FACADE.balcony;
+  const pw = 1.6;
+  const pd = 1.0;
+  const stone = mat(C.stone);
+  add(g, box(pw, 0.12, pd), stone, 0, -0.06, pd / 2);
+  add(g, box(w, 0.03, 0.3), stone, 0, 0.015, -0.14); // próg w grubości muru
+  for (const x of [-pw / 2 + 0.2, pw / 2 - 0.2]) add(g, box(0.12, 0.3, 0.6), mat(C.stoneDark), x, -0.27, 0.3, [Math.PI / 4, 0, 0]);
+  const rail = mat(C.metal);
+  railing(g, -pw / 2, pd, pw / 2, pd, 0, rail);
+  railing(g, -pw / 2, 0.05, -pw / 2, pd, 0, rail);
+  railing(g, pw / 2, 0.05, pw / 2, pd, 0, rail);
+  // ościeżnica wyjścia
+  const frame = mat(C.woodDark);
+  add(g, box(0.08, 2.1, 0.2), frame, -w / 2 - 0.04, 1.05, -0.08);
+  add(g, box(0.08, 2.1, 0.2), frame, w / 2 + 0.04, 1.05, -0.08);
+  add(g, box(w + 0.16, 0.08, 0.2), frame, 0, 2.1 + 0.04, -0.08);
+}
+
+/** Taras przy parterze: szeroka płyta z balustradą i schodkami na ziemię (`ctx.drop` = wysokość podłogi nad ziemią). */
+function buildTerrace(g: THREE.Group, ctx: BuildCtx) {
+  const { w } = FACADE.terrace;
+  const pw = 2.4;
+  const pd = 1.6;
+  const stone = mat(C.stone);
+  add(g, box(pw, 0.12, pd), stone, 0, -0.06, pd / 2);
+  add(g, box(w, 0.03, 0.3), stone, 0, 0.015, -0.14);
+  const rail = mat(C.metal);
+  railing(g, -pw / 2, 0.05, -pw / 2, pd, 0, rail);
+  railing(g, pw / 2, 0.05, pw / 2, pd, 0, rail);
+  // balustrada frontowa z przerwą na schodki pośrodku
+  railing(g, -pw / 2, pd, -0.6, pd, 0, rail);
+  railing(g, 0.6, pd, pw / 2, pd, 0, rail);
+  const drop = Math.max(0.1, ctx.drop ?? 0.3);
+  const steps = Math.max(1, Math.ceil(drop / 0.18));
+  const rise = drop / steps;
+  const run = 0.3;
+  for (let i = 0; i < steps; i++) {
+    const step = add(g, box(1.1, rise, run + 0.02), stone, 0, -rise * (i + 0.5), pd + run * (i + 0.5));
+    step.userData.skipCollider = true;
+  }
+  const len = steps * run;
+  const ramp = add(g, box(1.2, 0.1, Math.hypot(len, drop) + 0.1), stone, 0, -drop / 2 + 0.02, pd + len / 2, [Math.atan2(drop, len), 0, 0]);
+  ramp.visible = false;
+  const frame = mat(C.woodDark);
+  add(g, box(0.08, 2.1, 0.2), frame, -w / 2 - 0.04, 1.05, -0.08);
+  add(g, box(0.08, 2.1, 0.2), frame, w / 2 + 0.04, 1.05, -0.08);
+  add(g, box(w + 0.16, 0.08, 0.2), frame, 0, 2.1 + 0.04, -0.08);
 }
 
 // ---------- wyposażenie wnętrz ----------
@@ -954,6 +1037,8 @@ const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   wall: buildWall,
   door: buildDoor,
   window: buildWindow,
+  balcony: buildBalcony,
+  terrace: buildTerrace,
   ceiling_lamp: buildCeilingLamp,
   stairs: buildStairs,
   palace: buildPalace,
@@ -1052,6 +1137,7 @@ export function disposeObject(o: THREE.Object3D) {
   o.traverse((c) => {
     const m = c as THREE.Mesh;
     if (m.geometry) m.geometry.dispose();
-    // materiały są współdzielone (cache) — nie usuwamy
+    // materiały są współdzielone (cache) — nie usuwamy; wyjątek: własne klony (szyba okna)
+    if (m.userData.ownMaterial && m.material) (m.material as THREE.Material).dispose();
   });
 }

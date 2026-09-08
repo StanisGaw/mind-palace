@@ -16,7 +16,7 @@ import { buildRoom, type Room } from './interior';
 import { Physics, FOOT_OFFSET, type StaticShape } from './physics';
 import { ROOMS, colliderKind, spawnKind } from '../catalog';
 import { clampToGround, clipSegment, groundExtent, groundPolygon, insideGround } from '../lib/ground';
-import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, buildingOf, buildingOpenings, doorOffsets, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, type Opening } from '../lib/rooms';
+import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, buildingOf, buildingOpenings, facadeFloorOk, facadeHoles, facadeSlotFree, facadeSnap, isFacade, doorOffsets, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, type Opening } from '../lib/rooms';
 import { getTexture } from './textures';
 import { Wildlife, type SpawnInfo, type WorldInfo } from './wildlife';
 import { Soundscape } from './soundscape';
@@ -863,7 +863,9 @@ export class SceneManager {
     const b = buildingOf(p.objects, o);
     const floorHeight = Math.round((b ? buildingFloorHeight(b) : floorHeightFor(p)) * 1000) / 1000;
     if (o.type === 'wall') return { floorHeight, scaleX: o.scale[0], openings: doorOffsets(o, p.objects).map((t) => Math.round(t * 100) / 100) };
-    if (isInPlace(o)) return { floorHeight, floors: o.floors ?? 1, slabOpenings: buildingOpenings(o, p.objects) };
+    if (isInPlace(o)) return { floorHeight, floors: o.floors ?? 1, slabOpenings: buildingOpenings(o, p.objects), facade: facadeHoles(o, p.objects) };
+    // taras: schodki od podłogi parteru do ziemi
+    if (o.type === 'terrace' && b) return { floorHeight, drop: Math.round((buildingFloorY(b, 0) - b.position[1]) * 100) / 100 };
     return { floorHeight };
   }
 
@@ -1144,6 +1146,19 @@ export class SceneManager {
     if (!id) return;
     const st = useStore.getState();
     const o = st.palace().objects.find((x) => x.id === id);
+    if (o && isFacade(o.type)) {
+      const found = this.findFacadeFor(o.type, obj.position.x, obj.position.z, o.anchorId);
+      const floor = found ? floorOfIn(found.b, o.position[1]) : 0;
+      if (!found?.hit || !facadeFloorOk(o.type, floor)) {
+        obj.position.set(o.position[0], o.position[1], o.position[2]);
+        obj.rotation.set(o.rotation[0], o.rotation[1], o.rotation[2]);
+        return;
+      }
+      obj.position.set(found.hit.x, buildingFloorY(found.b, floor), found.hit.z);
+      obj.rotation.set(0, found.hit.yaw, 0);
+      st.updateObject(id, { position: [found.hit.x, buildingFloorY(found.b, floor), found.hit.z], rotation: [0, found.hit.yaw, 0], anchorId: found.b.id }, { undo: false });
+      return;
+    }
     if (o?.type === 'door') {
       // drzwi nie opuszczają ścianki: pozycja rzutowana na jej oś, obrót zawsze ze ścianki
       const hit = this.findWallFor(obj.position.x, obj.position.z, o.anchorId);
@@ -1430,6 +1445,62 @@ export class SceneManager {
     } else st.setPlacing(null);
   }
 
+  /** Budynek w miejscu, na którego murze wyląduje elewacja w punkcie (x, z): aktywny ma pierwszeństwo. */
+  private findFacadeFor(type: string, x: number, z: number, preferId?: string): { b: PalaceObject; hit: ReturnType<typeof facadeSnap> } | null {
+    const p = this.lastPalace;
+    if (!p || p.interior) return null;
+    const order = p.objects.filter((o) => isInPlace(o)).sort((a, b) => (a.id === preferId ? -1 : b.id === preferId ? 1 : 0));
+    let best: { b: PalaceObject; hit: NonNullable<ReturnType<typeof facadeSnap>>; d: number } | null = null;
+    for (const b of order) {
+      const hit = facadeSnap(b, type, x, z);
+      if (!hit) continue;
+      const d = Math.hypot(hit.x - x, hit.z - z) - (b.id === preferId ? 0.3 : 0);
+      if (!best || d < best.d) best = { b, hit, d };
+    }
+    return best ? { b: best.b, hit: best.hit } : null;
+  }
+
+  /** Piętro, na którym stawiamy elewację: edytowane piętro aktywnego budynku, inaczej parter. */
+  private facadeFloor(b: PalaceObject): number {
+    const active = this.activeBuilding();
+    return active?.id === b.id ? useStore.getState().editFloor : 0;
+  }
+
+  private facadeBlockReason = '';
+
+  /** Podgląd okna, balkonu i tarasu: przyciąga się do lica muru budynku z wnętrzem w miejscu. */
+  private updateFacadeGhost() {
+    if (!this.ghost || !this.ghostRing) return;
+    const gp = new THREE.Vector3();
+    if (!this.groundPoint(gp)) return;
+    const st = useStore.getState();
+    const found = this.findFacadeFor(this.ghostType, gp.x, gp.z, st.activeBuildingId ?? undefined);
+    this.facadeBlockReason = '';
+    if (found && found.hit) {
+      const floor = this.facadeFloor(found.b);
+      this.ghostPos.set(found.hit.x, buildingFloorY(found.b, floor), found.hit.z);
+      this.ghostRot = found.hit.yaw;
+      this.ghostAnchor = found.b.id;
+      if (!facadeFloorOk(this.ghostType, floor)) {
+        this.facadeBlockReason = this.ghostType === 'balcony' ? 'Balkon stawia się na piętrze — przełącz piętro budynku.' : 'Taras stawia się przy parterze — przełącz na parter.';
+      } else if (!facadeSlotFree(found.b, st.palace().objects, found.hit, this.ghostType, floor)) {
+        this.facadeBlockReason = 'Tu jest już inny element elewacji — wybierz inne miejsce na murze.';
+      }
+      this.ghostBlocked = !!this.facadeBlockReason;
+    } else {
+      const snap = st.palace().settings.grid ? 0.5 : 0.05;
+      this.ghostPos.set(Math.round(gp.x / snap) * snap, this.editFloorY(), Math.round(gp.z / snap) * snap);
+      this.ghostAnchor = undefined;
+      this.ghostBlocked = true;
+      this.facadeBlockReason = 'Okna, balkony i tarasy stawia się na murze budynku z wnętrzem w miejscu.';
+    }
+    this.setGhostOpacity(this.ghostBlocked ? 0.3 : 0.6);
+    this.ghost.position.copy(this.ghostPos);
+    this.ghost.rotation.y = this.ghostRot;
+    this.ghostRing.position.set(this.ghostPos.x, this.ghostPos.y + 0.03, this.ghostPos.z);
+    (this.ghostRing.material as THREE.MeshBasicMaterial).color.set(this.ghostBlocked ? '#b4483d' : '#2b6ea8');
+  }
+
   /** Podgląd drzwi: przyciąga się do osi najbliższej ścianki działowej; bez ścianki miejsce jest zablokowane. */
   private updateDoorGhost() {
     if (!this.ghost || !this.ghostRing) return;
@@ -1480,6 +1551,7 @@ export class SceneManager {
     if (!this.ghost || !this.ghostRing) return;
     if (this.ghostType === 'wall' && !this.ghostIds) return this.updateWallGhost();
     if (this.ghostType === 'door') return this.updateDoorGhost();
+    if (isFacade(this.ghostType)) return this.updateFacadeGhost();
     const found = this.placementPoint(new Set());
     if (!found) return;
     const p = found.pos.clone();
@@ -1557,6 +1629,10 @@ export class SceneManager {
       st.showToast(this.ghostAnchor ? 'Tu są już inne drzwi — wybierz inne miejsce w ściance.' : 'Drzwi stawia się w ściance działowej.');
       return;
     }
+    if (isFacade(type) && (this.ghostBlocked || !this.ghostAnchor)) {
+      st.showToast(this.facadeBlockReason || 'Okna, balkony i tarasy stawia się na murze budynku z wnętrzem w miejscu.');
+      return;
+    }
     if (this.ghostIds) {
       // kopie oryginałów z ich konfiguracją, w miejscu i obrocie podglądu
       st.duplicateObjectsAt(this.ghostIds, { position: [this.ghostPos.x, this.ghostPos.y, this.ghostPos.z], rotation: this.ghostRot, anchorId: this.ghostAnchor, absolute: type === 'door' });
@@ -1574,7 +1650,7 @@ export class SceneManager {
     if (!id) return;
     const st = useStore.getState();
     const o = st.palace().objects.find((x) => x.id === id);
-    if (!o || o.type === 'door') return; // kotwicą drzwi jest ścianka, nie to, na czym stoją
+    if (!o || o.type === 'door' || isFacade(o.type)) return; // kotwicą drzwi jest ścianka, elewacji mur — nie to, na czym stoją
     const exclude = new Set<string>([id, ...descendants(st.palace().objects, id).map((x) => x.id)]);
     const from = new THREE.Vector3(obj!.position.x, obj!.position.y + 0.2, obj!.position.z);
     const ray = new THREE.Raycaster(from, new THREE.Vector3(0, -1, 0), 0, 3);
@@ -1616,7 +1692,7 @@ export class SceneManager {
       target = this.pivot;
     } else target = single!.group;
     // obrót drzwi wynika ze ścianki, więc uchwyt obrotu dla nich milczy
-    const noRotate = !multi && single!.type === 'door';
+    const noRotate = !multi && (single!.type === 'door' || isFacade(single!.type));
     for (const g of [this.gizmo, this.rotateGizmo]) {
       if (g === this.rotateGizmo && noRotate) {
         if (g.object) g.detach();
@@ -2329,6 +2405,17 @@ export class SceneManager {
       if (!this.drag.moved) return;
       ev.preventDefault();
       this.setPointer(ev);
+      if (isFacade(e.type) && !this.drag.ids) {
+        const gp = new THREE.Vector3();
+        if (!this.groundPoint(gp)) return;
+        const fo = st.palace().objects.find((x) => x.id === this.drag!.id);
+        const found = fo ? this.findFacadeFor(fo.type, gp.x, gp.z, fo.anchorId) : null;
+        if (!found?.hit || !fo) return;
+        const floor = floorOfIn(found.b, fo.position[1]);
+        if (!facadeFloorOk(fo.type, floor) || !facadeSlotFree(found.b, st.palace().objects, found.hit, fo.type, floor, fo.id)) return;
+        st.updateObject(fo.id, { position: [found.hit.x, buildingFloorY(found.b, floor), found.hit.z], rotation: [0, found.hit.yaw, 0], anchorId: found.b.id }, { undo: false });
+        return;
+      }
       if (e.type === 'door' && !this.drag.ids) {
         // drzwi przesuwają się tylko po osi ścianki (tej samej albo innej pod kursorem)
         const gp = new THREE.Vector3();
@@ -2544,7 +2631,7 @@ export class SceneManager {
     ev.preventDefault();
     ev.stopPropagation();
     // obrót ścianki wynika z punktów, obrót drzwi ze ścianki
-    if (this.ghostType === 'wall' && !this.ghostIds) return;
+    if ((this.ghostType === 'wall' && !this.ghostIds) || isFacade(this.ghostType)) return;
     if (this.ghostType === 'door') {
       this.doorFlip = !this.doorFlip;
       this.updateGhost();
@@ -2589,7 +2676,7 @@ export class SceneManager {
       if (ev.code === 'KeyR') {
         ev.preventDefault();
         if (this.ghostType === 'door') this.doorFlip = !this.doorFlip; // zawiasy z drugiej strony
-        else if (this.ghostType !== 'wall' || this.ghostIds) this.ghostRot += Math.PI / 12;
+        else if ((this.ghostType !== 'wall' || this.ghostIds) && !isFacade(this.ghostType)) this.ghostRot += Math.PI / 12;
         this.updateGhost();
         return;
       }

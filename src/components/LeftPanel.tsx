@@ -74,8 +74,8 @@ function Library({ q }: { q: string }) {
     : (['building', ...CATEGORY_ORDER.filter((c) => c !== 'building')] as Category[]);
   const active = cats.includes(category as Category) ? (category as Category) : 'all';
   const filtered = useMemo(
-    () => CATALOG.filter((c) => !c.hidden && (!q || c.name.toLowerCase().includes(q.toLowerCase()) || c.description.toLowerCase().includes(q.toLowerCase()))),
-    [q],
+    () => CATALOG.filter((c) => !c.hidden && !(c.boardOnly && isInterior) && (!q || c.name.toLowerCase().includes(q.toLowerCase()) || c.description.toLowerCase().includes(q.toLowerCase()))),
+    [q, isInterior],
   );
   const shownCats = active === 'all' ? cats : [active];
 

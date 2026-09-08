@@ -14,6 +14,7 @@ export interface CatalogItem {
   unique?: boolean; // tylko jeden taki obiekt na pałac (brama)
   spawn?: AnimalKind; // punkt pojawiania zwierzęcia
   hidden?: boolean; // niedostępny w bibliotece (istniejące obiekty nadal się rysują)
+  boardOnly?: boolean; // tylko na planszy (elewacja budynków z wnętrzem w miejscu)
 }
 
 /** Bryła kolizji obiektu: dokładna siatka tam, gdzie kształt ma znaczenie (schody, zbocza). */
@@ -82,8 +83,9 @@ export const CATALOG: CatalogItem[] = [
   // Konstrukcja (tylko we wnętrzach — układ pokoju z elementów biblioteki)
   { id: 'wall', name: 'Ściana działowa', category: 'structure', emoji: '🧱', description: 'Kliknij początek i koniec — dzieli pokój na mniejsze przestrzenie.', footprint: 1.0, collider: 'trimesh', maxScale: 12 },
   { id: 'door', name: 'Drzwi', category: 'structure', emoji: '🚪', description: 'Stawia się w ściance działowej. Otwierane skrzydło — kliknij albo naciśnij F.', footprint: 1.0, collider: 'trimesh' },
-  // okno widać tylko od środka, więc zniknęło z biblioteki; stare pałace mogą je jeszcze mieć
-  { id: 'window', name: 'Okno', category: 'structure', emoji: '🪟', description: 'Przyciąga się do najbliższej ściany obwodowej.', footprint: 0.6, collider: 'none', hidden: true },
+  { id: 'window', name: 'Okno', category: 'structure', emoji: '🪟', description: 'W murze budynku — szyba widoczna z obu stron.', footprint: 0.6, collider: 'none', boardOnly: true },
+  { id: 'balcony', name: 'Balkon', category: 'structure', emoji: '🏗️', description: 'Na piętrze budynku — z wyjściem przez mur.', footprint: 0.9, collider: 'trimesh', boardOnly: true },
+  { id: 'terrace', name: 'Taras', category: 'structure', emoji: '🪜', description: 'Przy parterze budynku — z wyjściem i schodkami.', footprint: 1.3, collider: 'trimesh', boardOnly: true },
   { id: 'stairs', name: 'Schody', category: 'structure', emoji: '🪜', description: 'Prowadzą na wyższe piętro.', footprint: 0.8, collider: 'trimesh', maxScale: 2 },
 ];
 
