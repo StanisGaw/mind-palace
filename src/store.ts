@@ -48,7 +48,9 @@ interface State {
   cameraCmd: { kind: CameraKind; seq: number } | null;
   topView: boolean; // aktywny rzut z góry na całą planszę
   sceneEntry: { kind: 'enter' | 'exit'; objectId: string; seq: number } | null;
-  doorPrompt: { kind: 'enter' | 'exit' | 'door'; objectId?: string; label: string } | null;
+  doorPrompt: { kind: 'enter' | 'exit' | 'door' | 'board' | 'leave'; objectId?: string; label: string } | null;
+  /** Gracz siedzi w samolocie (spacer zamienia się w lot) — steruje podpowiedziami interfejsu. */
+  flying: boolean;
   /** Budynek z wnętrzem w miejscu, w którym stoi gracz w spacerze (biblioteka ogranicza się do wyposażenia wnętrz). */
   insideBuildingId: string | null;
   placing: { type: string; ids?: string[] } | null; // element z biblioteki (albo `template`: kopie obiektów `ids`) czekający na kliknięcie w scenie
@@ -67,6 +69,7 @@ interface State {
   exitInterior(): void;
   setInsideBuilding(id: string | null): void;
   setDoorPrompt(p: State['doorPrompt']): void;
+  setFlying(v: boolean): void;
   setEditFloor(n: number): void;
   setActiveBuilding(id: string | null): void;
   setBuildingFloors(id: string, n: number): void;
@@ -352,6 +355,7 @@ export const useStore = create<State>((set, get) => ({
   topView: false,
   sceneEntry: null,
   doorPrompt: null,
+  flying: false,
   insideBuildingId: null,
   placing: null,
   sound: initialSound(),
@@ -634,6 +638,9 @@ export const useStore = create<State>((set, get) => ({
 
   setInsideBuilding(id) {
     if (get().insideBuildingId !== id) set({ insideBuildingId: id });
+  },
+  setFlying(v) {
+    if (get().flying !== v) set({ flying: v });
   },
   setDoorPrompt(p) {
     const cur = get().doorPrompt;
