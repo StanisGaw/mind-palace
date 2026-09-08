@@ -101,7 +101,7 @@ export class Physics {
     this.world = new R.World({ x: 0, y: 0, z: 0 });
     this.controller = this.world.createCharacterController(0.03);
     this.controller.enableAutostep(0.45, 0.22, true);
-    this.controller.enableSnapToGround(0.35);
+    this.controller.enableSnapToGround(0.5);
     this.controller.setSlideEnabled(true);
     this.controller.setMaxSlopeClimbAngle((50 * Math.PI) / 180);
     this.controller.setMinSlopeSlideAngle((58 * Math.PI) / 180);
@@ -167,13 +167,15 @@ export class Physics {
     this.world.createCollider(this.R.ColliderDesc.trimesh(verts, idx), this.terrainBody);
   }
 
-  setRoom(boxes: RoomBoxInput[] | null) {
+  setRoom(boxes: RoomBoxInput[] | null, meshes: { vertices: Float32Array; indices: Uint32Array }[] = []) {
     if (this.roomBody) {
       this.world.removeRigidBody(this.roomBody);
       this.roomBody = null;
     }
-    if (!boxes || boxes.length === 0) return;
+    if ((!boxes || boxes.length === 0) && meshes.length === 0) return;
     this.roomBody = this.fixedBody(0, 0, 0);
+    for (const m of meshes) this.world.createCollider(this.R.ColliderDesc.trimesh(m.vertices, m.indices), this.roomBody);
+    if (!boxes) return;
     for (const b of boxes) {
       const desc = this.R.ColliderDesc.cuboid(b.size[0] / 2, b.size[1] / 2, b.size[2] / 2).setTranslation(b.pos[0], b.pos[1], b.pos[2]);
       if (b.quat) desc.setRotation({ x: b.quat[0], y: b.quat[1], z: b.quat[2], w: b.quat[3] });
@@ -275,7 +277,8 @@ export class Physics {
     this.vy -= 20 * dt;
     if (this.grounded) {
       if (jump) this.vy = 7.0;
-      else if (this.vy < 0) this.vy = -3; // docisk do podłoża, żeby wykrywanie gruntu było stabilne
+      // lekki docisk do podłoża: mocniejszy (3 m/s) zjadał ruch po pochylniach — na 41° zostawało 0,5 m/s
+      else if (this.vy < 0) this.vy = -0.5;
     }
     const desired = { x: velXZ.x * dt, y: this.vy * dt, z: velXZ.z * dt };
     this.controller.computeColliderMovement(collider, desired);

@@ -1097,7 +1097,7 @@ export class SceneManager {
     if (!ph || !p) return;
     ph.reset();
     if (p.interior) {
-      ph.setRoom(this.room?.colliders ?? null);
+      ph.setRoom(this.room?.colliders ?? null, this.room?.trimeshes ?? []);
     } else {
       ph.setGroundShape(groundPolygon(p.settings.ground), 0.6);
       ph.setTerrain(this.terrain?.mesh ?? null);

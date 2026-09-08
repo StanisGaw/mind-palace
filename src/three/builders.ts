@@ -148,17 +148,46 @@ export interface SpiralSpec {
  * jak schody z Konstrukcji. Zwraca prostokąt otworu w stropie nad ostatnią ćwiartką i pochylnie
  * (do kolizji pokoju, gdy schody nie są częścią modelu obiektu).
  */
-export function spiralStairs(g: THREE.Group, spec: SpiralSpec, stepMat: THREE.Material): { hole: Rect; ramps: { size: [number, number, number]; pos: [number, number, number]; quat: [number, number, number, number] }[] } {
+export interface Trimesh {
+  vertices: Float32Array;
+  indices: Uint32Array;
+}
+
+/** Gładka helikalna wstęga na poziomie wierzchów stopni — po niej chodzi postać (bez progów łamanej z pudełek). */
+function helixRibbon(spec: SpiralSpec, rise: number): Trimesh {
+  const rows = spec.steps * 4;
+  const ri = spec.inner - 0.05;
+  const ro = spec.r + 0.05;
+  const verts: number[] = [];
+  const idx: number[] = [];
+  for (let j = 0; j <= rows; j++) {
+    const t = j / rows;
+    const a = spec.start + spec.turn * t;
+    // wierzch stopnia leży pół stopnia nad linią śrubową; na górze wstęga dochodzi do poziomu stropu
+    const y = spec.y0 + Math.min(spec.height, spec.height * t + rise / 2) + 0.02;
+    verts.push(spec.cx + Math.sin(a) * ri, y, spec.cz + Math.cos(a) * ri);
+    verts.push(spec.cx + Math.sin(a) * ro, y, spec.cz + Math.cos(a) * ro);
+    if (j > 0) {
+      const b = 2 * j;
+      idx.push(b - 2, b - 1, b, b - 1, b + 1, b);
+    }
+  }
+  return { vertices: new Float32Array(verts), indices: new Uint32Array(idx) };
+}
+
+/**
+ * Kręcone schody wzdłuż muru: widoczne stopnie bez kolizji i niewidoczna helikalna wstęga jako jedyna
+ * bryła (w modelu obiektu trafia do siatki kolizji; pokój dostaje ją osobno przez `ribbon`).
+ * Zwraca prostokąt otworu w stropie nad częścią schodów, gdzie prześwit spada poniżej 2,3 m.
+ */
+export function spiralStairs(g: THREE.Group, spec: SpiralSpec, stepMat: THREE.Material): { hole: Rect; ribbon: Trimesh } {
   const rise = spec.height / spec.steps;
   const rm = (spec.r + spec.inner) / 2;
   const da = spec.turn / spec.steps;
   const run = rm * da;
   const width = spec.r - spec.inner;
-  const ramps: { size: [number, number, number]; pos: [number, number, number]; quat: [number, number, number, number] }[] = [];
   const hole = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
-  const holeFrom = Math.max(0.3, 1 - 2.0 / spec.height);
-  const q = new THREE.Quaternion();
-  const e = new THREE.Euler();
+  const holeFrom = Math.max(0.3, 1 - 2.3 / spec.height);
   for (let i = 0; i < spec.steps; i++) {
     const a = spec.start + da * (i + 0.5);
     const x = spec.cx + Math.sin(a) * rm;
@@ -167,13 +196,6 @@ export function spiralStairs(g: THREE.Group, spec: SpiralSpec, stepMat: THREE.Ma
     // lokalna oś X to styczna (kierunek wznoszenia), lokalna Z to promień
     const step = add(g, box(run + 0.02, rise, width), stepMat, x, y, z, [0, a, 0]);
     step.userData.skipCollider = true;
-    const tilt = Math.atan2(rise, run);
-    const ramp = add(g, box(Math.hypot(run, rise) + 0.06, 0.1, width), stepMat, x, y, z, [0, a, tilt]);
-    ramp.visible = false;
-    e.set(0, a, tilt);
-    q.setFromEuler(e);
-    ramps.push({ size: [Math.hypot(run, rise) + 0.06, 0.1, width], pos: [x, y, z], quat: [q.x, q.y, q.z, q.w] });
-    // otwór w stropie zaczyna się tam, gdzie prześwit nad stopniem spada poniżej 2 m (kapsuła gracza ma 1,74)
     if (i >= spec.steps * holeFrom) {
       for (const rr of [spec.inner, spec.r]) {
         for (const aa of [a - da / 2, a + da / 2]) {
@@ -187,7 +209,15 @@ export function spiralStairs(g: THREE.Group, spec: SpiralSpec, stepMat: THREE.Ma
       }
     }
   }
-  return { hole: { x0: hole.x0 - 0.05, x1: hole.x1 + 0.05, z0: hole.z0 - 0.05, z1: hole.z1 + 0.05 }, ramps };
+  const ribbon = helixRibbon(spec, rise);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(ribbon.vertices, 3));
+  geo.setIndex(new THREE.BufferAttribute(ribbon.indices, 1));
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, stepMat);
+  mesh.visible = false;
+  g.add(mesh);
+  return { hole: { x0: hole.x0 - 0.05, x1: hole.x1 + 0.05, z0: hole.z0 - 0.05, z1: hole.z1 + 0.05 }, ribbon };
 }
 
 /** Ściana budynku: `wallNormal` (lokalny kierunek na zewnątrz) pozwala edytorowi chować ściany od strony kamery. */
@@ -364,7 +394,7 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
   const holes: Rect[][] = [];
   for (let k = 0; k < floors - 1; k++) {
     const H = h / floors;
-    const { hole } = spiralStairs(g, { cx: 0, cz: 0, r: 0.72, inner: 0.32, y0: spec.floorY + k * H, height: H, start: Math.PI / 2, turn: Math.PI * 1.5, steps: Math.max(8, Math.round((H * 2) / 0.22)) }, mat(C.stoneDark));
+    const { hole } = spiralStairs(g, { cx: 0, cz: 0, r: 0.72, inner: 0.26, y0: spec.floorY + k * H, height: H, start: Math.PI / 2, turn: Math.PI * 1.5, steps: Math.max(8, Math.round((H * 2) / 0.22)) }, mat(C.stoneDark));
     holes.push([hole]);
   }
   shellSlabs(g, ctx, discRects(0.74), spec.floorY, h, mat(C.stone), holes);
@@ -739,9 +769,10 @@ function buildStairs(g: THREE.Group, ctx: BuildCtx) {
     const step = add(g, box(width, rise, run + 0.02), mat(C.stone), 0, y, z);
     step.userData.skipCollider = true;
   }
-  // niewidoczna pochylnia: jedyna bryła kolizji, płynniejsza niż schodkowanie stopni
+  // niewidoczna pochylnia: jedyna bryła kolizji, płynniejsza niż schodkowanie stopni; jej wierzch
+  // przechodzi przez wierzchy stopni, żeby postać nie płynęła przez ich krawędzie
   const rampLen = Math.hypot(len, H);
-  const ramp = add(g, box(width, 0.15, rampLen), mat(C.stone), 0, H / 2, 0, [-Math.atan2(H, len), 0, 0]);
+  const ramp = add(g, box(width + 0.1, 0.15, rampLen), mat(C.stone), 0, H / 2 + rise / 2 + 0.02 - 0.075, 0, [-Math.atan2(H, len), 0, 0]);
   ramp.visible = false;
 }
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { RoomSpec } from '../types';
-import { discRects, mat, spiralStairs } from './builders';
+import { discRects, mat, spiralStairs, type Trimesh } from './builders';
 import type { Opening } from '../lib/rooms';
 
 export interface RoomBox {
@@ -24,6 +24,8 @@ export interface Room {
   bounds: { hx: number; hz: number };
   /** Bryły do fizyki. */
   colliders: RoomBox[];
+  /** Siatki kolizji (helikalne wstęgi schodów). */
+  trimeshes: Trimesh[];
   dispose(): void;
 }
 
@@ -168,6 +170,7 @@ export function buildRoom(spec: RoomSpec, buildingType: string, opts: { floors: 
     spawn: { pos: new THREE.Vector3(0, 0, d / 2 - 1.6), yaw: 0 },
     bounds: { hx: w / 2 - WALL_T / 2 - 0.35, hz: d / 2 - WALL_T / 2 - 0.35 },
     colliders,
+    trimeshes: [],
     dispose() {
       g.traverse((c) => {
         const m = c as THREE.Mesh;
@@ -190,6 +193,7 @@ function buildTowerRoom(spec: RoomSpec, opts: { floors: number; openings: Openin
   const h = spec.height;
   const floors = Math.max(1, opts.floors);
   const colliders: RoomBox[] = [];
+  const trimeshes: Trimesh[] = [];
   const mesh = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, shadow = true) => {
     const mm = new THREE.Mesh(geo, m);
     mm.position.set(x, y, z);
@@ -261,12 +265,12 @@ function buildTowerRoom(spec: RoomSpec, opts: { floors: number; openings: Openin
   const slabs: THREE.Object3D[] = [];
   const stairW = Math.min(1.3, R * 0.45);
   for (let k = 0; k < floors - 1; k++) {
-    const { hole, ramps } = spiralStairs(
+    const { hole, ribbon } = spiralStairs(
       g,
       { cx: 0, cz: 0, r: R - WALL_T / 2 - 0.05, inner: R - WALL_T / 2 - 0.05 - stairW, y0: k * h, height: h, start: Math.PI / 2, turn: Math.PI * 1.5, steps: Math.max(10, Math.round(h / 0.2)) },
       mat('#d9d4c7'),
     );
-    for (const r of ramps) colliders.push(r);
+    trimeshes.push(ribbon);
     const y = (k + 1) * h;
     let rects: Rect[] = discRects(R - WALL_T / 2 + 0.02);
     rects = subtractRect(rects, hole);
@@ -298,8 +302,10 @@ function buildTowerRoom(spec: RoomSpec, opts: { floors: number; openings: Openin
     walls,
     slabs,
     spawn: { pos: new THREE.Vector3(0, 0, R - 1.6), yaw: 0 },
-    bounds: { hx: (R - WALL_T / 2 - 0.35) * 0.72, hz: (R - WALL_T / 2 - 0.35) * 0.72 },
+    // kwadratowa granica na całą szerokość koła — mur zatrzymuje postać, a schody biegną przy nim
+    bounds: { hx: R - WALL_T / 2 - 0.35, hz: R - WALL_T / 2 - 0.35 },
     colliders,
+    trimeshes,
     dispose() {
       g.traverse((c) => {
         const m = c as THREE.Mesh;
