@@ -49,7 +49,7 @@ interface State {
   topView: boolean; // aktywny rzut z góry na całą planszę
   sceneEntry: { kind: 'enter' | 'exit'; objectId: string; seq: number } | null;
   doorPrompt: { kind: 'enter' | 'exit' | 'door'; objectId?: string; label: string } | null;
-  placing: { type: string } | null; // element wybrany z biblioteki, czeka na kliknięcie w scenie
+  placing: { type: string; ids?: string[] } | null; // element z biblioteki (albo `template`: kopie obiektów `ids`) czekający na kliknięcie w scenie
   sound: SoundLevels; // głośność dźwięków otoczenia; trzymana w preferencjach, nie w danych pałacu
   editFloor: number; // piętro edytowane w edytorze (nieutrwalane — zerowane przy zmianie sceny)
   activeBuildingId: string | null; // budynek z wnętrzem w miejscu, któremu edytor chowa dach (nieutrwalane)
@@ -79,10 +79,12 @@ interface State {
   dropToGround(id: string): void;
   /** Scala współliniowe, stykające się ścianki spośród podanych; zwraca id ścianek, które zostały. */
   mergeWalls(ids: string[], opts?: { undo?: boolean }): string[];
-  setPlacing(p: { type: string } | null): void;
+  setPlacing(p: { type: string; ids?: string[] } | null): void;
   removeObject(id: string): void;
   updateObject(id: string, patch: Partial<PalaceObject>, opts?: { undo?: boolean }): void;
   duplicateObject(id: string): void;
+  /** Tworzy kopie obiektów: w podanym miejscu (podgląd) albo obok oryginałów, gdy `target` to null. Zwraca id kopii. */
+  duplicateObjectsAt(ids: string[], target: { position: Vec3; rotation: number; anchorId?: string; absolute?: boolean } | null): string[];
   select(id: string | null): void;
   /** Zaznacza sam obiekt, bez reszty jego grupy (edycja członka grupy). */
   selectOnly(id: string): void;
@@ -194,6 +196,17 @@ export function expandGroups(objects: PalaceObject[], ids: string[]): string[] {
   for (const o of objects) if (out.has(o.id) && o.groupId) groups.add(o.groupId);
   if (groups.size > 0) for (const o of objects) if (o.groupId && groups.has(o.groupId)) out.add(o.id);
   return Array.from(out);
+}
+
+/** Duplikat jako tryb stawiania: podgląd kopii jedzie za kursorem, obiekt powstaje po kliknięciu (jak z biblioteki). */
+function startDuplicatePlacing(get: () => State, ids: string[]) {
+  const objects = get().palace().objects;
+  const srcs = objects.filter((o) => ids.includes(o.id));
+  if (srcs.length === 0) return;
+  // pojedyncze drzwi idą przez przyciąganie do ścianki, reszta jako szablon w układzie oryginałów
+  const placing = srcs.length === 1 && srcs[0].type === 'door' ? { type: 'door', ids } : { type: 'template', ids };
+  get().setPlacing(placing);
+  get().showToast(srcs.length === 1 ? 'Kliknij, gdzie postawić kopię. Shift — kolejne kopie, Esc — anuluj.' : `Kliknij, gdzie postawić ${srcs.length} kopie. Shift — kolejne, Esc — anuluj.`);
 }
 
 /** Jak `selectionRoots`, ale bez drzwi, których ścianka nie jest zaznaczona — drzwi ruszają się tylko po swojej ściance. */
@@ -567,7 +580,7 @@ export const useStore = create<State>((set, get) => ({
 
   setPlacing(p) {
     const cur = get().placing;
-    if (cur?.type === p?.type) return;
+    if (cur?.type === p?.type && (cur?.ids ?? []).join(',') === (p?.ids ?? []).join(',')) return;
     set({ placing: p });
   },
 
@@ -723,49 +736,74 @@ export const useStore = create<State>((set, get) => ({
   },
 
   duplicateObject(id) {
-    const src = get().palace().objects.find((o) => o.id === id);
-    if (!src) return;
-    if (src.type === 'door') {
-      get().duplicateSelected();
+    if (!get().palace().objects.some((o) => o.id === id)) return;
+    if (get().viewMode !== 'editor') {
+      get().duplicateObjectsAt([id], null);
       return;
     }
-    const nid = uid();
-    get().setPalace((pl) => {
-      pl.objects.push({ ...JSON.parse(JSON.stringify(src)), id: nid, note: undefined, interiorId: undefined, anchorId: undefined, groupId: undefined, position: [src.position[0] + 1.5, 0, src.position[2] + 1.5] });
-    });
-    set({ selectedIds: [nid] });
+    startDuplicatePlacing(get, [id]);
   },
 
   duplicateSelected() {
     const ids = get().selectedIds;
+    if (ids.length === 0) return;
+    if (get().viewMode !== 'editor') {
+      get().duplicateObjectsAt(ids, null);
+      return;
+    }
+    startDuplicatePlacing(get, ids);
+  },
+
+  duplicateObjectsAt(ids, target) {
     const p = get().palace();
     const srcs = p.objects.filter((o) => ids.includes(o.id));
-    if (srcs.length === 0) return;
+    if (srcs.length === 0) return [];
     const copyIdOf = new Map(srcs.map((src) => [src.id, uid()]));
     // kopie tworzą własne grupy, żeby nie wtopić się w oryginalne
     const groupIdOf = new Map<string, string>();
     const copies: PalaceObject[] = [];
     let skippedDoors = 0;
+    // układ względem środka kopiowanych obiektów (te, które nie stoją na innym kopiowanym) — jak podgląd
+    const roots = srcs.filter((o) => !o.anchorId || !copyIdOf.has(o.anchorId));
+    const cx = roots.reduce((a, o) => a + o.position[0], 0) / roots.length;
+    const cz = roots.reduce((a, o) => a + o.position[2], 0) / roots.length;
+    const baseY = Math.min(...roots.map((o) => o.position[1]));
+    const cos = Math.cos(target?.rotation ?? 0);
+    const sin = Math.sin(target?.rotation ?? 0);
+    const placed = (src: PalaceObject): Vec3 => {
+      if (!target) return [src.position[0] + 1.5, groundYOf(p, src.position[1]), src.position[2] + 1.5];
+      const rx = src.position[0] - cx;
+      const rz = src.position[2] - cz;
+      return [target.position[0] + rx * cos + rz * sin, target.position[1] + (src.position[1] - baseY), target.position[2] - rx * sin + rz * cos];
+    };
     for (const src of srcs) {
       let groupId: string | undefined;
       if (src.groupId) {
         groupId = groupIdOf.get(src.groupId) ?? uid('g');
         groupIdOf.set(src.groupId, groupId);
       }
-      const base: PalaceObject = { ...(JSON.parse(JSON.stringify(src)) as PalaceObject), id: copyIdOf.get(src.id)!, note: undefined, interiorId: undefined, anchorId: undefined, groupId };
+      // obiekt stojący na innym kopiowanym idzie na jego kopię; reszta na podstawę pod kursorem (albo nigdzie)
+      const anchorId = src.anchorId && copyIdOf.has(src.anchorId) ? copyIdOf.get(src.anchorId) : target?.anchorId;
+      const rotation: Vec3 = target?.absolute ? [0, target.rotation, 0] : [src.rotation[0], src.rotation[1] + (target?.rotation ?? 0), src.rotation[2]];
+      const base: PalaceObject = { ...(JSON.parse(JSON.stringify(src)) as PalaceObject), id: copyIdOf.get(src.id)!, note: undefined, interiorId: undefined, anchorId, groupId, rotation };
       if (src.type !== 'door') {
-        copies.push({ ...base, position: [src.position[0] + 1.5, groundYOf(p, src.position[1]), src.position[2] + 1.5] });
+        copies.push({ ...base, position: placed(src) });
         continue;
       }
-      // drzwi nie istnieją bez ścianki: kopia idzie do kopii ścianki (ten sam odstęp) albo obok oryginału w tej samej ściance
+      // drzwi nie istnieją bez ścianki: w podglądzie celem jest ścianka pod kursorem, w zaznaczeniu kopia ścianki,
+      // a bez nich — miejsce obok oryginału w tej samej ściance
       const wall = p.objects.find((o) => o.id === src.anchorId && o.type === 'wall');
+      const wallCopyId = wall ? copyIdOf.get(wall.id) : undefined;
+      if (wallCopyId) {
+        copies.push({ ...base, anchorId: wallCopyId, position: placed(src) });
+        continue;
+      }
+      if (target?.absolute && target.anchorId) {
+        copies.push({ ...base, anchorId: target.anchorId, position: [...target.position] as Vec3 });
+        continue;
+      }
       if (!wall) {
         skippedDoors++;
-        continue;
-      }
-      const wallCopyId = copyIdOf.get(wall.id);
-      if (wallCopyId) {
-        copies.push({ ...base, anchorId: wallCopyId, position: [src.position[0] + 1.5, src.position[1], src.position[2] + 1.5] });
         continue;
       }
       const { t } = wallOffsetOf(wall, src.position[0], src.position[2]);
@@ -778,11 +816,12 @@ export const useStore = create<State>((set, get) => ({
       copies.push({ ...base, anchorId: wall.id, position: [x, src.position[1], z] });
     }
     if (skippedDoors > 0) get().showToast('W ściance nie ma miejsca na kolejne drzwi.');
-    if (copies.length === 0) return;
+    if (copies.length === 0) return [];
     get().setPalace((pl) => {
       pl.objects.push(...copies);
     });
-    set({ selectedIds: copies.map((c) => c.id) });
+    set({ selectedIds: copies.map((c) => c.id), ...(get().placing ? {} : { leftTab: 'scene' as const }) });
+    return copies.map((c) => c.id);
   },
 
   /** Rozstawia zaznaczone obiekty wierszami od lewego-górnego rogu zaznaczenia. */

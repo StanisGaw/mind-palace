@@ -10,7 +10,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         <h3>Edytor</h3>
         <ul>
           <li>Kliknij element w <b>Bibliotece</b>, aby dodać go na scenę. W trybie Przesuń przeciągnij obiekt, by go przestawić.</li>
-          <li>Narzędzia: <kbd>V</kbd> zaznacz, <kbd>M</kbd> przesuń i obróć, <kbd>Del</kbd> usuń, <kbd>Ctrl</kbd>+<kbd>D</kbd> duplikuj, <kbd>Ctrl</kbd>+<kbd>Z</kbd> cofnij, <kbd>F</kbd> wyśrodkuj widok, <kbd>T</kbd> rzut z góry. Podpowiedź do każdego przycisku pojawia się po najechaniu.</li>
+          <li>Narzędzia: <kbd>V</kbd> zaznacz, <kbd>M</kbd> przesuń i obróć, <kbd>Del</kbd> usuń, <kbd>Ctrl</kbd>+<kbd>D</kbd> duplikuj (podgląd kopii jedzie za kursorem, klik stawia, <kbd>Shift</kbd> kolejne), <kbd>Ctrl</kbd>+<kbd>Z</kbd> cofnij, <kbd>F</kbd> wyśrodkuj widok, <kbd>T</kbd> rzut z góry. Podpowiedź do każdego przycisku pojawia się po najechaniu.</li>
           <li>Kamera: <b>środkowy przycisk</b> obraca widok, prawy przesuwa, kółko przybliża. W rzucie z góry przytrzymanie środkowego przycisku chwilowo pochyla kamerę — po puszczeniu wraca nad planszę.</li>
           <li>Kliknij obiekt i wpisz w prawym panelu tytuł oraz treść wspomnienia. Obiekt z notatką trafia automatycznie na ścieżkę pamięci — kolejność zmienisz strzałkami.</li>
         </ul>
