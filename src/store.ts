@@ -5,7 +5,7 @@ import { uid } from './lib/ids';
 import { yawRotation } from './lib/transform';
 import { getPref, setPref } from './lib/prefs';
 import { chainOf, collectSubtree, loadData, makeInteriorPalace, makePalace, rootOf, saveData } from './lib/storage';
-import { DOOR_SLOT, FLOOR_MAX, clampToRoom, doorRange, doorSlotFree, floorOf, roomSpecFor, wallOffsetOf, wallPointAt } from './lib/rooms';
+import { DOOR_SLOT, FLOOR_MAX, clampToRoom, doorRange, doorSlotFree, floorOf, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt } from './lib/rooms';
 import { ROOM_PRESETS, capturePreset, instantiatePreset } from './lib/presets';
 import { loadCustomPresets, saveCustomPresets } from './lib/presetStore';
 import { isDue, newSrs, reviewSrs } from './lib/srs';
@@ -73,6 +73,8 @@ interface State {
   // obiekty
   addObject(type: string, position?: Vec3, rotationY?: number, anchorId?: string, scale?: Vec3): string;
   dropToGround(id: string): void;
+  /** Scala współliniowe, stykające się ścianki spośród podanych; zwraca id ścianek, które zostały. */
+  mergeWalls(ids: string[], opts?: { undo?: boolean }): string[];
   setPlacing(p: { type: string } | null): void;
   removeObject(id: string): void;
   updateObject(id: string, patch: Partial<PalaceObject>, opts?: { undo?: boolean }): void;
@@ -588,6 +590,32 @@ export const useStore = create<State>((set, get) => ({
       o.position[1] = groundY;
       for (const k of descendants(pl.objects, id)) k.position[1] -= drop;
     });
+  },
+
+  mergeWalls(ids, opts) {
+    const p = get().palace();
+    const chains = wallChains(p.objects.filter((o) => o.type === 'wall' && ids.includes(o.id))).filter((c) => c.length > 1);
+    if (chains.length === 0) return [];
+    const kept: string[] = [];
+    get().setPalace(
+      (pl) => {
+        for (const chain of chains) {
+          const keep = pl.objects.find((o) => o.id === chain[0].id);
+          if (!keep) continue;
+          const gone = new Set(chain.slice(1).map((w) => w.id));
+          // bez `applyObjectPatch`: drzwi w scalanych ściankach mają zostać tam, gdzie stoją
+          Object.assign(keep, mergedWall(chain));
+          for (const o of pl.objects) if (o.anchorId && gone.has(o.anchorId)) o.anchorId = keep.id;
+          pl.objects = pl.objects.filter((o) => !gone.has(o.id));
+          pl.path = pl.path.filter((x) => !gone.has(x));
+          kept.push(keep.id);
+        }
+      },
+      { undo: opts?.undo },
+    );
+    const goneAll = new Set(chains.flatMap((c) => c.slice(1).map((w) => w.id)));
+    set({ selectedIds: get().selectedIds.filter((id) => !goneAll.has(id)) });
+    return kept;
   },
 
   duplicateObject(id) {

@@ -1,5 +1,5 @@
 import { ROOMS, catalogItem } from '../catalog';
-import type { Palace, PalaceObject, RoomSpec } from '../types';
+import type { Palace, PalaceObject, RoomSpec, Vec3 } from '../types';
 
 /** Najwyższe piętro, jakie można ustawić budynkowi. */
 export const FLOOR_MAX = 4;
@@ -163,4 +163,46 @@ export function attachLegacyDoors(objects: PalaceObject[], makeId: () => string)
     added.push(wall);
   }
   return added.length ? [...objects, ...added] : objects;
+}
+
+/** Czy dwie ścianki leżą w jednej linii (kąt ±1°, oś w odległości < 5 cm) i stykają się albo nachodzą. */
+export function collinearWalls(a: PalaceObject, b: PalaceObject): boolean {
+  const d = (((a.rotation[1] - b.rotation[1]) % Math.PI) + Math.PI) % Math.PI;
+  if (Math.min(d, Math.PI - d) > 0.02) return false;
+  const { t, dist } = wallOffsetOf(a, b.position[0], b.position[2]);
+  if (dist > 0.05) return false;
+  return Math.abs(t) <= (wallLength(a) + wallLength(b)) / 2 + 0.05;
+}
+
+/** Składowe spójne relacji „współliniowe i stykające się” — każda to łańcuch do scalenia. */
+export function wallChains(walls: PalaceObject[]): PalaceObject[][] {
+  const left = [...walls];
+  const out: PalaceObject[][] = [];
+  while (left.length) {
+    const chain = [left.shift()!];
+    for (let i = 0; i < chain.length; i++) {
+      for (let j = left.length - 1; j >= 0; j--) {
+        if (collinearWalls(chain[i], left[j])) chain.push(left.splice(j, 1)[0]);
+      }
+    }
+    out.push(chain);
+  }
+  return out;
+}
+
+/** Jedna ścianka w miejsce łańcucha: skrajne końce wyznaczają środek i długość, obrót z pierwszej. */
+export function mergedWall(chain: PalaceObject[]): { position: Vec3; rotation: Vec3; scale: Vec3 } {
+  const base = chain[0];
+  let tMin = Infinity;
+  let tMax = -Infinity;
+  for (const w of chain) {
+    for (const end of [-wallLength(w) / 2, wallLength(w) / 2]) {
+      const [x, z] = wallPointAt(w, end);
+      const { t } = wallOffsetOf(base, x, z);
+      tMin = Math.min(tMin, t);
+      tMax = Math.max(tMax, t);
+    }
+  }
+  const [mx, mz] = wallPointAt(base, (tMin + tMax) / 2);
+  return { position: [mx, base.position[1], mz], rotation: [0, base.rotation[1], 0], scale: [(tMax - tMin) / WALL_SEGMENT, base.scale[1], base.scale[2]] };
 }

@@ -160,6 +160,8 @@ export class SceneManager {
   private wallLen = 0;
   private wallStartedOnDown = false;
   private wallLabel: CSS2DObject | null = null;
+  /** Ostatnio postawiona ścianka w łańcuchu — współliniowy następny odcinek ją wydłuża zamiast tworzyć nowy obiekt. */
+  private lastWallId: string | null = null;
   private placeDown: { x: number; y: number } | null = null;
   private baseLight = { hemi: 1.1, ambient: 0.35, sun: 2.4 };
   private ambienceFog = { color: '#eceeea', near: 40, far: 120 };
@@ -1151,6 +1153,7 @@ export class SceneManager {
     this.wallStart = null;
     this.wallLen = 0;
     this.wallStartedOnDown = false;
+    this.lastWallId = null;
     if (this.wallLabel) {
       this.wallLabel.element.remove();
       this.wallLabel.removeFromParent();
@@ -1300,7 +1303,10 @@ export class SceneManager {
     }
     if (this.wallLen < 0.5) return;
     const end = new THREE.Vector3(this.wallStart.x + Math.cos(this.ghostRot) * this.wallLen, this.ghostPos.y, this.wallStart.z - Math.sin(this.ghostRot) * this.wallLen);
-    st.addObject('wall', [this.ghostPos.x, this.ghostPos.y, this.ghostPos.z], this.ghostRot, undefined, [this.wallLen / WALL_SEGMENT, 1, 1]);
+    const id = st.addObject('wall', [this.ghostPos.x, this.ghostPos.y, this.ghostPos.z], this.ghostRot, undefined, [this.wallLen / WALL_SEGMENT, 1, 1]);
+    // odcinek w tej samej linii co poprzedni z łańcucha to nadal jedna ścianka
+    const kept = this.lastWallId ? st.mergeWalls([this.lastWallId, id], { undo: false }) : [];
+    this.lastWallId = kept[0] ?? id;
     if (keepPlacing) {
       this.wallStart = end;
       this.updateGhost();

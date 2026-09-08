@@ -4,7 +4,7 @@ import { describeDue, isDue } from '../lib/srs';
 import { useCurrentPalace, useStore } from '../store';
 import { usePref } from '../lib/prefs';
 import type { Vec3 } from '../types';
-import { WALL_SEGMENT } from '../lib/rooms';
+import { WALL_SEGMENT, wallChains } from '../lib/rooms';
 import { I } from './Icons';
 import { Tip } from './Tip';
 
@@ -30,6 +30,8 @@ function MultiInspector({ ids }: { ids: string[] }) {
   const select = useStore((s) => s.select);
   const removeObjects = useStore((s) => s.removeObjects);
   const arrangeSelected = useStore((s) => s.arrangeSelected);
+  const mergeWalls = useStore((s) => s.mergeWalls);
+  const showToast = useStore((s) => s.showToast);
   const n = ids.length;
   const [columns, setColumns] = useState(Math.ceil(Math.sqrt(n)));
   const [gapX, setGapX] = useState(2);
@@ -37,6 +39,7 @@ function MultiInspector({ ids }: { ids: string[] }) {
   const chosen = palace.objects.filter((o) => ids.includes(o.id));
   const withInterior = chosen.filter((o) => o.interiorId && palaces.some((p) => p.id === o.interiorId && p.objects.length > 0)).length;
   const stacked = palace.objects.filter((o) => o.anchorId && ids.includes(o.anchorId) && !ids.includes(o.id)).length;
+  const mergeable = wallChains(chosen.filter((o) => o.type === 'wall')).filter((c) => c.length > 1);
   const num = (value: number, set: (v: number) => void, min: number, step: number) => (
     <input className="num" type="number" min={min} step={step} value={value} onChange={(e) => set(Math.max(min, Number(e.target.value) || min))} />
   );
@@ -71,6 +74,19 @@ function MultiInspector({ ids }: { ids: string[] }) {
         </button>
       </div>
       <div className="actions">
+        {mergeable.length > 0 && (
+          <button
+            className="btn small"
+            title="Ścianki w jednej linii, które się stykają, staną się jednym obiektem"
+            onClick={() => {
+              const count = mergeable.reduce((a, c) => a + c.length, 0);
+              mergeWalls(ids);
+              showToast(`Scalono ${count} ${plural(count, 'ściankę', 'ścianki', 'ścianek')}.`);
+            }}
+          >
+            Scal ścianki
+          </button>
+        )}
         <button
           className="btn small danger"
           onClick={() => {
