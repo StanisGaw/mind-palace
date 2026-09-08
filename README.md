@@ -35,7 +35,9 @@ npm run build        # produkcyjny build do dist/
   do budynku. Element „Brama wejściowa" wyznacza miejsce startu spaceru po głównej planszy.
   Ścieżka okruszków u góry pokazuje, gdzie jesteś; usunięcie budynku kasuje jego wnętrze.
 - **Kreator wnętrz** — układ pokoju to zwykłe obiekty biblioteki z kategorii „Konstrukcja": ściana
-  działowa, drzwi, okno (przyciąga się do najbliższej ściany), schody. Panel „Piętra" ustawia liczbę
+  działowa (rysowana dwoma kliknięciami: początek i koniec, `Shift` ciągnie kolejną, `Esc` anuluje),
+  drzwi (stawiane w ściance działowej — ścianka dostaje otwór, `R` zmienia stronę zawiasów), okno
+  (przyciąga się do najbliższej ściany), schody. Panel „Piętra" ustawia liczbę
   kondygnacji (1–4) budynku i piętro do edycji; schody robią otwór w stropie i prowadzą wyżej. Puste
   wnętrze proponuje gotowe układy pokoju (wbudowane i własne) — „Zastosuj" zastępuje obiekty bez
   notatek, „Zapisz obecny układ" zachowuje bieżące rozmieszczenie do ponownego użycia. Drzwi otwiera

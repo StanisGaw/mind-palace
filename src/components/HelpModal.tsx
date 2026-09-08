@@ -50,7 +50,9 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         </ul>
         <h3>Kreator wnętrz</h3>
         <ul>
-          <li>We wnętrzu biblioteka ma dodatkową kategorię <b>Konstrukcja</b>: ściana działowa, drzwi, okno i schody. To zwykłe obiekty — stawiasz, skalujesz i obracasz je jak wszystko inne.</li>
+          <li>We wnętrzu biblioteka ma dodatkową kategorię <b>Konstrukcja</b>: ściana działowa, drzwi, okno i schody. To zwykłe obiekty — można je przesuwać, cofać i usuwać jak wszystko inne.</li>
+          <li><b>Ścianę działową</b> rysujesz dwoma kliknięciami: pierwsze wskazuje początek, drugie koniec (można też przeciągnąć). Końce przyciągają się do siatki, innych ścianek i ścian pokoju, a kąt do wielokrotności 15°. Z <kbd>Shift</kbd> kolejna ścianka zaczyna się tam, gdzie skończyła poprzednia; <kbd>Esc</kbd> cofa początek albo kończy rysowanie.</li>
+          <li><b>Drzwi</b> stawia się w ściance działowej — podgląd sam przyciąga się do jej osi, a ścianka dostaje otwór. <kbd>R</kbd> albo kółko myszy w trakcie stawiania (i przycisk „Zawiasy z drugiej strony" w panelu) zmienia stronę, w którą otwiera się skrzydło. Przesuwane drzwi jadą po ściance; usunięcie ścianki usuwa też jej drzwi.</li>
           <li>Puste wnętrze proponuje gotowe <b>układy pokoju</b> po lewej stronie — wybierz jeden i kliknij „Zastosuj". Układ zastąpi obiekty bez notatek; te z notatkami zawsze zostają. Przycisk „Zapisz obecny układ" zachowuje bieżące rozmieszczenie do ponownego użycia w innym budynku.</li>
           <li>Drzwi (obiekt z Konstrukcji) otwierasz i zamykasz klawiszem <kbd>F</kbd> albo kliknięciem — zamknięte blokują przejście, otwarte przepuszczają.</li>
           <li>Panel „Piętra" (zamiast planszy w Otoczeniu) ustawia liczbę kondygnacji budynku (1–4) i piętro do edycji. Schody postawione na danym piętrze robią w stropie otwór i prowadzą wyżej — w widoku z oczu wystarczy nimi wejść.</li>
