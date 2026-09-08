@@ -327,6 +327,9 @@ let flySeq = 0;
 let camSeq = 0;
 let entrySeq = 0;
 
+/** Wykończenie nowego budynku z wnętrzem w miejscu: deski i tynk — przytulniej niż goły mur. */
+const DEFAULT_FINISH = { floor: 'planks', wall: 'plaster' };
+
 export const useStore = create<State>((set, get) => ({
   data: initialData(),
   selectedIds: [],
@@ -503,6 +506,7 @@ export const useStore = create<State>((set, get) => ({
         o.interiorMode = 'inplace';
         o.floors = o.floors ?? SHELLS[o.type]?.defaultFloors ?? 1;
         o.shellVersion = 2;
+        o.finish = o.finish ?? DEFAULT_FINISH;
         o.scale = bumped;
       });
       if (bumped.some((v, i) => v !== b.scale[i])) get().showToast(`Skala budynku podniesiona do ${min}, żeby dało się wejść do środka.`);
@@ -640,7 +644,7 @@ export const useStore = create<State>((set, get) => ({
         rotation: yawRotation(rotationY ?? (item.unique ? Math.atan2(pos[0], pos[2]) : 0)),
         scale: finalScale,
         anchorId,
-        ...(shell ? { interiorMode: 'inplace' as const, floors: shell.defaultFloors, shellVersion: 2 as const } : {}),
+        ...(shell ? { interiorMode: 'inplace' as const, floors: shell.defaultFloors, shellVersion: 2 as const, finish: DEFAULT_FINISH } : {}),
       });
     });
     set({ selectedIds: [id], ...(get().placing ? {} : { leftTab: 'scene' as const }) });

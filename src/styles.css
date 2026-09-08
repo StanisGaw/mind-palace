@@ -384,6 +384,16 @@ input, textarea, select { outline: none; }
 .tex-tile { aspect-ratio: 1; width: 100%; border-radius: 8px; border: 1px solid var(--border); background-size: cover; background-position: center; color: var(--muted-2); font-size: 14px; }
 .tex-tile.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .tex-tile.none, .tex-tile.add { background: var(--panel-2); }
+.mat-rows { display: flex; flex-direction: column; gap: 4px; }
+.mat-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.mat-row input[type='color'] { width: 26px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: none; cursor: pointer; }
+.mat-row input[type='color']::-webkit-color-swatch-wrapper { padding: 2px; }
+.mat-row input[type='color']::-webkit-color-swatch { border: none; border-radius: 4px; }
+.mat-row .name { flex: 1; color: var(--text); }
+.mat-row .reset { font-size: 12px; color: var(--muted); padding: 2px 6px; border-radius: 6px; }
+.mat-row .reset:hover { background: var(--panel-2); color: var(--text); }
+.wood-chip { display: inline-flex; align-items: center; gap: 5px; }
+.wood-chip .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 .tex-del { position: absolute; top: -4px; right: -4px; width: 15px; height: 15px; border-radius: 50%; background: var(--danger); color: #fff; font-size: 10px; line-height: 1; }
 .ls-list { display: flex; flex-direction: column; gap: 3px; max-height: 132px; overflow-y: auto; }
 .ls-row { display: flex; align-items: center; gap: 4px; }

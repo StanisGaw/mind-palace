@@ -22,7 +22,8 @@ export function makeInteriorPalace(name: string, buildingType: string, spec: Roo
   p.parentObjectId = parentObjectId;
   p.interior = { buildingType, floors: 1, lamps: true };
   p.objects = roomLamps(spec, 1, uid);
-  p.settings = { ...p.settings, grid: false, scenery: 'none', weather: 'clear', ground: { width: spec.width, depth: spec.depth, shape: 'rect' } };
+  // parkiet i tynk od razu — pusty pokój w samym kolorze wyglądał surowo
+  p.settings = { ...p.settings, grid: false, scenery: 'none', weather: 'clear', ground: { width: spec.width, depth: spec.depth, shape: 'rect' }, groundTexture: 'parquet', wallTexture: 'plaster' };
   return p;
 }
 

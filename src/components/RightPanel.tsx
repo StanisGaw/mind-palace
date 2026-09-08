@@ -5,6 +5,9 @@ import { useCurrentPalace, useStore } from '../store';
 import { usePref } from '../lib/prefs';
 import type { Vec3 } from '../types';
 import { SHELLS, WALL_SEGMENT, isFacade, isInPlace, maxFloorsOf, wallChains } from '../lib/rooms';
+import { MATERIAL_LABELS, WOOD_ROLES, WOOD_SHADES, paletteOf, trimColors, type MaterialRole } from '../lib/materials';
+import { rolesOf } from '../three/builders';
+import { TexturePicker } from './TexturePicker';
 import { I } from './Icons';
 import { Tip } from './Tip';
 
@@ -305,6 +308,86 @@ function RotationField({ id, rotation }: { id: string; rotation: Vec3 }) {
   );
 }
 
+/** Warstwy materiałów obiektu: kolor każdej warstwy, którą model rysuje, i gotowe odcienie drewna. */
+function MaterialsField({ id, type, colors }: { id: string; type: string; colors?: Record<string, string> }) {
+  const updateObject = useStore((s) => s.updateObject);
+  const pushUndo = useStore((s) => s.pushUndo);
+  const roles = rolesOf(type);
+  if (roles.length === 0) return null;
+  const palette = paletteOf(colors);
+  const setColor = (role: MaterialRole, value: string | undefined, undo = true) => {
+    const next = { ...(colors ?? {}) };
+    if (value) next[role] = value;
+    else delete next[role];
+    updateObject(id, { colors: trimColors(next) }, { undo });
+  };
+  const hasWood = roles.some((r) => WOOD_ROLES.includes(r));
+  const woodId = WOOD_SHADES.find((w) => w.wood === palette.wood && w.woodDark === palette.woodDark)?.id;
+  return (
+    <div className="field">
+      <label>Materiały</label>
+      {hasWood && (
+        <div className="cat-chips" style={{ margin: 0 }}>
+          {WOOD_SHADES.map((w) => (
+            <button
+              key={w.id}
+              className={'cat-chip wood-chip' + (woodId === w.id ? ' on' : '')}
+              title={`Drewno: ${w.name}`}
+              onClick={() => {
+                const next = { ...(colors ?? {}), wood: w.wood, woodDark: w.woodDark };
+                updateObject(id, { colors: trimColors(next) });
+              }}
+            >
+              <span className="sw" style={{ background: w.wood }} />
+              {w.name}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="mat-rows">
+        {roles.map((role) => (
+          <div className="mat-row" key={role}>
+            <input type="color" value={palette[role]} onPointerDown={() => pushUndo()} onChange={(e) => setColor(role, e.target.value, false)} title={`Kolor: ${MATERIAL_LABELS[role]}`} />
+            <span className="name">{MATERIAL_LABELS[role]}</span>
+            {colors?.[role] && (
+              <button className="reset" title="Przywróć domyślny kolor" onClick={() => setColor(role, undefined)}>
+                ↺
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Wykończenie wnętrza budynku w miejscu (podłoga, ściany) albo nawierzchnia ścieżki. */
+function FinishField({ id, finish, kinds }: { id: string; finish?: { floor?: string; wall?: string }; kinds: { floor?: string; wall?: string } }) {
+  const updateObject = useStore((s) => s.updateObject);
+  const set = (key: 'floor' | 'wall', value: string | undefined) => {
+    const next = { ...(finish ?? {}) };
+    if (value) next[key] = value;
+    else delete next[key];
+    updateObject(id, { finish: Object.keys(next).length ? next : undefined });
+  };
+  return (
+    <>
+      {kinds.floor && (
+        <div className="field">
+          <label>{kinds.floor}</label>
+          <TexturePicker kind={kinds.floor === 'Nawierzchnia' ? 'ground' : 'floor'} value={finish?.floor} onChange={(v) => set('floor', v)} />
+        </div>
+      )}
+      {kinds.wall && (
+        <div className="field">
+          <label>{kinds.wall}</label>
+          <TexturePicker kind="wall" value={finish?.wall} onChange={(v) => set('wall', v)} />
+        </div>
+      )}
+    </>
+  );
+}
+
 function Step({ n, t, d }: { n: string; t: string; d: string }) {
   return (
     <div className="step">
@@ -540,6 +623,9 @@ function Inspector({ id }: { id: string }) {
           <span className="val">{obj.position[1].toFixed(2)} m</span>
         </div>
       </div>
+      {inPlace && <FinishField id={id} finish={obj.finish} kinds={{ floor: 'Podłoga wnętrza', wall: 'Ściany wnętrza' }} />}
+      {obj.type === 'path' && <FinishField id={id} finish={obj.finish} kinds={{ floor: 'Nawierzchnia' }} />}
+      <MaterialsField id={id} type={obj.type} colors={obj.colors} />
       {obj.type !== 'door' && !isFacade(obj.type) && <ScaleField id={id} scale={obj.scale} max={item.maxScale ?? 10} />}
       {obj.type !== 'door' && !isFacade(obj.type) && <RotationField id={id} rotation={obj.rotation} />}
       <div className="actions">

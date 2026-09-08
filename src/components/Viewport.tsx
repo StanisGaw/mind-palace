@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AMBIENCES, SCENERIES, WEATHERS } from '../catalog';
 import { GROUND_SHAPES } from '../lib/ground';
-import { BUILTIN_TEXTURES, textureThumb } from '../three/textures';
-import { addCustomTexture, loadCustomTextures, removeCustomTexture, type CustomTexture } from '../lib/textureStore';
+import { TexturePicker } from './TexturePicker';
 import { allLandscapes, removeLandscape, saveLandscape, type LandscapePreset } from '../lib/landscapes';
 import type { Scenery, SoundLevels, Weather } from '../types';
 import { useCurrentPalace, useStore } from '../store';
@@ -546,76 +545,23 @@ function GroundSection() {
   );
 }
 
-/** Wybór tekstury podłoża: wbudowane wzory i własne obrazy. */
+/** Nawierzchnia planszy albo podłoga i ściany pokoju ładowanego. */
 function TextureSection() {
   const palace = useCurrentPalace();
   const setSettings = useStore((s) => s.setSettings);
-  const showToast = useStore((s) => s.showToast);
-  const [custom, setCustom] = useState<CustomTexture[]>(() => loadCustomTextures());
-  const fileRef = useRef<HTMLInputElement>(null);
-  const cur = palace.settings.groundTexture;
-  const onFile = async (f: File) => {
-    try {
-      const t = await addCustomTexture(f);
-      setCustom(loadCustomTextures());
-      setSettings({ groundTexture: t.id });
-    } catch (e) {
-      showToast((e as Error).message);
-    }
-  };
   return (
-    <div className="env-section">
-      <span className="env-title">{palace.interior ? 'Podłoga' : 'Nawierzchnia'}</span>
-      <div className="tex-grid">
-        <button className={'tex-tile none' + (!cur ? ' on' : '')} onClick={() => setSettings({ groundTexture: undefined })} title="Bez tekstury">
-          —
-        </button>
-        {BUILTIN_TEXTURES.map((t) => (
-          <button
-            key={t.id}
-            className={'tex-tile' + (cur === t.id ? ' on' : '')}
-            style={{ backgroundImage: `url(${textureThumb(t.id)})` }}
-            title={t.name}
-            onClick={() => setSettings({ groundTexture: t.id })}
-          />
-        ))}
-        {custom.map((t) => (
-          <span key={t.id} className="tex-wrap">
-            <button
-              className={'tex-tile' + (cur === t.id ? ' on' : '')}
-              style={{ backgroundImage: `url(${t.dataUrl})` }}
-              title={t.name}
-              onClick={() => setSettings({ groundTexture: t.id })}
-            />
-            <button
-              className="tex-del"
-              title="Usuń teksturę"
-              onClick={() => {
-                removeCustomTexture(t.id);
-                setCustom(loadCustomTextures());
-                if (cur === t.id) setSettings({ groundTexture: undefined });
-              }}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-        <button className="tex-tile add" onClick={() => fileRef.current?.click()} title="Dodaj własną teksturę">
-          +
-        </button>
+    <>
+      <div className="env-section">
+        <span className="env-title">{palace.interior ? 'Podłoga' : 'Nawierzchnia'}</span>
+        <TexturePicker kind={palace.interior ? 'floor' : 'ground'} value={palace.settings.groundTexture} onChange={(id) => setSettings({ groundTexture: id })} />
       </div>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        hidden
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) onFile(f);
-          e.target.value = '';
-        }}
-      />
-    </div>
+      {palace.interior && (
+        <div className="env-section">
+          <span className="env-title">Ściany</span>
+          <TexturePicker kind="wall" value={palace.settings.wallTexture} onChange={(id) => setSettings({ wallTexture: id })} />
+        </div>
+      )}
+    </>
   );
 }
 
