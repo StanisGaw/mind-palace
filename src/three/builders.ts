@@ -571,42 +571,108 @@ function buildLantern(g: THREE.Group) {
   g.add(light);
 }
 
-/** Tytuły na grzbietach — kilka współdzielonych tekstur (złote litery i ornament na przezroczystym tle). */
-const BOOK_TITLES = ['Pamięć', 'Sny', 'Podróże', 'Ogród', 'Mapy', 'Listy', 'Idee', 'Czas', 'Baśnie', 'Atlas'];
+/** Glify runiczne (na wzór futharku) jako łamane w kwadracie 0..1, y w dół — rysowane kreską, bez zależności od czcionek. */
+const RUNES: [number, number][][][] = [
+  [[[0.2, 0], [0.2, 1]], [[0.2, 0.5], [0.8, 0.25]], [[0.2, 0.25], [0.8, 0]]],
+  [[[0.15, 1], [0.15, 0], [0.85, 0.3], [0.85, 1]]],
+  [[[0.2, 0], [0.2, 1]], [[0.2, 0.25], [0.8, 0.5], [0.2, 0.75]]],
+  [[[0.2, 0], [0.2, 1]], [[0.2, 0.1], [0.8, 0.35]], [[0.2, 0.4], [0.8, 0.65]]],
+  [[[0.2, 1], [0.2, 0], [0.8, 0.25], [0.2, 0.5], [0.8, 1]]],
+  [[[0.8, 0], [0.2, 0.5], [0.8, 1]]],
+  [[[0.1, 0.1], [0.9, 0.9]], [[0.9, 0.1], [0.1, 0.9]]],
+  [[[0.2, 1], [0.2, 0], [0.8, 0.25], [0.2, 0.5]]],
+  [[[0.2, 0], [0.2, 1]], [[0.8, 0], [0.8, 1]], [[0.2, 0.35], [0.8, 0.65]]],
+  [[[0.5, 0], [0.5, 1]], [[0.2, 0.35], [0.8, 0.65]]],
+  [[[0.5, 0], [0.5, 1]]],
+  [[[0.5, 0], [0.5, 1]], [[0.15, 0.05], [0.5, 0.4], [0.85, 0.05]]],
+  [[[0.7, 0], [0.3, 0.4], [0.7, 0.6], [0.3, 1]]],
+  [[[0.5, 0], [0.5, 1]], [[0.15, 0.3], [0.5, 0], [0.85, 0.3]]],
+  [[[0.2, 1], [0.2, 0], [0.75, 0.25], [0.2, 0.5], [0.75, 0.75], [0.2, 1]]],
+  [[[0.15, 1], [0.15, 0], [0.5, 0.35], [0.85, 0], [0.85, 1]]],
+  [[[0.15, 1], [0.15, 0], [0.85, 0.55]], [[0.85, 1], [0.85, 0], [0.15, 0.55]]],
+  [[[0.2, 1], [0.2, 0], [0.8, 0.35]]],
+  [[[0.5, 0.15], [0.85, 0.5], [0.5, 0.85], [0.15, 0.5], [0.5, 0.15]]],
+  [[[0.15, 0], [0.15, 1], [0.85, 0], [0.85, 1], [0.15, 0]]],
+  [[[0.5, 0], [0.8, 0.35], [0.5, 0.7], [0.2, 0.35], [0.5, 0]], [[0.35, 0.55], [0.15, 1]], [[0.65, 0.55], [0.85, 1]]],
+];
+
+/** Liczba różnych grzbietów — każdy to inny ciąg run i ornament, tekstury współdzielone między książkami. */
+const SPINE_VARIANTS = 24;
 const spineMats = new Map<number, THREE.MeshStandardMaterial>();
 function spineMat(i: number): THREE.MeshStandardMaterial {
   let m = spineMats.get(i);
   if (m) return m;
+  const S = 1.5;
   const c = document.createElement('canvas');
-  c.width = 64;
-  c.height = 256;
+  c.width = 64 * S;
+  c.height = 256 * S;
   const ctx = c.getContext('2d')!;
-  ctx.clearRect(0, 0, 64, 256);
+  ctx.scale(S, S);
   ctx.strokeStyle = '#e2c27a';
+  ctx.fillStyle = '#e2c27a';
   ctx.lineWidth = 3;
-  // podwójne linie u góry i u dołu, rozetka pośrodku dołu
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const r = rng(i * 7919 + 13);
+  r();
+  r(); // rozgrzewka — pierwsze wartości sąsiednich ziaren są skorelowane
+  // podwójne linie u góry i u dołu
   for (const y of [22, 30, 226, 234]) {
     ctx.beginPath();
     ctx.moveTo(8, y);
     ctx.lineTo(56, y);
     ctx.stroke();
   }
-  ctx.beginPath();
-  ctx.arc(32, 200, 9, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(32, 200, 3, 0, Math.PI * 2);
-  ctx.fillStyle = '#e2c27a';
-  ctx.fill();
-  // tytuł wzdłuż grzbietu (obrócony), pogrubiony szeryf
+  // ornament u dołu: rozetka, romb albo trzy kreski
+  const orn = Math.floor(r() * 3);
+  if (orn === 0) {
+    ctx.beginPath();
+    ctx.arc(32, 200, 9, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (orn === 1) {
+    ctx.beginPath();
+    ctx.moveTo(32, 188);
+    ctx.lineTo(43, 200);
+    ctx.lineTo(32, 212);
+    ctx.lineTo(21, 200);
+    ctx.closePath();
+    ctx.stroke();
+  } else {
+    for (const y of [193, 200, 207]) {
+      ctx.beginPath();
+      ctx.moveTo(20, y);
+      ctx.lineTo(44, y);
+      ctx.stroke();
+    }
+  }
+  if (orn < 2) {
+    ctx.beginPath();
+    ctx.arc(32, 200, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // ciąg 3–5 run wzdłuż grzbietu (czyta się od dołu do góry, jak tytuł na obróconym grzbiecie)
+  const n = 3 + Math.floor(r() * 3);
+  const pitch = 24;
+  const gw = 16;
+  const gh = 30;
   ctx.save();
   ctx.translate(32, 108);
   ctx.rotate(-Math.PI / 2);
-  ctx.font = 'bold 30px Georgia, "Times New Roman", serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#e2c27a';
-  ctx.fillText(BOOK_TITLES[i % BOOK_TITLES.length], 0, 0);
+  const x0 = -((n - 1) * pitch + gw) / 2;
+  for (let k = 0; k < n; k++) {
+    const glyph = RUNES[Math.floor(r() * RUNES.length)];
+    const gx = x0 + k * pitch;
+    for (const line of glyph) {
+      ctx.beginPath();
+      line.forEach(([px, py], j) => {
+        const lx = gx + px * gw;
+        const ly = (py - 0.5) * gh;
+        if (j === 0) ctx.moveTo(lx, ly);
+        else ctx.lineTo(lx, ly);
+      });
+      ctx.stroke();
+    }
+  }
   ctx.restore();
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -627,7 +693,7 @@ function book(g: THREE.Group, w: number, h: number, d: number, cover: THREE.Mate
   const gold = mat(C.gold, { roughness: 0.35, metalness: 0.7 });
   for (const y of [h * 0.36, -h * 0.36]) add(b, box(w + 0.004, 0.008, 0.004), gold, 0, y, d / 2);
   const spine = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.9, h * 0.92), spineMat(title));
-  spine.position.set(0, 0, d / 2 + 0.002);
+  spine.position.set(0, 0, d / 2 + 0.003);
   spine.userData.skipCollider = true;
   b.add(spine);
   g.add(b);
@@ -651,7 +717,7 @@ function buildBooks(g: THREE.Group, ctx: BuildCtx) {
   let y = 0;
   const sizes: [number, number, number][] = [[0.07, 0.34, 0.24], [0.06, 0.3, 0.22], [0.05, 0.32, 0.23], [0.06, 0.28, 0.2]];
   sizes.forEach(([w, h, d], i) => {
-    const b = book(g, w, h, d, mat(BOOK_COLORS[Math.floor(r() * BOOK_COLORS.length)]()), Math.floor(r() * BOOK_TITLES.length));
+    const b = book(g, w, h, d, mat(BOOK_COLORS[Math.floor(r() * BOOK_COLORS.length)]()), Math.floor(r() * SPINE_VARIANTS));
     b.rotation.set(0, (r() - 0.5) * 0.6 + (i % 2 ? Math.PI : 0), Math.PI / 2);
     b.position.set((r() - 0.5) * 0.04, y + w / 2, (r() - 0.5) * 0.04);
     y += w;
@@ -1109,35 +1175,38 @@ function buildShelf(g: THREE.Group, ctx: BuildCtx) {
   const W = 1.4;
   const D = 0.38;
   const H = 2.2;
-  add(g, box(W - 0.1, H, 0.03), dark, 0, H / 2, -D / 2 + 0.015); // plecy
+  // plecy i cokół lekko cofnięte/wysunięte względem boków, żeby tylne ścianki nie leżały w jednej płaszczyźnie
+  add(g, box(W - 0.1, H, 0.03), dark, 0, H / 2, -D / 2 + 0.02); // plecy
   for (const x of [-W / 2 + 0.025, W / 2 - 0.025]) add(g, box(0.05, H, D), dark, x, H / 2, 0);
   add(g, box(W + 0.08, 0.06, D + 0.06), dark, 0, H + 0.03, 0.02); // gzyms
   add(g, box(W + 0.02, 0.03, D + 0.02), light, 0, H - 0.015, 0.02);
-  add(g, box(W + 0.04, 0.12, D + 0.02), dark, 0, 0.06, 0.01); // cokół
+  add(g, box(W + 0.04, 0.12, D + 0.02), dark, 0, 0.06, 0.02); // cokół
   const r = rng((ctx.variant ?? 0) + 3);
   const innerW = W - 0.1;
+  const limit = innerW / 2 - 0.01; // prawa granica dla książek (przed boczną ścianką)
   for (let shelf = 0; shelf < 4; shelf++) {
     const y = 0.28 + shelf * 0.5;
     add(g, box(innerW, 0.04, D - 0.04), light, 0, y, 0);
-    add(g, box(innerW, 0.05, 0.02), dark, 0, y, D / 2 - 0.03); // listwa czołowa
+    // listwa czołowa wysunięta przed deskę półki — ich przednie ścianki nie mogą leżeć w jednej płaszczyźnie (migotanie)
+    add(g, box(innerW, 0.05, 0.02), dark, 0, y, D / 2 - 0.02);
     // od lewej: grupy stojących książek, czasem pochylona, czasem stos leżących, czasem przerwa
     let x = -innerW / 2 + 0.04;
     const top = y + 0.02;
-    while (x < innerW / 2 - 0.06) {
+    while (x < limit - 0.05) {
       const kind = r();
       if (kind < 0.12) {
         x += 0.06 + r() * 0.1; // przerwa
         continue;
       }
-      if (kind < 0.3) {
-        // stos 2–3 leżących tomów, grzbietami do przodu
+      if (kind < 0.3 && x + 0.32 < limit) {
+        // stos 2–3 leżących tomów, grzbietami do przodu (najdłuższy tom ma 0,30 m — musi się zmieścić przed ścianką)
         const n = 2 + Math.floor(r() * 2);
         let sy = top;
         let maxH = 0;
         for (let i = 0; i < n; i++) {
           const w = 0.035 + r() * 0.03;
           const h = 0.22 + r() * 0.08;
-          const b = book(g, w, h, 0.2 + r() * 0.06, mat(BOOK_COLORS[Math.floor(r() * BOOK_COLORS.length)]()), Math.floor(r() * BOOK_TITLES.length));
+          const b = book(g, w, h, 0.2 + r() * 0.06, mat(BOOK_COLORS[Math.floor(r() * BOOK_COLORS.length)]()), Math.floor(r() * SPINE_VARIANTS));
           b.rotation.set(0, 0, Math.PI / 2);
           b.position.set(x + h / 2, sy + w / 2, 0.02);
           sy += w;
@@ -1146,18 +1215,22 @@ function buildShelf(g: THREE.Group, ctx: BuildCtx) {
         x += maxH + 0.03;
         continue;
       }
-      // grupa stojących
+      // grupa stojących; każdy tom musi zmieścić się przed ścianką (pochylony potrzebuje zapasu na wychylony wierzch)
       const n = 2 + Math.floor(r() * 5);
-      for (let i = 0; i < n && x < innerW / 2 - 0.06; i++) {
+      let placed = 0;
+      for (let i = 0; i < n; i++) {
         const w = 0.035 + r() * 0.035;
         const h = 0.24 + r() * 0.16;
         const d = 0.18 + r() * 0.08;
-        const b = book(g, w, h, d, mat(BOOK_COLORS[Math.floor(r() * BOOK_COLORS.length)]()), Math.floor(r() * BOOK_TITLES.length));
         const lean = i === n - 1 && r() < 0.35 ? -0.18 : 0;
+        if (x + w + (lean ? h * 0.2 : 0) > limit) break;
+        const b = book(g, w, h, d, mat(BOOK_COLORS[Math.floor(r() * BOOK_COLORS.length)]()), Math.floor(r() * SPINE_VARIANTS));
         b.rotation.z = lean;
-        b.position.set(x + w / 2 + (lean ? h * 0.08 : 0), top + h / 2, 0.04 - r() * 0.02);
+        b.position.set(x + w / 2 + (lean ? h * 0.08 : 0), top + h / 2, 0.03 - r() * 0.02);
         x += w + 0.004 + (lean ? 0.05 : 0);
+        placed++;
       }
+      if (!placed) break;
       x += r() < 0.4 ? 0.02 : 0;
     }
   }
