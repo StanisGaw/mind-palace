@@ -229,7 +229,7 @@ export function Viewport() {
         </Tip>
       </div>
 
-      {viewMode === 'editor' && isTouch && placing && (
+      {viewMode !== 'vr' && isTouch && placing && (
         <div className="hud placing-bar">
           <span className="placing-label">{placing.ids ? 'Kopia' : catalogItem(placing.type).name}</span>
           {!isDrawn(placing.type) && (

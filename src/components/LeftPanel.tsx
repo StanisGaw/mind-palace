@@ -67,17 +67,30 @@ function Library({ q }: { q: string }) {
   const setPlacing = useStore((s) => s.setPlacing);
   const select = useStore((s) => s.select);
   const isInterior = !!useCurrentPalace().interior;
+  // w spacerze wewnątrz budynku z wnętrzem w miejscu biblioteka pokazuje tylko to, co pasuje do pokoju
+  const insideBuildingId = useStore((s) => s.insideBuildingId);
+  const insideInPlace = viewMode !== 'editor' && !!insideBuildingId;
+  const indoor = isInterior || insideInPlace;
   // jedna aktywna kategoria albo „Wszystkie”; wyszukiwanie działa w ramach aktywnej
   const [category, setCategory] = usePref<string>('libCategory', 'all');
   // we wnętrzu nie stawiamy budynków, gór ani bramy; wyposażenie idzie na wierzch. Na planszy Konstrukcja
   // (ścianki, drzwi, schody) służy budynkom z wnętrzem w miejscu
-  const cats: Category[] = isInterior
+  const cats: Category[] = indoor
     ? (['structure', 'furniture', ...CATEGORY_ORDER.filter((c) => !['building', 'landscape', 'special', 'furniture', 'structure'].includes(c))] as Category[])
     : (['building', ...CATEGORY_ORDER.filter((c) => c !== 'building')] as Category[]);
   const active = cats.includes(category as Category) ? (category as Category) : 'all';
   const filtered = useMemo(
-    () => CATALOG.filter((c) => !c.hidden && !(c.boardOnly && isInterior) && (!q || c.name.toLowerCase().includes(q.toLowerCase()) || c.description.toLowerCase().includes(q.toLowerCase()))),
-    [q, isInterior],
+    () =>
+      CATALOG.filter(
+        (c) =>
+          !c.hidden &&
+          !(c.boardOnly && isInterior) &&
+          // w budynku w miejscu elewacja (okno, balkon, taras) ma sens, ścieżka i rzeczy ogrodowe nie
+          !(insideInPlace && (c.outdoorOnly || c.id === 'pathway')) &&
+          !(isInterior && c.outdoorOnly) &&
+          (!q || c.name.toLowerCase().includes(q.toLowerCase()) || c.description.toLowerCase().includes(q.toLowerCase())),
+      ),
+    [q, isInterior, insideInPlace],
   );
   const shownCats = active === 'all' ? cats : [active];
 
@@ -87,11 +100,13 @@ function Library({ q }: { q: string }) {
       className={'item-row' + (placing?.type === item.id && !placing.ids ? ' placing' : '')}
       title={placing?.type === item.id && !placing.ids ? (isDrawn(item.id) ? `Kliknij początek i koniec ${item.id === 'wall' ? 'ścianki' : 'ścieżki'} (Esc anuluje)` : 'Kliknij scenę, aby postawić (Esc anuluje)') : item.description}
       onClick={() => {
-        if (viewMode !== 'editor') {
+        if (viewMode === 'vr') {
           addObject(item.id);
           showToast(`Dodano: ${item.name}. Wróć do edytora, aby ustawić obiekt.`);
           return;
         }
+        // w spacerze podgląd idzie za celownikiem, obiekt staje po kliknięciu w scenę
+        if (viewMode === 'fp' && !(placing?.type === item.id && !placing.ids)) showToast('Celuj środkiem ekranu i kliknij, aby postawić. R obraca, Esc anuluje.');
         // w edytorze najpierw pokazujemy podgląd, obiekt powstaje dopiero po kliknięciu w scenę
         if (placing?.type === item.id && !placing.ids) setPlacing(null);
         else {

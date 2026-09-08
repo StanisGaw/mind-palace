@@ -49,6 +49,8 @@ interface State {
   topView: boolean; // aktywny rzut z góry na całą planszę
   sceneEntry: { kind: 'enter' | 'exit'; objectId: string; seq: number } | null;
   doorPrompt: { kind: 'enter' | 'exit' | 'door'; objectId?: string; label: string } | null;
+  /** Budynek z wnętrzem w miejscu, w którym stoi gracz w spacerze (biblioteka ogranicza się do wyposażenia wnętrz). */
+  insideBuildingId: string | null;
   placing: { type: string; ids?: string[] } | null; // element z biblioteki (albo `template`: kopie obiektów `ids`) czekający na kliknięcie w scenie
   sound: SoundLevels; // głośność dźwięków otoczenia; trzymana w preferencjach, nie w danych pałacu
   editFloor: number; // piętro edytowane w edytorze (nieutrwalane — zerowane przy zmianie sceny)
@@ -63,6 +65,7 @@ interface State {
   breadcrumb(): Palace[];
   enterInterior(objectId: string): void;
   exitInterior(): void;
+  setInsideBuilding(id: string | null): void;
   setDoorPrompt(p: State['doorPrompt']): void;
   setEditFloor(n: number): void;
   setActiveBuilding(id: string | null): void;
@@ -349,6 +352,7 @@ export const useStore = create<State>((set, get) => ({
   topView: false,
   sceneEntry: null,
   doorPrompt: null,
+  insideBuildingId: null,
   placing: null,
   sound: initialSound(),
   editFloor: 0,
@@ -628,6 +632,9 @@ export const useStore = create<State>((set, get) => ({
     set({ placing: p });
   },
 
+  setInsideBuilding(id) {
+    if (get().insideBuildingId !== id) set({ insideBuildingId: id });
+  },
   setDoorPrompt(p) {
     const cur = get().doorPrompt;
     // etykieta drzwi obiektowych zmienia się z otwarciem/zamknięciem przy tym samym id — musi też wejść w porównanie

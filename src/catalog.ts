@@ -15,6 +15,7 @@ export interface CatalogItem {
   spawn?: AnimalKind; // punkt pojawiania zwierzęcia
   hidden?: boolean; // niedostępny w bibliotece (istniejące obiekty nadal się rysują)
   boardOnly?: boolean; // tylko na planszy (elewacja budynków z wnętrzem w miejscu)
+  outdoorOnly?: boolean; // nie do stawiania we wnętrzu (drzewa, zwierzęta leśne, studnia…)
 }
 
 /** Bryła kolizji obiektu: dokładna siatka tam, gdzie kształt ma znaczenie (schody, zbocza). */
@@ -36,21 +37,21 @@ export const CATALOG: CatalogItem[] = [
   { id: 'house', name: 'Domek', category: 'building', emoji: '🏠', description: 'Przytulny domek z kominem.', footprint: 2.0 },
   { id: 'gazebo', name: 'Altana', category: 'building', emoji: '⛺', description: 'Otwarta altana ogrodowa.', footprint: 1.5, collider: 'trimesh' },
   // Przedmioty
-  { id: 'fountain', name: 'Fontanna', category: 'object', emoji: '⛲', description: 'Woda w centrum ogrodu.', footprint: 1.4, collider: 'trimesh' },
+  { id: 'fountain', name: 'Fontanna', category: 'object', emoji: '⛲', description: 'Woda w centrum ogrodu.', footprint: 1.4, collider: 'trimesh', outdoorOnly: true },
   { id: 'bench', name: 'Ławka', category: 'object', emoji: '🪑', description: 'Miejsce, by usiąść z myślą.', footprint: 0.8, collider: 'trimesh' },
 
   { id: 'books', name: 'Książki', category: 'object', emoji: '📖', description: 'Stos tomów ze złoconymi grzbietami i otwartą księgą na wierzchu.', footprint: 0.5 },
   { id: 'statue', name: 'Posąg', category: 'object', emoji: '🗿', description: 'Postać na cokole.', footprint: 0.7 },
-  { id: 'obelisk', name: 'Obelisk', category: 'object', emoji: '🔺', description: 'Kamienny znak pamięci.', footprint: 0.6 },
+  { id: 'obelisk', name: 'Obelisk', category: 'object', emoji: '🔺', description: 'Kamienny znak pamięci.', footprint: 0.6, outdoorOnly: true },
   { id: 'chest', name: 'Skrzynia', category: 'object', emoji: '🧰', description: 'Skrzynia na sekrety.', footprint: 0.6 },
-  { id: 'signpost', name: 'Drogowskaz', category: 'object', emoji: '🪧', description: 'Wskazuje kierunek historii.', footprint: 0.4 },
-  { id: 'well', name: 'Studnia', category: 'object', emoji: '🪣', description: 'Głębokie skojarzenia.', footprint: 0.8, collider: 'trimesh' },
+  { id: 'signpost', name: 'Drogowskaz', category: 'object', emoji: '🪧', description: 'Wskazuje kierunek historii.', footprint: 0.4, outdoorOnly: true },
+  { id: 'well', name: 'Studnia', category: 'object', emoji: '🪣', description: 'Głębokie skojarzenia.', footprint: 0.8, collider: 'trimesh', outdoorOnly: true },
   // Rośliny
-  { id: 'tree', name: 'Drzewo', category: 'plant', emoji: '🌳', description: 'Okrągła korona, cień na myśli.', footprint: 1.2, collider: 'cylinder' },
-  { id: 'cypress', name: 'Cyprys', category: 'plant', emoji: '🌲', description: 'Smukłe drzewo — dobry punkt orientacyjny.', footprint: 0.6, collider: 'cylinder' },
+  { id: 'tree', name: 'Drzewo', category: 'plant', emoji: '🌳', description: 'Okrągła korona, cień na myśli.', footprint: 1.2, collider: 'cylinder', outdoorOnly: true },
+  { id: 'cypress', name: 'Cyprys', category: 'plant', emoji: '🌲', description: 'Smukłe drzewo — dobry punkt orientacyjny.', footprint: 0.6, collider: 'cylinder', outdoorOnly: true },
   { id: 'bush', name: 'Krzew', category: 'plant', emoji: '🌿', description: 'Niski krzew do obramowania ścieżki.', footprint: 0.6 },
   { id: 'flowers', name: 'Kwietnik', category: 'plant', emoji: '🌷', description: 'Kolorowa rabata.', footprint: 0.8, collider: 'box' },
-  { id: 'palm', name: 'Palma', category: 'plant', emoji: '🌴', description: 'Egzotyczny akcent.', footprint: 0.9, collider: 'cylinder' },
+  { id: 'palm', name: 'Palma', category: 'plant', emoji: '🌴', description: 'Egzotyczny akcent.', footprint: 0.9, collider: 'cylinder', outdoorOnly: true },
   // Krajobraz
   { id: 'mountain', name: 'Góra', category: 'landscape', emoji: '⛰️', description: 'Skalny masyw ze śniegiem na szczycie.', footprint: 3.4, maxScale: 20 },
   { id: 'volcano', name: 'Wulkan', category: 'landscape', emoji: '🌋', description: 'Krater z lawą i słupem dymu.', footprint: 3.4, maxScale: 20, emitter: 'smoke' },
@@ -83,18 +84,18 @@ export const CATALOG: CatalogItem[] = [
   { id: 'torch', name: 'Pochodnia', category: 'lighting', emoji: '🔥', description: 'Płomień na drewnianym drzewcu.', footprint: 0.3 },
   { id: 'lampion', name: 'Lampion', category: 'lighting', emoji: '🎐', description: 'Papierowa kula światła na słupku.', footprint: 0.35 },
   { id: 'ceiling_lamp', name: 'Lampa sufitowa', category: 'lighting', emoji: '💡', description: 'Wisi pod sufitem piętra, na którym stoi.', footprint: 0.4, collider: 'none' },
-  { id: 'campfire', name: 'Ognisko', category: 'lighting', emoji: '🪵', description: 'Krąg kamieni i trzaskający ogień.', footprint: 0.9, emitter: 'smoke', collider: 'cylinder' },
+  { id: 'campfire', name: 'Ognisko', category: 'lighting', emoji: '🪵', description: 'Krąg kamieni i trzaskający ogień.', footprint: 0.9, emitter: 'smoke', collider: 'cylinder', outdoorOnly: true },
   { id: 'candle', name: 'Kandelabr', category: 'lighting', emoji: '🕯️', description: 'Ciepłe światło świec.', footprint: 0.3 },
   // Zwierzęta (punkty pojawiania — ożywają w trybie chodzenia)
-  { id: 'spawn_bird', name: 'Ptaki', category: 'animal', emoji: '🐦', description: 'Stadko krąży nad okolicą i siada na dachach.', footprint: 0.5, collider: 'none', spawn: 'bird' },
+  { id: 'spawn_bird', name: 'Ptaki', category: 'animal', emoji: '🐦', description: 'Stadko krąży nad okolicą i siada na dachach.', footprint: 0.5, collider: 'none', spawn: 'bird', outdoorOnly: true },
   { id: 'spawn_dog', name: 'Pies', category: 'animal', emoji: '🐕', description: 'Biega w pobliżu, podbiega do Ciebie i merda ogonem.', footprint: 0.5, collider: 'none', spawn: 'dog' },
   { id: 'spawn_cat', name: 'Kot', category: 'animal', emoji: '🐈', description: 'Wędruje po okolicy i ucieka, gdy podejdziesz za blisko.', footprint: 0.5, collider: 'none', spawn: 'cat' },
-  { id: 'spawn_squirrel', name: 'Wiewiórka', category: 'animal', emoji: '🐿️', description: 'Biega między drzewami, wspina się przy zagrożeniu.', footprint: 0.4, collider: 'none', spawn: 'squirrel' },
-  { id: 'spawn_wolf', name: 'Wilk', category: 'animal', emoji: '🐺', description: 'Patroluje teren i warczy z bezpiecznej odległości.', footprint: 0.6, collider: 'none', spawn: 'wolf' },
-  { id: 'fireflies', name: 'Świetliki', category: 'animal', emoji: '✨', description: 'Słoik, wokół którego wieczorem roją się świecące owady.', footprint: 0.3, collider: 'none', emitter: 'fireflies' },
-  { id: 'insects', name: 'Owady', category: 'animal', emoji: '🐝', description: 'Ul, wokół którego bzyczy rój pszczół.', footprint: 0.4, collider: 'box', emitter: 'insects' },
-  { id: 'butterflies', name: 'Motyle', category: 'animal', emoji: '🦋', description: 'Kępa kwiatów z motylami krążącymi w pobliżu.', footprint: 0.4, collider: 'none', emitter: 'butterflies' },
-  { id: 'spawn_dragon', name: 'Smok', category: 'animal', emoji: '🐉', description: 'Krąży wysoko, przelatuje nad głową i zionie ogniem.', footprint: 0.8, collider: 'none', spawn: 'dragon' },
+  { id: 'spawn_squirrel', name: 'Wiewiórka', category: 'animal', emoji: '🐿️', description: 'Biega między drzewami, wspina się przy zagrożeniu.', footprint: 0.4, collider: 'none', spawn: 'squirrel', outdoorOnly: true },
+  { id: 'spawn_wolf', name: 'Wilk', category: 'animal', emoji: '🐺', description: 'Patroluje teren i warczy z bezpiecznej odległości.', footprint: 0.6, collider: 'none', spawn: 'wolf', outdoorOnly: true },
+  { id: 'fireflies', name: 'Świetliki', category: 'animal', emoji: '✨', description: 'Słoik, wokół którego wieczorem roją się świecące owady.', footprint: 0.3, collider: 'none', emitter: 'fireflies', outdoorOnly: true },
+  { id: 'insects', name: 'Owady', category: 'animal', emoji: '🐝', description: 'Ul, wokół którego bzyczy rój pszczół.', footprint: 0.4, collider: 'box', emitter: 'insects', outdoorOnly: true },
+  { id: 'butterflies', name: 'Motyle', category: 'animal', emoji: '🦋', description: 'Kępa kwiatów z motylami krążącymi w pobliżu.', footprint: 0.4, collider: 'none', emitter: 'butterflies', outdoorOnly: true },
+  { id: 'spawn_dragon', name: 'Smok', category: 'animal', emoji: '🐉', description: 'Krąży wysoko, przelatuje nad głową i zionie ogniem.', footprint: 0.8, collider: 'none', spawn: 'dragon', outdoorOnly: true },
   // Specjalne
   { id: 'gate', name: 'Brama wejściowa', category: 'special', emoji: '🚪', description: 'Tu zaczyna się spacer po pałacu. Może być tylko jedna.', footprint: 1.6, collider: 'trimesh', unique: true },
   // Konstrukcja (tylko we wnętrzach — układ pokoju z elementów biblioteki)
