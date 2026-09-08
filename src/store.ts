@@ -5,7 +5,7 @@ import { uid } from './lib/ids';
 import { yawRotation } from './lib/transform';
 import { getPref, setPref } from './lib/prefs';
 import { chainOf, collectSubtree, loadData, makeInteriorPalace, makePalace, rootOf, saveData } from './lib/storage';
-import { FLOOR_MAX, clampToRoom, floorOf, roomSpecFor } from './lib/rooms';
+import { DOOR_SLOT, FLOOR_MAX, clampToRoom, doorRange, doorSlotFree, floorOf, roomSpecFor, wallOffsetOf, wallPointAt } from './lib/rooms';
 import { ROOM_PRESETS, capturePreset, instantiatePreset } from './lib/presets';
 import { loadCustomPresets, saveCustomPresets } from './lib/presetStore';
 import { isDue, newSrs, reviewSrs } from './lib/srs';
@@ -71,7 +71,7 @@ interface State {
   deleteCustomPreset(id: string): void;
   importPresets(list: RoomPreset[]): void;
   // obiekty
-  addObject(type: string, position?: Vec3, rotationY?: number, anchorId?: string): string;
+  addObject(type: string, position?: Vec3, rotationY?: number, anchorId?: string, scale?: Vec3): string;
   dropToGround(id: string): void;
   setPlacing(p: { type: string } | null): void;
   removeObject(id: string): void;
@@ -175,6 +175,11 @@ export function selectionRoots(objects: PalaceObject[], ids: string[]): PalaceOb
     if (!underSelected) out.push(o);
   }
   return out;
+}
+
+/** Jak `selectionRoots`, ale bez drzwi, których ścianka nie jest zaznaczona — drzwi ruszają się tylko po swojej ściance. */
+export function movableRoots(objects: PalaceObject[], ids: string[]): PalaceObject[] {
+  return selectionRoots(objects, ids).filter((o) => o.type !== 'door');
 }
 
 /** Wysokość podłogi, na którą opada obiekt zdjęty z kotwicy: piętro we wnętrzu, 0 na planszy. */
@@ -485,7 +490,7 @@ export const useStore = create<State>((set, get) => ({
     if (!same) set({ doorPrompt: p });
   },
 
-  addObject(type, position, rotationY, anchorId) {
+  addObject(type, position, rotationY, anchorId, scale) {
     const item = catalogItem(type);
     const id = uid();
     const p = get().palace();
@@ -522,7 +527,7 @@ export const useStore = create<State>((set, get) => ({
       }
     }
     get().setPalace((pl) => {
-      pl.objects.push({ id, type, name: item.name, position: pos, rotation: yawRotation(rotationY ?? (item.unique ? Math.atan2(pos[0], pos[2]) : 0)), scale: [1, 1, 1], anchorId });
+      pl.objects.push({ id, type, name: item.name, position: pos, rotation: yawRotation(rotationY ?? (item.unique ? Math.atan2(pos[0], pos[2]) : 0)), scale: scale ?? [1, 1, 1], anchorId });
     });
     set({ selectedIds: [id], ...(get().placing ? {} : { leftTab: 'scene' as const }) });
     return id;
@@ -535,10 +540,12 @@ export const useStore = create<State>((set, get) => ({
   removeObjects(ids) {
     const doomed = new Set(ids);
     const p = get().palace();
+    // drzwi nie istnieją bez ścianki — giną razem z nią
+    for (const o of p.objects) if (o.type === 'door' && o.anchorId && doomed.has(o.anchorId)) doomed.add(o.id);
     const victims = p.objects.filter((o) => doomed.has(o.id));
     if (victims.length === 0) return;
     get().setPalace((pl) => {
-      for (const id of ids) dropChildrenOf(pl, id);
+      for (const id of doomed) dropChildrenOf(pl, id);
       pl.objects = pl.objects.filter((o) => !doomed.has(o.id));
       pl.path = pl.path.filter((x) => !doomed.has(x));
     });
@@ -586,6 +593,10 @@ export const useStore = create<State>((set, get) => ({
   duplicateObject(id) {
     const src = get().palace().objects.find((o) => o.id === id);
     if (!src) return;
+    if (src.type === 'door') {
+      get().duplicateSelected();
+      return;
+    }
     const nid = uid();
     get().setPalace((pl) => {
       pl.objects.push({ ...JSON.parse(JSON.stringify(src)), id: nid, note: undefined, interiorId: undefined, anchorId: undefined, position: [src.position[0] + 1.5, 0, src.position[2] + 1.5] });
@@ -598,14 +609,37 @@ export const useStore = create<State>((set, get) => ({
     const p = get().palace();
     const srcs = p.objects.filter((o) => ids.includes(o.id));
     if (srcs.length === 0) return;
-    const copies: PalaceObject[] = srcs.map((src) => ({
-      ...(JSON.parse(JSON.stringify(src)) as PalaceObject),
-      id: uid(),
-      note: undefined,
-      interiorId: undefined,
-      anchorId: undefined,
-      position: [src.position[0] + 1.5, groundYOf(p, src.position[1]), src.position[2] + 1.5],
-    }));
+    const copyIdOf = new Map(srcs.map((src) => [src.id, uid()]));
+    const copies: PalaceObject[] = [];
+    let skippedDoors = 0;
+    for (const src of srcs) {
+      const base: PalaceObject = { ...(JSON.parse(JSON.stringify(src)) as PalaceObject), id: copyIdOf.get(src.id)!, note: undefined, interiorId: undefined, anchorId: undefined };
+      if (src.type !== 'door') {
+        copies.push({ ...base, position: [src.position[0] + 1.5, groundYOf(p, src.position[1]), src.position[2] + 1.5] });
+        continue;
+      }
+      // drzwi nie istnieją bez ścianki: kopia idzie do kopii ścianki (ten sam odstęp) albo obok oryginału w tej samej ściance
+      const wall = p.objects.find((o) => o.id === src.anchorId && o.type === 'wall');
+      if (!wall) {
+        skippedDoors++;
+        continue;
+      }
+      const wallCopyId = copyIdOf.get(wall.id);
+      if (wallCopyId) {
+        copies.push({ ...base, anchorId: wallCopyId, position: [src.position[0] + 1.5, src.position[1], src.position[2] + 1.5] });
+        continue;
+      }
+      const { t } = wallOffsetOf(wall, src.position[0], src.position[2]);
+      const slot = [t + DOOR_SLOT, t - DOOR_SLOT].find((c) => Math.abs(c) <= doorRange(wall) && doorSlotFree(wall, p.objects, c));
+      if (slot === undefined) {
+        skippedDoors++;
+        continue;
+      }
+      const [x, z] = wallPointAt(wall, slot);
+      copies.push({ ...base, anchorId: wall.id, position: [x, src.position[1], z] });
+    }
+    if (skippedDoors > 0) get().showToast('W ściance nie ma miejsca na kolejne drzwi.');
+    if (copies.length === 0) return;
     get().setPalace((pl) => {
       pl.objects.push(...copies);
     });
@@ -615,7 +649,7 @@ export const useStore = create<State>((set, get) => ({
   /** Rozstawia zaznaczone obiekty wierszami od lewego-górnego rogu zaznaczenia. */
   arrangeSelected({ columns, gapX, gapZ }) {
     const p = get().palace();
-    const roots = selectionRoots(p.objects, get().selectedIds);
+    const roots = movableRoots(p.objects, get().selectedIds);
     if (roots.length < 2) return;
     const cols = Math.max(1, Math.floor(columns));
     const gx = Math.max(0.5, gapX);

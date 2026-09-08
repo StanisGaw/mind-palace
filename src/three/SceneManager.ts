@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { StereoEffect } from 'three/examples/jsm/effects/StereoEffect.js';
-import { useStore, descendants, selectionRoots } from '../store';
+import { useStore, descendants, movableRoots, selectionRoots } from '../store';
 import { yawOfObject } from '../lib/transform';
 import type { CameraKind, Palace, PalaceObject, RoomSpec, Vec3, ViewMode } from '../types';
 import { AMBIENCES, catalogItem, hasInterior } from '../catalog';
@@ -16,7 +16,7 @@ import { buildRoom, type Room } from './interior';
 import { Physics, FOOT_OFFSET, type StaticShape } from './physics';
 import { ROOMS, colliderKind, spawnKind } from '../catalog';
 import { clampToGround, clipSegment, groundExtent, groundPolygon, insideGround } from '../lib/ground';
-import { floorOf, roomSpecFor, stairOpenings, type Opening } from '../lib/rooms';
+import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, doorOffsets, doorRange, doorSlotFree, floorOf, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, type Opening } from '../lib/rooms';
 import { getTexture } from './textures';
 import { Wildlife, type SpawnInfo, type WorldInfo } from './wildlife';
 import { Soundscape } from './soundscape';
@@ -37,7 +37,7 @@ interface Entry {
   panelKey: string;
   transformKey: string;
   emitter: Updatable | null;
-  /** `typ|wysokośćKondygnacji` — model konstrukcji trzeba przebudować, gdy zmieni się wysokość pokoju. */
+  /** `typ|wysokośćKondygnacji` (ścianka dodatkowo skala X i otwory na drzwi) — zmiana klucza przebudowuje model. */
   buildKey: string;
   /** Pivot skrzydła drzwi (obiekty typu `door`) — obraca go `toggleDoor`. */
   doorPivot?: THREE.Group;
@@ -63,6 +63,12 @@ const tmpE = new THREE.Euler();
 const UP = new THREE.Vector3(0, 1, 0);
 // yawOf ma własny wektor — wołający trzymają w tmpV wektor ruchu, który nie może zostać nadpisany
 const tmpYaw = new THREE.Vector3();
+
+/** Obrót drzwi w ściance: taki jak ścianki albo odwrócony, gdy drzwi miały zawiasy z drugiej strony. */
+function doorYawOn(wall: PalaceObject, door: PalaceObject): number {
+  const diff = Math.atan2(Math.sin(door.rotation[1] - wall.rotation[1]), Math.cos(door.rotation[1] - wall.rotation[1]));
+  return wall.rotation[1] + (Math.abs(diff) > Math.PI / 2 ? Math.PI : 0);
+}
 
 /** Wysokość jednej kondygnacji wnętrza (na zewnątrz nieużywana, ale zawsze zdefiniowana). */
 function floorHeightFor(p: Palace | null): number {
@@ -145,6 +151,15 @@ export class SceneManager {
   ghostRot = 0;
   private ghostPos = new THREE.Vector3();
   private ghostAnchor: string | undefined;
+  /** Drzwi: miejsce pod kursorem nie leży w ściance albo jest zajęte — kliknięcie odmawia. */
+  private ghostBlocked = false;
+  /** Drzwi: zawiasy z drugiej strony (klawisz R w trybie stawiania). */
+  private doorFlip = false;
+  /** Rysowanie ścianki: początek odcinka (po pierwszym kliknięciu) i długość bieżącego podglądu. */
+  private wallStart: THREE.Vector3 | null = null;
+  private wallLen = 0;
+  private wallStartedOnDown = false;
+  private wallLabel: CSS2DObject | null = null;
   private placeDown: { x: number; y: number } | null = null;
   private baseLight = { hemi: 1.1, ambient: 0.35, sun: 2.4 };
   private ambienceFog = { color: '#eceeea', near: 40, far: 120 };
@@ -704,17 +719,20 @@ export class SceneManager {
 
   private syncObjects(p: Palace) {
     const seen = new Set<string>();
-    const buildKey = (type: string) => `${type}|${floorHeightFor(p)}`;
+    const H = floorHeightFor(p);
+    // ścianka zależy też od skali X i otworów na drzwi — zmiana któregoś przebudowuje model i kolizję
+    const openingsOf = (o: PalaceObject) => (o.type === 'wall' ? doorOffsets(o, p.objects) : []);
+    const buildKey = (o: PalaceObject) => (o.type === 'wall' ? `wall|${H}|${o.scale[0]}|${openingsOf(o).map((t) => t.toFixed(2)).join(',')}` : `${o.type}|${H}`);
     for (const o of p.objects) {
       seen.add(o.id);
       let e = this.entries.get(o.id);
-      if (e && e.buildKey !== buildKey(o.type)) {
+      if (e && e.buildKey !== buildKey(o)) {
         this.removeEntry(e);
         e = undefined;
       }
       if (!e) {
-        const key = buildKey(o.type);
-        const model = buildModel(o.type, { floorHeight: floorHeightFor(p) });
+        const key = buildKey(o);
+        const model = buildModel(o.type, { floorHeight: H, scaleX: o.scale[0], openings: openingsOf(o) });
         const group = new THREE.Group();
         group.add(model);
         group.userData.objectId = o.id;
@@ -1032,13 +1050,29 @@ export class SceneManager {
     }
     const id = obj.userData.objectId as string | undefined;
     if (!id) return;
-    useStore.getState().updateObject(id, { position: [obj.position.x, y, obj.position.z], rotation: [obj.rotation.x, obj.rotation.y, obj.rotation.z] }, { undo: false });
+    const st = useStore.getState();
+    const o = st.palace().objects.find((x) => x.id === id);
+    if (o?.type === 'door') {
+      // drzwi nie opuszczają ścianki: pozycja rzutowana na jej oś, obrót zawsze ze ścianki
+      const hit = this.findWallFor(obj.position.x, obj.position.z, o.anchorId);
+      if (!hit) {
+        obj.position.set(o.position[0], o.position[1], o.position[2]);
+        obj.rotation.set(o.rotation[0], o.rotation[1], o.rotation[2]);
+        return;
+      }
+      const yaw = doorYawOn(hit.wall, o);
+      obj.position.set(hit.x, hit.wall.position[1], hit.z);
+      obj.rotation.set(0, yaw, 0);
+      st.updateObject(id, { position: [hit.x, hit.wall.position[1], hit.z], rotation: [0, yaw, 0], anchorId: hit.wall.id }, { undo: false });
+      return;
+    }
+    st.updateObject(id, { position: [obj.position.x, y, obj.position.z], rotation: [obj.rotation.x, obj.rotation.y, obj.rotation.z] }, { undo: false });
   }
 
   /** Początek przeciągania pivota: zapamiętujemy, skąd startują zaznaczone obiekty. */
   private onGizmoMouseDown() {
     if (this.gizmo.object !== this.pivot || !this.lastPalace) return;
-    const roots = selectionRoots(this.lastPalace.objects, useStore.getState().selectedIds);
+    const roots = movableRoots(this.lastPalace.objects, useStore.getState().selectedIds);
     this.multiStart = { pos: this.pivot.position.clone(), items: roots.map((o) => ({ id: o.id, pos: [...o.position] as Vec3, rotation: [...o.rotation] as Vec3 })) };
   }
 
@@ -1062,6 +1096,9 @@ export class SceneManager {
       (this.ghostRing.material as THREE.Material).dispose();
       this.ghostRing = null;
     }
+    this.clearWallDraw();
+    this.doorFlip = false;
+    this.ghostBlocked = false;
     this.renderer.domElement.style.cursor = type ? 'crosshair' : '';
     if (!type) return;
 
@@ -1094,12 +1131,205 @@ export class SceneManager {
     this.ghostRing.rotation.x = -Math.PI / 2;
     this.scene.add(this.ghostRing);
     this.ghostRot = 0;
+    if (type === 'wall') {
+      // ścianka nie ma sensownego pierścienia — długość pokazuje etykieta przy podglądzie
+      this.ghostRing.visible = false;
+      useStore.getState().showToast('Kliknij, gdzie ściana ma się zacząć.');
+    }
     this.updateGhost();
+  }
+
+  /** Kończy rysowanie ścianki: kasuje początek i etykietę długości. */
+  private clearWallDraw() {
+    this.wallStart = null;
+    this.wallLen = 0;
+    this.wallStartedOnDown = false;
+    if (this.wallLabel) {
+      this.wallLabel.element.remove();
+      this.wallLabel.removeFromParent();
+      this.wallLabel = null;
+    }
+  }
+
+  /** Ścianki na edytowanym piętrze (do przyciągania końców i drzwi). */
+  private wallsOnEditFloor(): PalaceObject[] {
+    const p = this.lastPalace;
+    if (!p) return [];
+    const H = floorHeightFor(p);
+    const editFloor = useStore.getState().editFloor;
+    return p.objects.filter((o) => o.type === 'wall' && floorOf(o.position[1], H) === editFloor);
+  }
+
+  /**
+   * Ścianka, w której mogą stanąć drzwi wskazane w punkcie (x, z): najbliższa oś w promieniu 0,6 m.
+   * `preferId` (kotwica przeciąganych drzwi) wygrywa przy równej odległości. Zwraca punkt na osi.
+   */
+  private findWallFor(x: number, z: number, preferId?: string): { wall: PalaceObject; t: number; x: number; z: number } | null {
+    let best: { wall: PalaceObject; t: number; dist: number } | null = null;
+    for (const wall of this.wallsOnEditFloor()) {
+      const { t, dist } = wallOffsetOf(wall, x, z);
+      const range = doorRange(wall);
+      if (dist > 0.6 || Math.abs(t) > range + 0.4 || wallLength(wall) < DOOR_SLOT) continue;
+      const score = dist - (wall.id === preferId ? 0.05 : 0);
+      if (!best || score < best.dist) best = { wall, t: Math.max(-range, Math.min(range, Math.round(t / 0.05) * 0.05)), dist: score };
+    }
+    if (!best) return null;
+    const [px, pz] = wallPointAt(best.wall, best.t);
+    return { wall: best.wall, t: best.t, x: px, z: pz };
+  }
+
+  /** Punkt rysowanej ścianki: siatka, końce i osie innych ścianek, lico ściany obwodowej, kąt co 15°. */
+  private snapWallPoint(x: number, z: number, from: THREE.Vector3 | null): { x: number; z: number } {
+    const st = useStore.getState();
+    const snap = st.palace().settings.grid ? 0.5 : 0.05;
+    let px = Math.round(x / snap) * snap;
+    let pz = Math.round(z / snap) * snap;
+    let snapped = false;
+    const walls = this.wallsOnEditFloor();
+    // końce innych ścianek: styk bez szczeliny
+    let bestD = 0.35;
+    for (const w of walls) {
+      for (const t of [-wallLength(w) / 2, wallLength(w) / 2]) {
+        const [ex, ez] = wallPointAt(w, t);
+        const d = Math.hypot(ex - x, ez - z);
+        if (d < bestD) {
+          bestD = d;
+          px = ex;
+          pz = ez;
+          snapped = true;
+        }
+      }
+    }
+    if (!snapped) {
+      // oś innej ścianki: połączenie w T
+      for (const w of walls) {
+        const { t, dist } = wallOffsetOf(w, x, z);
+        if (dist < 0.3 && Math.abs(t) <= wallLength(w) / 2) {
+          [px, pz] = wallPointAt(w, t);
+          snapped = true;
+          break;
+        }
+      }
+    }
+    if (this.room) {
+      // lico ściany obwodowej: koniec ścianki chowa się w murze zamiast stykać się z nim płaszczyzną
+      const faceX = this.bounds.hx + 0.35;
+      const faceZ = this.bounds.hz + 0.35;
+      if (Math.abs(x) > faceX - 0.4) {
+        px = Math.sign(x) * (faceX + WALL_THICKNESS / 2);
+        snapped = true;
+      }
+      if (Math.abs(z) > faceZ - 0.4) {
+        pz = Math.sign(z) * (faceZ + WALL_THICKNESS / 2);
+        snapped = true;
+      }
+    }
+    if (from && !snapped) {
+      const dx = px - from.x;
+      const dz = pz - from.z;
+      const len = Math.hypot(dx, dz);
+      if (len > 0.01) {
+        const step = Math.PI / 12;
+        const a = Math.round(Math.atan2(-dz, dx) / step) * step;
+        px = from.x + Math.cos(a) * len;
+        pz = from.z - Math.sin(a) * len;
+      }
+    }
+    return { x: px, z: pz };
+  }
+
+  /** Podgląd ścianki: słupek przed pierwszym kliknięciem, potem odcinek od początku do kursora. */
+  private updateWallGhost() {
+    if (!this.ghost) return;
+    const gp = new THREE.Vector3();
+    if (!this.groundPoint(gp)) return;
+    const floorY = this.lastPalace?.interior ? useStore.getState().editFloor * floorHeightFor(this.lastPalace) : 0;
+    const p = this.snapWallPoint(gp.x, gp.z, this.wallStart);
+    this.ghostAnchor = undefined;
+    if (!this.wallStart) {
+      this.ghost.position.set(p.x, floorY, p.z);
+      this.ghost.rotation.y = 0;
+      this.ghost.scale.x = WALL_THICKNESS / WALL_SEGMENT;
+      this.ghostPos.set(p.x, floorY, p.z);
+      this.wallLen = 0;
+      return;
+    }
+    const dx = p.x - this.wallStart.x;
+    const dz = p.z - this.wallStart.z;
+    const len = Math.hypot(dx, dz);
+    this.wallLen = len;
+    const rot = len > 0.01 ? Math.atan2(-dz, dx) : 0;
+    const mid = new THREE.Vector3(this.wallStart.x + dx / 2, floorY, this.wallStart.z + dz / 2);
+    this.ghost.position.copy(mid);
+    this.ghost.rotation.y = rot;
+    this.ghost.scale.x = Math.max(len, WALL_THICKNESS) / WALL_SEGMENT;
+    this.ghostPos.copy(mid);
+    this.ghostRot = rot;
+    if (!this.wallLabel) {
+      const el = document.createElement('div');
+      el.className = 'wall-len';
+      this.wallLabel = new CSS2DObject(el);
+      this.scene.add(this.wallLabel);
+    }
+    this.wallLabel.element.textContent = `${len.toFixed(1).replace('.', ',')} m`;
+    this.wallLabel.position.set(mid.x, floorY + floorHeightFor(this.lastPalace) + 0.3, mid.z);
+  }
+
+  /** Pierwsze kliknięcie w trybie ścianki: zapamiętuje początek odcinka. */
+  private startWall() {
+    if (!this.ghost) return;
+    this.wallStart = this.ghostPos.clone();
+    this.wallStartedOnDown = true;
+    useStore.getState().showToast('Kliknij, gdzie ściana ma się skończyć. Shift — kolejna od tego miejsca, Esc — anuluj.');
+    this.updateGhost();
+  }
+
+  /** Drugie kliknięcie: stawia ściankę od początku do bieżącego punktu. */
+  private commitWall(keepPlacing: boolean) {
+    const st = useStore.getState();
+    if (!this.wallStart) {
+      this.startWall();
+      return;
+    }
+    if (this.wallLen < 0.5) return;
+    const end = new THREE.Vector3(this.wallStart.x + Math.cos(this.ghostRot) * this.wallLen, this.ghostPos.y, this.wallStart.z - Math.sin(this.ghostRot) * this.wallLen);
+    st.addObject('wall', [this.ghostPos.x, this.ghostPos.y, this.ghostPos.z], this.ghostRot, undefined, [this.wallLen / WALL_SEGMENT, 1, 1]);
+    if (keepPlacing) {
+      this.wallStart = end;
+      this.updateGhost();
+    } else st.setPlacing(null);
+  }
+
+  /** Podgląd drzwi: przyciąga się do osi najbliższej ścianki działowej; bez ścianki miejsce jest zablokowane. */
+  private updateDoorGhost() {
+    if (!this.ghost || !this.ghostRing) return;
+    const gp = new THREE.Vector3();
+    if (!this.groundPoint(gp)) return;
+    const st = useStore.getState();
+    const floorY = this.lastPalace?.interior ? st.editFloor * floorHeightFor(this.lastPalace) : 0;
+    const hit = this.findWallFor(gp.x, gp.z);
+    if (hit) {
+      this.ghostPos.set(hit.x, hit.wall.position[1], hit.z);
+      this.ghostRot = hit.wall.rotation[1] + (this.doorFlip ? Math.PI : 0);
+      this.ghostAnchor = hit.wall.id;
+      this.ghostBlocked = !doorSlotFree(hit.wall, st.palace().objects, hit.t);
+    } else {
+      const snap = st.palace().settings.grid ? 0.5 : 0.05;
+      this.ghostPos.set(Math.round(gp.x / snap) * snap, floorY, Math.round(gp.z / snap) * snap);
+      this.ghostAnchor = undefined;
+      this.ghostBlocked = true;
+    }
+    this.ghost.position.copy(this.ghostPos);
+    this.ghost.rotation.y = this.ghostRot;
+    this.ghostRing.position.set(this.ghostPos.x, this.ghostPos.y + 0.03, this.ghostPos.z);
+    (this.ghostRing.material as THREE.MeshBasicMaterial).color.set(this.ghostBlocked ? '#b4483d' : '#2b6ea8');
   }
 
   /** Ustawia ducha pod kursorem i sprawdza, czy miejsce jest wolne. */
   private updateGhost() {
     if (!this.ghost || !this.ghostRing) return;
+    if (this.ghostType === 'wall') return this.updateWallGhost();
+    if (this.ghostType === 'door') return this.updateDoorGhost();
     const found = this.placementPoint(new Set());
     if (!found) return;
     const p = found.pos.clone();
@@ -1168,6 +1398,11 @@ export class SceneManager {
     const st = useStore.getState();
     const type = this.ghostType;
     if (!type) return;
+    if (type === 'wall') return this.commitWall(keepPlacing);
+    if (type === 'door' && (this.ghostBlocked || !this.ghostAnchor)) {
+      st.showToast(this.ghostAnchor ? 'Tu są już inne drzwi — wybierz inne miejsce w ściance.' : 'Drzwi stawia się w ściance działowej.');
+      return;
+    }
     st.addObject(type, [this.ghostPos.x, this.ghostPos.y, this.ghostPos.z], this.ghostRot, this.ghostAnchor);
     if (!keepPlacing) st.setPlacing(null);
   }
@@ -1179,7 +1414,7 @@ export class SceneManager {
     if (!id) return;
     const st = useStore.getState();
     const o = st.palace().objects.find((x) => x.id === id);
-    if (!o) return;
+    if (!o || o.type === 'door') return; // kotwicą drzwi jest ścianka, nie to, na czym stoją
     const exclude = new Set<string>([id, ...descendants(st.palace().objects, id).map((x) => x.id)]);
     const from = new THREE.Vector3(obj!.position.x, obj!.position.y + 0.2, obj!.position.z);
     const ray = new THREE.Raycaster(from, new THREE.Vector3(0, -1, 0), 0, 3);
@@ -1220,7 +1455,15 @@ export class SceneManager {
       this.pivot.rotation.set(0, 0, 0);
       target = this.pivot;
     } else target = single!.group;
+    // obrót drzwi wynika ze ścianki, więc uchwyt obrotu dla nich milczy
+    const noRotate = !multi && single!.type === 'door';
     for (const g of [this.gizmo, this.rotateGizmo]) {
+      if (g === this.rotateGizmo && noRotate) {
+        if (g.object) g.detach();
+        g.enabled = false;
+        g.getHelper().visible = false;
+        continue;
+      }
       g.enabled = true;
       g.getHelper().visible = true;
       if (g.object !== target) g.attach(target);
@@ -1766,10 +2009,16 @@ export class SceneManager {
       this.setPointer(ev);
       this.updateGhost();
       if (ev.button === 2) {
-        useStore.getState().setPlacing(null);
+        // prawy przycisk w trakcie rysowania ścianki cofa tylko jej początek
+        if (this.ghostType === 'wall' && this.wallStart) {
+          this.clearWallDraw();
+          this.updateGhost();
+        } else useStore.getState().setPlacing(null);
         return;
       }
       this.placeDown = { x: ev.clientX, y: ev.clientY };
+      // ścianka zaczyna się już przy naciśnięciu, żeby przeciągnięcie działało jak dwa kliknięcia
+      if (this.ghostType === 'wall' && !this.wallStart && (ev.button === 0 || ev.pointerType !== 'mouse')) this.startWall();
       return;
     }
     if (ev.button === 1 && ev.pointerType === 'mouse') {
@@ -1824,7 +2073,7 @@ export class SceneManager {
       this.groundPoint(gp);
       const offset = e.group.position.clone().sub(gp);
       // chwycony obiekt należący do zaznaczenia zbiorczego ciągnie za sobą całe zaznaczenie
-      const group = hit && st.selectedIds.length > 1 && st.selectedIds.includes(hit) ? selectionRoots(st.palace().objects, st.selectedIds) : null;
+      const group = hit && st.selectedIds.length > 1 && st.selectedIds.includes(hit) ? movableRoots(st.palace().objects, st.selectedIds) : null;
       this.drag = {
         id: targetId,
         offset,
@@ -1904,6 +2153,16 @@ export class SceneManager {
       if (!this.drag.moved) return;
       ev.preventDefault();
       this.setPointer(ev);
+      if (e.type === 'door' && !this.drag.ids) {
+        // drzwi przesuwają się tylko po osi ścianki (tej samej albo innej pod kursorem)
+        const gp = new THREE.Vector3();
+        if (!this.groundPoint(gp)) return;
+        const door = st.palace().objects.find((x) => x.id === this.drag!.id);
+        const hit = this.findWallFor(gp.x, gp.z, door?.anchorId);
+        if (!hit || !door || !doorSlotFree(hit.wall, st.palace().objects, hit.t, door.id)) return;
+        st.updateObject(door.id, { position: [hit.x, hit.wall.position[1], hit.z], rotation: [0, doorYawOn(hit.wall, door), 0], anchorId: hit.wall.id }, { undo: false });
+        return;
+      }
       // przeciągane obiekty (i to, co na nich stoi) nie mogą być własną podstawą
       const dragged = this.drag.ids ?? [this.drag.id];
       const exclude = new Set<string>(dragged.flatMap((id) => [id, ...descendants(st.palace().objects, id).map((o) => o.id)]));
@@ -1971,6 +2230,16 @@ export class SceneManager {
       const moved = Math.hypot(ev.clientX - this.placeDown.x, ev.clientY - this.placeDown.y);
       const isTouch = ev.pointerType === 'touch';
       this.placeDown = null;
+      if (this.ghostType === 'wall') {
+        // puszczenie po kliknięciu, które ustawiło początek, jeszcze nic nie stawia
+        const started = this.wallStartedOnDown;
+        this.wallStartedOnDown = false;
+        if (started && moved < 6) return;
+        this.setPointer(ev);
+        this.updateGhost();
+        this.commitPlacement(ev.shiftKey);
+        return;
+      }
       if (isTouch || moved < 6) this.commitPlacement(ev.shiftKey);
       return;
     }
@@ -2084,6 +2353,13 @@ export class SceneManager {
     if (!this.ghost) return;
     ev.preventDefault();
     ev.stopPropagation();
+    // obrót ścianki wynika z punktów, obrót drzwi ze ścianki
+    if (this.ghostType === 'wall') return;
+    if (this.ghostType === 'door') {
+      this.doorFlip = !this.doorFlip;
+      this.updateGhost();
+      return;
+    }
     this.ghostRot += Math.sign(ev.deltaY) * (Math.PI / 12);
     this.updateGhost();
   };
@@ -2122,12 +2398,16 @@ export class SceneManager {
     if (this.ghost) {
       if (ev.code === 'KeyR') {
         ev.preventDefault();
-        this.ghostRot += Math.PI / 12;
+        if (this.ghostType === 'door') this.doorFlip = !this.doorFlip; // zawiasy z drugiej strony
+        else if (this.ghostType !== 'wall') this.ghostRot += Math.PI / 12;
         this.updateGhost();
         return;
       }
       if (ev.code === 'Escape') {
-        st.setPlacing(null);
+        if (this.ghostType === 'wall' && this.wallStart) {
+          this.clearWallDraw();
+          this.updateGhost();
+        } else st.setPlacing(null);
         return;
       }
     }

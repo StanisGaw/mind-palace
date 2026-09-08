@@ -339,3 +339,6 @@ input, textarea, select { outline: none; }
 
 /* telefony bez pełnego ekranu dla elementów (iPhone): widok sam okrywa cały ekran */
 .viewport.vr-cover { position: fixed; inset: 0; z-index: 200; width: 100vw; height: 100dvh; }
+
+/* długość rysowanej ścianki działowej (etykieta nad podglądem) */
+.wall-len { background: rgba(255,255,255,0.92); border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 600; color: var(--text); white-space: nowrap; pointer-events: none; }
