@@ -13,6 +13,7 @@ export interface CatalogItem {
   collider?: 'trimesh' | 'box' | 'cylinder' | 'none'; // bryła kolizji (domyślnie 'box')
   unique?: boolean; // tylko jeden taki obiekt na pałac (brama)
   spawn?: AnimalKind; // punkt pojawiania zwierzęcia
+  hidden?: boolean; // niedostępny w bibliotece (istniejące obiekty nadal się rysują)
 }
 
 /** Bryła kolizji obiektu: dokładna siatka tam, gdzie kształt ma znaczenie (schody, zbocza). */
@@ -80,7 +81,8 @@ export const CATALOG: CatalogItem[] = [
   // Konstrukcja (tylko we wnętrzach — układ pokoju z elementów biblioteki)
   { id: 'wall', name: 'Ściana działowa', category: 'structure', emoji: '🧱', description: 'Kliknij początek i koniec — dzieli pokój na mniejsze przestrzenie.', footprint: 1.0, collider: 'trimesh', maxScale: 12 },
   { id: 'door', name: 'Drzwi', category: 'structure', emoji: '🚪', description: 'Stawia się w ściance działowej. Otwierane skrzydło — kliknij albo naciśnij F.', footprint: 1.0, collider: 'trimesh' },
-  { id: 'window', name: 'Okno', category: 'structure', emoji: '🪟', description: 'Przyciąga się do najbliższej ściany obwodowej.', footprint: 0.6, collider: 'none' },
+  // okno widać tylko od środka, więc zniknęło z biblioteki; stare pałace mogą je jeszcze mieć
+  { id: 'window', name: 'Okno', category: 'structure', emoji: '🪟', description: 'Przyciąga się do najbliższej ściany obwodowej.', footprint: 0.6, collider: 'none', hidden: true },
   { id: 'stairs', name: 'Schody', category: 'structure', emoji: '🪜', description: 'Prowadzą na wyższe piętro.', footprint: 0.8, collider: 'trimesh', maxScale: 2 },
 ];
 

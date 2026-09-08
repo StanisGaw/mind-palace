@@ -243,7 +243,7 @@ function RotationField({ id, rotation }: { id: string; rotation: Vec3 }) {
   };
   return (
     <div className="field">
-      <label>Obrót</label>
+      <label>Obrót (przechył X i Z tylko tutaj — pierścień w scenie obraca w poziomie)</label>
       {AXES.map(({ i, label }) => (
         <div className="row scale-row" key={i}>
           <span className="ax">{label[0]}</span>

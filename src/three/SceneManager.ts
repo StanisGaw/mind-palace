@@ -266,6 +266,13 @@ export class SceneManager {
     this.rotateGizmo = new TransformControls(this.camera, renderer.domElement);
     this.rotateGizmo.mode = 'rotate';
     this.rotateGizmo.size = 1.15; // pierścienie poza końcówkami strzałek
+    // kwadraty płaszczyzn XY/YZ i ośmiościan w środku przechwytywały kliknięcia w strzałki — zostają
+    // strzałki i kwadrat XZ (przeciąganie po ziemi); usuwamy z drzewa, bo `visible` wraca co klatkę
+    const planeHandles: THREE.Object3D[] = [];
+    this.gizmo.getHelper().traverse((c) => {
+      if (c.name === 'XY' || c.name === 'YZ' || c.name === 'XYZ') planeHandles.push(c);
+    });
+    for (const h of planeHandles) h.removeFromParent();
     for (const g of [this.gizmo, this.rotateGizmo]) {
       g.enabled = false;
       g.rotationSnap = Math.PI / 24;
@@ -1164,12 +1171,12 @@ export class SceneManager {
    * Ścianka, w której mogą stanąć drzwi wskazane w punkcie (x, z): najbliższa oś w promieniu 0,6 m.
    * `preferId` (kotwica przeciąganych drzwi) wygrywa przy równej odległości. Zwraca punkt na osi.
    */
-  private findWallFor(x: number, z: number, preferId?: string): { wall: PalaceObject; t: number; x: number; z: number } | null {
+  private findWallFor(x: number, z: number, preferId?: string, radius = 0.6): { wall: PalaceObject; t: number; x: number; z: number } | null {
     let best: { wall: PalaceObject; t: number; dist: number } | null = null;
     for (const wall of this.wallsOnEditFloor()) {
       const { t, dist } = wallOffsetOf(wall, x, z);
       const range = doorRange(wall);
-      if (dist > 0.6 || Math.abs(t) > range + 0.4 || wallLength(wall) < DOOR_SLOT) continue;
+      if (dist > radius || Math.abs(t) > range + 0.4 || wallLength(wall) < DOOR_SLOT) continue;
       const score = dist - (wall.id === preferId ? 0.05 : 0);
       if (!best || score < best.dist) best = { wall, t: Math.max(-range, Math.min(range, Math.round(t / 0.05) * 0.05)), dist: score };
     }
@@ -1316,13 +1323,25 @@ export class SceneManager {
     } else {
       const snap = st.palace().settings.grid ? 0.5 : 0.05;
       this.ghostPos.set(Math.round(gp.x / snap) * snap, floorY, Math.round(gp.z / snap) * snap);
+      // z daleka duch obraca się już jak najbliższa ścianka, żeby było widać, jak drzwi w niej staną
+      const near = this.findWallFor(gp.x, gp.z, undefined, 3);
+      if (near) this.ghostRot = near.wall.rotation[1] + (this.doorFlip ? Math.PI : 0);
       this.ghostAnchor = undefined;
       this.ghostBlocked = true;
     }
+    this.setGhostOpacity(hit ? 0.6 : 0.3);
     this.ghost.position.copy(this.ghostPos);
     this.ghost.rotation.y = this.ghostRot;
     this.ghostRing.position.set(this.ghostPos.x, this.ghostPos.y + 0.03, this.ghostPos.z);
     (this.ghostRing.material as THREE.MeshBasicMaterial).color.set(this.ghostBlocked ? '#b4483d' : '#2b6ea8');
+  }
+
+  /** Krycie podglądu: bledszy, gdy jeszcze nie ma miejsca (drzwi poza ścianką). */
+  private setGhostOpacity(opacity: number) {
+    this.ghost?.traverse((c) => {
+      const m = c as THREE.Mesh;
+      if (m.isMesh && m.userData.ghostMat) (m.material as THREE.Material).opacity = opacity;
+    });
   }
 
   /** Ustawia ducha pod kursorem i sprawdza, czy miejsce jest wolne. */
@@ -1468,9 +1487,10 @@ export class SceneManager {
       g.getHelper().visible = true;
       if (g.object !== target) g.attach(target);
     }
-    // kilka obiektów obraca się tylko wokół osi pionowej — przechył grupy nie ma sensownego środka
-    this.rotateGizmo.showX = !multi;
-    this.rotateGizmo.showZ = !multi;
+    // tylko poziomy pierścień: pierścienie X/Z, pierścień ekranowy i kula swobodnego obrotu łapały
+    // kliknięcia daleko od widocznej linii i przechylały obiekt; przechył zostaje w panelu
+    this.rotateGizmo.showX = false;
+    this.rotateGizmo.showZ = false;
     this.rotateGizmo.showY = true;
     this.gizmo.translationSnap = this.lastPalace?.settings.grid ? 0.5 : null;
   }

@@ -63,7 +63,7 @@ function Library({ q }: { q: string }) {
     : CATEGORY_ORDER.filter((c) => c !== 'structure');
   const searching = q.trim().length > 0;
   const filtered = useMemo(
-    () => CATALOG.filter((c) => !q || c.name.toLowerCase().includes(q.toLowerCase()) || c.description.toLowerCase().includes(q.toLowerCase())),
+    () => CATALOG.filter((c) => !c.hidden && (!q || c.name.toLowerCase().includes(q.toLowerCase()) || c.description.toLowerCase().includes(q.toLowerCase()))),
     [q],
   );
   const toggle = (list: string[], set: (v: string[]) => void, cat: string) =>
