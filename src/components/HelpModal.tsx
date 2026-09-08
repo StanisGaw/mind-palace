@@ -48,6 +48,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         <ul>
           <li>W bibliotece, w kategorii <b>Zwierzęta</b>, stawiasz punkty pojawiania. W edytorze widać znacznik, a w trybie chodzenia zwierzę ożywa.</li>
           <li>Pies podbiega i siada obok Ciebie, kot ucieka, wiewiórka wspina się na drzewo, wilk warczy z dystansu, ptaki krążą, a smok co jakiś czas przelatuje nad głową i zionie ogniem. Kliknięcie zwierzęcia wywołuje reakcję.</li>
+          <li><b>Świetliki</b> (słoik) i <b>motyle</b> (kępa kwiatów) to roje krążące wokół znacznika — także w edytorze. Świetliki mrugają i najładniej wyglądają nocą.</li>
         </ul>
         <h3>Wnętrza budynków</h3>
         <ul>
@@ -58,12 +59,12 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         </ul>
         <h3>Kreator wnętrz</h3>
         <ul>
-          <li>Kategoria <b>Konstrukcja</b> (ściana działowa, drzwi, schody) jest dostępna we wnętrzu i na planszy — na planszy służy budynkom z wnętrzem w miejscu. To zwykłe obiekty — można je przesuwać, cofać i usuwać jak wszystko inne. Lampy sufitowe („Lampa sufitowa” w Oświetleniu) też są obiektami: stoją na podłodze piętra, a świecą pod jego sufitem. W Wyposażeniu są obrazy (każdy z innym płótnem), popiersie, kominek, fotel, sofa, łóżko, biurko, kredens, zegar, lustro, wazon i zasłony — z nich zbudowane są układy: salon, sypialnia, gabinet, jadalnia, sala tronowa, galeria, pracownia.</li>
+          <li>Kategoria <b>Konstrukcja</b> (ściana działowa, drzwi, schody) jest dostępna we wnętrzu i na planszy — na planszy służy budynkom z wnętrzem w miejscu. To zwykłe obiekty — można je przesuwać, cofać i usuwać jak wszystko inne. Lampy sufitowe („Lampa sufitowa” w Oświetleniu) też są obiektami: stoją na podłodze piętra, a świecą pod jego sufitem. W Wyposażeniu są obrazy (każdy z innym płótnem), popiersie, kominek, fotel, sofa, łóżko, biurko, kredens, zegar, lustro, wazon, zasłony, globus i naczynia — z nich zbudowane są układy: salon, sypialnia, gabinet, jadalnia, sala tronowa, galeria, pracownia. Regał ma tomy ze złoconymi grzbietami i tytułami, ułożone w każdym regale inaczej (stojące, pochylone, w stosach); „Książki” to stos z otwartą księgą.</li>
           <li><b>Ścianę działową</b> rysujesz dwoma kliknięciami: pierwsze wskazuje początek, drugie koniec (można też przeciągnąć). Końce przyciągają się do siatki, innych ścianek i ścian pokoju, a kąt do wielokrotności 15°. Z <kbd>Shift</kbd> kolejna ścianka zaczyna się tam, gdzie skończyła poprzednia; <kbd>Esc</kbd> cofa początek albo kończy rysowanie.</li>
           <li><b>Drzwi</b> stawia się w ściance działowej — podgląd sam przyciąga się do jej osi, a ścianka dostaje otwór. <kbd>R</kbd> albo kółko myszy w trakcie stawiania (i przycisk „Zawiasy z drugiej strony" w panelu) zmienia stronę, w którą otwiera się skrzydło. Przesuwane drzwi jadą po ściance; usunięcie ścianki usuwa też jej drzwi.</li>
           <li>Gotowe <b>układy pokoju</b> są we wnętrzu w zakładce „Układy" obok Biblioteki — wybierz jeden i kliknij „Zastosuj". Układ zastąpi obiekty bez notatek; te z notatkami zawsze zostają. Przycisk „Zapisz obecny układ" zachowuje bieżące rozmieszczenie do ponownego użycia w innym budynku.</li>
           <li>Drzwi (obiekt z Konstrukcji) otwierasz i zamykasz klawiszem <kbd>F</kbd> albo kliknięciem — zamknięte blokują przejście, otwarte przepuszczają.</li>
-          <li>Panel „Piętra" (zamiast planszy w Otoczeniu) ustawia liczbę kondygnacji budynku (1–4) i piętro do edycji. Schody postawione na danym piętrze robią w stropie otwór i prowadzą wyżej — w widoku z oczu wystarczy nimi wejść. Wieża ma wbudowane kręcone schody wzdłuż muru (w obu trybach wnętrza), a jej pokój ładowany jest okrągły.</li>
+          <li>Panel „Piętra" (zamiast planszy w Otoczeniu) ustawia liczbę kondygnacji budynku (1–4) i piętro do edycji. Schody postawione na danym piętrze robią w stropie otwór i prowadzą wyżej — w widoku z oczu wystarczy nimi wejść. Wieża ma wbudowane kręcone schody wzdłuż muru (w obu trybach wnętrza), a jej pokój ładowany jest okrągły. Wieża w miejscu ma mur o średnicy 5 m i kondygnacje 3,5 m (przy skali 2,5), więc obok schodów zostaje miejsce na przejście.</li>
           <li>Eksport pałacu dołącza Twoje własne układy pokoi; przy imporcie pliku z układami możesz osobno wybrać, co zrobić z pałacem, a co z presetami.</li>
         </ul>
         <h3>Krajobraz i pogoda</h3>
