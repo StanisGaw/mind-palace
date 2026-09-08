@@ -47,10 +47,15 @@ export function glassMat() {
   return mat(C.glass, { roughness: 0.1, metalness: 0.2, flat: false, opacity: 0.35 });
 }
 
-/** Wykończenie powierzchni: tekstura o id `id` (wbudowana albo własna) albo sam kolor, gdy jej brak. */
-export function finishMat(id: string | undefined, color: string, opts: MatOpts = {}) {
+/**
+ * Wykończenie powierzchni: tekstura o id `id` (wbudowana albo własna) albo sam kolor, gdy jej brak.
+ * `tint` mnoży fakturę przez kolor warstwy zamiast przez biel — na elewacji kolor budynku ma zostać widoczny,
+ * bo to on odróżnia od siebie bryły w scenie.
+ */
+export function finishMat(id: string | undefined, color: string, opts: MatOpts & { tint?: boolean } = {}) {
+  const { tint, ...rest } = opts;
   const tex = textureById(id);
-  return tex ? mat('#ffffff', { ...opts, flat: false, map: tex }) : mat(color, opts);
+  return tex ? mat(tint ? color : '#ffffff', { ...rest, flat: false, map: tex }) : mat(color, rest);
 }
 
 /**
@@ -413,12 +418,14 @@ function shellBox(g: THREE.Group, ctx: BuildCtx, type: string, wallMat: THREE.Ma
   const f = shellWindows(g, ctx, type);
   const floorFinish = ctx.finish?.floor ? finishMat(ctx.finish.floor, C.stone) : floorMat;
   const lining = ctx.finish?.wall ? finishMat(ctx.finish.wall, C.cream) : undefined;
+  // elewacja: faktura mnożona przez kolor muru, żeby paleta materiałów dalej działała
+  const outer = ctx.finish?.facade ? finishMat(ctx.finish.facade, C.cream, { tint: true }) : wallMat;
   shellFloor(g, w, d, spec.cx, y0, spec.cz, floorFinish);
   const doorHole: WallHole[] = spec.door ? [{ u0: spec.door.x - spec.door.w / 2, u1: spec.door.x + spec.door.w / 2, v0: y0 - 0.02, v1: y0 + spec.door.h }] : [];
-  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z0 - t, wallMat, [0, -1], f.back ?? [], lining); // tylna
-  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z1 + t, wallMat, [0, 1], [...doorHole, ...(f.front ?? [])], lining); // przednia
-  shellWallZ(g, z0, z1, y0 - 0.01, y1, x0 - t, wallMat, [-1, 0], f.left ?? [], lining);
-  shellWallZ(g, z0, z1, y0 - 0.01, y1, x1 + t, wallMat, [1, 0], f.right ?? [], lining);
+  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z0 - t, outer, [0, -1], f.back ?? [], lining); // tylna
+  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z1 + t, outer, [0, 1], [...doorHole, ...(f.front ?? [])], lining); // przednia
+  shellWallZ(g, z0, z1, y0 - 0.01, y1, x0 - t, outer, [-1, 0], f.left ?? [], lining);
+  shellWallZ(g, z0, z1, y0 - 0.01, y1, x1 + t, outer, [1, 0], f.right ?? [], lining);
   if (spec.door) shellLeaf(g, spec.door, y0, leafMat);
   shellSlabs(g, ctx, [{ x0, x1, z0, z1 }], y0, h, floorFinish);
 }
@@ -539,6 +546,7 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
   add(g, cyl(r + 0.2, r + 0.3, 0.3, 12), mat(C.stone), 0, 0.15, 0);
   const floorFinish = finishMat(ctx.finish?.floor, C.stone);
   const lining = ctx.finish?.wall ? finishMat(ctx.finish.wall, C.cream) : undefined;
+  const outer = finishMat(ctx.finish?.facade, C.cream, { tint: true });
   const floor = add(g, scaleUv(cyl(r - 0.06, r - 0.06, 0.04, 12), 2 * r, 2 * r), floorFinish, 0, spec.floorY - 0.01, 0);
   floor.userData.floorSurface = true;
   // mur z dwunastu segmentów o wysokości wszystkich kondygnacji; przedni ma otwór drzwi
@@ -554,7 +562,7 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
     const z = Math.cos(a) * r;
     const holes: WallHole[] = [...(f[`seg${i}`] ?? [])];
     if (i === 0) holes.push({ u0: -door.w / 2, u1: door.w / 2, v0: spec.floorY - 0.02, v1: spec.floorY + door.h });
-    const seg = add(g, wallGeometry(-side / 2 - 0.01, side / 2 + 0.01, spec.floorY - 0.01, top, holes, 0.1), mat(C.cream), x, 0, z, [0, a, 0]);
+    const seg = add(g, wallGeometry(-side / 2 - 0.01, side / 2 + 0.01, spec.floorY - 0.01, top, holes, 0.1), outer, x, 0, z, [0, a, 0]);
     seg.userData.wallNormal = [Math.sin(a), Math.cos(a)];
     if (lining) shellLining(g, wallGeometry(-side / 2 - 0.01, side / 2 + 0.01, spec.floorY - 0.01, top, holes, LINING_T), lining, Math.sin(a) * (r - 0.05 - LINING_T / 2 - 0.002), Math.cos(a) * (r - 0.05 - LINING_T / 2 - 0.002), a, [Math.sin(a), Math.cos(a)]);
   }
@@ -1070,8 +1078,8 @@ export interface BuildCtx {
   variant?: number;
   /** Nadpisane kolory warstw (rola → `#rrggbb`). */
   colors?: Record<string, string>;
-  /** Wykończenie: tekstura podłogi i ścian wnętrza budynku w miejscu; dla ścieżki `floor` to nawierzchnia. */
-  finish?: { floor?: string; wall?: string };
+  /** Wykończenie: tekstura podłogi, ścian wnętrza i elewacji budynku w miejscu; dla ścieżki `floor` to nawierzchnia. */
+  finish?: { floor?: string; wall?: string; facade?: string };
 }
 
 export type { WallHole };

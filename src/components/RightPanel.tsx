@@ -361,10 +361,10 @@ function MaterialsField({ id, type, colors }: { id: string; type: string; colors
   );
 }
 
-/** Wykończenie wnętrza budynku w miejscu (podłoga, ściany) albo nawierzchnia ścieżki. */
-function FinishField({ id, finish, kinds }: { id: string; finish?: { floor?: string; wall?: string }; kinds: { floor?: string; wall?: string } }) {
+/** Wykończenie budynku w miejscu (podłoga, ściany, elewacja) albo nawierzchnia ścieżki. */
+function FinishField({ id, finish, kinds }: { id: string; finish?: { floor?: string; wall?: string; facade?: string }; kinds: { floor?: string; wall?: string; facade?: string } }) {
   const updateObject = useStore((s) => s.updateObject);
-  const set = (key: 'floor' | 'wall', value: string | undefined) => {
+  const set = (key: 'floor' | 'wall' | 'facade', value: string | undefined) => {
     const next = { ...(finish ?? {}) };
     if (value) next[key] = value;
     else delete next[key];
@@ -382,6 +382,12 @@ function FinishField({ id, finish, kinds }: { id: string; finish?: { floor?: str
         <div className="field">
           <label>{kinds.wall}</label>
           <TexturePicker kind="wall" value={finish?.wall} onChange={(v) => set('wall', v)} />
+        </div>
+      )}
+      {kinds.facade && (
+        <div className="field">
+          <label>{kinds.facade}</label>
+          <TexturePicker kind="facade" value={finish?.facade} onChange={(v) => set('facade', v)} />
         </div>
       )}
     </>
@@ -624,7 +630,7 @@ function Inspector({ id }: { id: string }) {
           <span className="val">{obj.position[1].toFixed(2)} m</span>
         </div>
       </div>
-      {inPlace && <FinishField id={id} finish={obj.finish} kinds={{ floor: 'Podłoga wnętrza', wall: 'Ściany wnętrza' }} />}
+      {inPlace && <FinishField id={id} finish={obj.finish} kinds={{ floor: 'Podłoga wnętrza', wall: 'Ściany wnętrza', facade: 'Elewacja' }} />}
       {obj.type === 'pathway' && <FinishField id={id} finish={obj.finish} kinds={{ floor: 'Nawierzchnia' }} />}
       <MaterialsField id={id} type={obj.type} colors={obj.colors} />
       {obj.type !== 'door' && !isFacade(obj.type) && <ScaleField id={id} scale={obj.scale} max={item.maxScale ?? 10} />}

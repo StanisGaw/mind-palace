@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { Noise2D } from './noise';
 import { loadCustomTextures } from '../lib/textureStore';
 
-/** Gdzie wzór ma sens: nawierzchnia planszy i ścieżek, podłoga wnętrza, ściany wnętrza. */
-export type TextureKind = 'ground' | 'floor' | 'wall';
+/** Gdzie wzór ma sens: nawierzchnia planszy i ścieżek, podłoga wnętrza, ściany wnętrza, elewacja budynku. */
+export type TextureKind = 'ground' | 'floor' | 'wall' | 'facade';
 
 export interface TextureDef {
   id: string;
@@ -78,7 +78,7 @@ export const BUILTIN_TEXTURES: TextureDef[] = [
       }
     },
   },
-  { id: 'stone', name: 'Płyty kamienne', kinds: ['ground', 'floor'], draw: (ctx, s) => { bricks(ctx, s, 4, 4, '#a9a79c', '#8d8b82', ['#bcbab0', '#b4b2a8', '#c2c0b6', '#b8b6ac']); grain(ctx, s, 5, 10); } },
+  { id: 'stone', name: 'Płyty kamienne', kinds: ['ground', 'floor', 'facade'], draw: (ctx, s) => { bricks(ctx, s, 4, 4, '#a9a79c', '#8d8b82', ['#bcbab0', '#b4b2a8', '#c2c0b6', '#b8b6ac']); grain(ctx, s, 5, 10); } },
   { id: 'cobble', name: 'Bruk', kinds: ['ground'], draw: (ctx, s) => { bricks(ctx, s, 8, 8, '#8f8b84', '#6f6c66', ['#a5a099', '#9b968f', '#aca79f', '#918c85']); grain(ctx, s, 7, 14); } },
   {
     id: 'sand',
@@ -117,7 +117,7 @@ export const BUILTIN_TEXTURES: TextureDef[] = [
   {
     id: 'marble',
     name: 'Marmur',
-    kinds: ['floor', 'wall'],
+    kinds: ['floor', 'wall', 'facade'],
     draw: (ctx, s) => {
       fill(ctx, s, '#eeeae2');
       const n = new Noise2D(15);
@@ -285,8 +285,8 @@ export const EXTRA_TEXTURES: TextureDef[] = [
   // podłogi
   { id: 'parquet', name: 'Parkiet', kinds: ['floor'], draw: (ctx, s) => { herringbone(ctx, s); grain(ctx, s, 91, 6); } },
   { id: 'panels', name: 'Panele', kinds: ['floor'], draw: (ctx, s) => { fill(ctx, s, '#7a5a40'); boards(ctx, s, 4, ['#c9a27a', '#bf9670', '#d0aa83', '#b88f69'], 'rgba(110,80,55,0.35)', 93); } },
-  { id: 'darkwood', name: 'Ciemne deski', kinds: ['floor', 'wall'], draw: (ctx, s) => { fill(ctx, s, '#3e2c20'); boards(ctx, s, 6, ['#6b4a34', '#5f412e', '#734f38', '#583c2a'], 'rgba(40,25,15,0.5)', 95); } },
-  { id: 'concrete', name: 'Beton', kinds: ['floor', 'wall', 'ground'], draw: (ctx, s) => { fill(ctx, s, '#a8a7a2'); grain(ctx, s, 101, 16, 0.06); grain(ctx, s, 102, 8, 0.4); } },
+  { id: 'darkwood', name: 'Ciemne deski', kinds: ['floor', 'wall', 'facade'], draw: (ctx, s) => { fill(ctx, s, '#3e2c20'); boards(ctx, s, 6, ['#6b4a34', '#5f412e', '#734f38', '#583c2a'], 'rgba(40,25,15,0.5)', 95); } },
+  { id: 'concrete', name: 'Beton', kinds: ['floor', 'wall', 'ground', 'facade'], draw: (ctx, s) => { fill(ctx, s, '#a8a7a2'); grain(ctx, s, 101, 16, 0.06); grain(ctx, s, 102, 8, 0.4); } },
   { id: 'tiles', name: 'Płytki', kinds: ['floor', 'wall'], draw: (ctx, s) => { tiles(ctx, s, 8, '#e9e4d8', '#c9c2b2', '#a9a396'); grain(ctx, s, 111, 5); } },
   { id: 'terracotta', name: 'Terakota', kinds: ['floor', 'ground'], draw: (ctx, s) => { bricks(ctx, s, 4, 4, '#a9634a', '#7d4a37', ['#c27a5d', '#b87055', '#c98366', '#b06a50']); grain(ctx, s, 121, 12); } },
   {
@@ -304,7 +304,7 @@ export const EXTRA_TEXTURES: TextureDef[] = [
     },
   },
   // ściany
-  { id: 'plaster', name: 'Tynk', kinds: ['wall'], draw: (ctx, s) => { fill(ctx, s, '#f1ebdf'); grain(ctx, s, 141, 9, 0.05); grain(ctx, s, 142, 5, 0.35); } },
+  { id: 'plaster', name: 'Tynk', kinds: ['wall', 'facade'], draw: (ctx, s) => { fill(ctx, s, '#f1ebdf'); grain(ctx, s, 141, 9, 0.05); grain(ctx, s, 142, 5, 0.35); } },
   { id: 'wainscot', name: 'Boazeria', kinds: ['wall'], draw: (ctx, s) => { fill(ctx, s, '#6e4d36'); boards(ctx, s, 5, ['#b98a5c', '#b3835a', '#c19264', '#ad7d55'], 'rgba(100,70,45,0.4)', 151, false); } },
   {
     id: 'wallpaper',
@@ -341,8 +341,12 @@ export const EXTRA_TEXTURES: TextureDef[] = [
       grain(ctx, s, 171, 6);
     },
   },
-  { id: 'brick', name: 'Cegła', kinds: ['wall', 'ground'], draw: (ctx, s) => { bricks(ctx, s, 8, 4, '#a0533f', '#d8cbb8', ['#b0604a', '#a45744', '#b8674f', '#9d5240']); grain(ctx, s, 181, 12); } },
-  { id: 'stonewall', name: 'Mur kamienny', kinds: ['wall'], draw: (ctx, s) => { fieldstones(ctx, s, 25, ['#b5aea2', '#a39c90', '#c0b9ad', '#aca498'], '#7d776d', 191); grain(ctx, s, 192, 10); } },
+  { id: 'brick', name: 'Cegła', kinds: ['wall', 'ground', 'facade'], draw: (ctx, s) => { bricks(ctx, s, 8, 4, '#a0533f', '#d8cbb8', ['#b0604a', '#a45744', '#b8674f', '#9d5240']); grain(ctx, s, 181, 12); } },
+  { id: 'stonewall', name: 'Mur kamienny', kinds: ['wall', 'facade'], draw: (ctx, s) => { fieldstones(ctx, s, 25, ['#b5aea2', '#a39c90', '#c0b9ad', '#aca498'], '#7d776d', 191); grain(ctx, s, 192, 10); } },
+  // wzory tylko na elewację — na ścianie wnętrza wyglądałyby jak niedokończony remont
+  { id: 'clinker', name: 'Cegła klinkierowa', kinds: ['facade'], draw: (ctx, s) => { bricks(ctx, s, 10, 5, '#5d3a30', '#cfc4b4', ['#7a4436', '#6d3d31', '#834c3c', '#734132']); grain(ctx, s, 201, 10); } },
+  { id: 'ashlar', name: 'Cios kamienny', kinds: ['facade'], draw: (ctx, s) => { bricks(ctx, s, 5, 3, '#8e8a80', '#d5cec2', ['#c3bcae', '#b8b1a3', '#cdc6b8', '#beb7a9']); grain(ctx, s, 203, 8); } },
+  { id: 'siding', name: 'Deski pionowe', kinds: ['facade'], draw: (ctx, s) => { fill(ctx, s, '#7d5f45'); boards(ctx, s, 7, ['#c49a6c', '#b98f62', '#cda475', '#b48a5e'], 'rgba(90,65,45,0.45)', 205, false); grain(ctx, s, 206, 7); } },
 ];
 
 export const ALL_TEXTURES: TextureDef[] = [...BUILTIN_TEXTURES, ...EXTRA_TEXTURES];

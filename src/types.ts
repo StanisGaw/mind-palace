@@ -33,7 +33,7 @@ export interface PalaceObject {
   interiorMode?: 'inplace'; // budynek: wnętrze w tej samej scenie (brak = osobny pałac-wnętrze)
   floors?: number; // budynek z wnętrzem w miejscu: liczba kondygnacji (1–4)
   colors?: Record<string, string>; // nadpisane kolory warstw materiałów (rola → #rrggbb), patrz `lib/materials.ts`
-  finish?: { floor?: string; wall?: string }; // tekstury wnętrza budynku w miejscu; dla ścieżki `floor` to nawierzchnia
+  finish?: { floor?: string; wall?: string; facade?: string }; // tekstury budynku w miejscu (podłoga, ściana wewnątrz, elewacja); dla ścieżki `floor` to nawierzchnia
   shellVersion?: 2 | 3 | 4 | 5; // 2: piętra podwyższają bryłę (stała wysokość kondygnacji); 3: szersza i wyższa wieża; 4: większe wnętrza domku, pałacu i biblioteki; 5: wnętrza o czterokrotnym polu; brak = stary podział bryły
 }
 

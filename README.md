@@ -81,6 +81,10 @@ npm run build        # produkcyjny build do dist/
   dokłada, więc w jednym wnętrzu można wydzielić salon, kuchnię i gabinet jak w lofcie. „Zapisz zaznaczenie jako
   zestaw" zachowuje własne rozmieszczenie (`localStorage`, klucz `mneme.sets.v1`); dawne układy pokoi z poprzedniej
   wersji przeliczają się na zestawy przy pierwszym wczytaniu.
+- **Elewacja** — budynek z wnętrzem w miejscu ma osobne pole „Elewacja" obok podłogi i ścian wnętrza:
+  tynk, cegła, cegła klinkierowa, mur kamienny, cios kamienny, płyty kamienne, deski pionowe, ciemne deski,
+  beton, marmur i własne obrazy. Faktura jest mnożona przez kolor warstwy muru, więc paleta materiałów dalej
+  działa; cokoły, gzymsy, kolumny i dachy zostają w swoich kolorach.
 - **Reguły rozmieszczenia** — `placementBlock` w `lib/layout.ts` to jedno źródło prawdy dla podglądu,
   przeciągania i listy problemów układu: otwarty ogień (kandelabr, pochodnia, latarnia) nie stoi na blacie,
   książki nie leżą na biurku, a to, co wisi (obraz, lustro, zegar, zasłony), nie zasłania okna — także okna
