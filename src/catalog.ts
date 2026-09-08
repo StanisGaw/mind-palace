@@ -46,6 +46,7 @@ export const CATALOG: CatalogItem[] = [
   { id: 'chest', name: 'Skrzynia', category: 'object', emoji: '🧰', description: 'Skrzynia na sekrety.', footprint: 0.6 },
   { id: 'signpost', name: 'Drogowskaz', category: 'object', emoji: '🪧', description: 'Wskazuje kierunek historii.', footprint: 0.4, outdoorOnly: true },
   { id: 'well', name: 'Studnia', category: 'object', emoji: '🪣', description: 'Głębokie skojarzenia.', footprint: 0.8, collider: 'trimesh', outdoorOnly: true },
+  { id: 'plane', name: 'Samolot', category: 'object', emoji: '✈️', description: 'Mały samolot z otwartym kokpitem. W spacerze podejdź i naciśnij F, żeby wsiąść i polecieć.', footprint: 2.4, maxScale: 2, collider: 'trimesh', outdoorOnly: true },
   // Rośliny
   { id: 'tree', name: 'Drzewo', category: 'plant', emoji: '🌳', description: 'Okrągła korona, cień na myśli.', footprint: 1.2, collider: 'cylinder', outdoorOnly: true },
   { id: 'cypress', name: 'Cyprys', category: 'plant', emoji: '🌲', description: 'Smukłe drzewo — dobry punkt orientacyjny.', footprint: 0.6, collider: 'cylinder', outdoorOnly: true },

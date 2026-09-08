@@ -828,6 +828,87 @@ function buildWell(g: THREE.Group) {
   add(g, cyl(0.16, 0.16, 0.24, 8), woodMat(C.woodDark), 0, 1.75, 0, [0, 0, Math.PI / 2]);
 }
 
+/**
+ * Mały samolot z otwartym kokpitem: nos w stronę −Z (jak kierunek marszu przy obrocie obiektu),
+ * koła stoją na wysokości 0. Sekcja kokpitu to wanna z podłogą i burtami — dzięki temu pilot
+ * widzi wnętrze od środka, a nie prześwit przez jednostronne ścianki kadłuba.
+ */
+function buildPlane(g: THREE.Group) {
+  const body = mat(C.cream2);
+  const accent = mat(C.roof);
+  const metal = mat(C.metal);
+  const dark = mat(C.dark);
+
+  // kadłub: owiewka silnika, sekcja przednia, stożek ogonowy (cylinder obrócony o 90° ma promień górny od +Z)
+  add(g, cyl(0.46, 0.42, 0.85, 10), accent, 0, 1.0, -1.98, [Math.PI / 2, 0, 0]);
+  add(g, cyl(0.44, 0.45, 0.85, 10), body, 0, 1.0, -1.13, [Math.PI / 2, 0, 0]);
+  add(g, cyl(0.12, 0.44, 1.85, 10), body, 0, 1.0, 1.78, [Math.PI / 2, 0, 0]);
+
+  // wanna kokpitu
+  add(g, box(0.86, 0.1, 1.5), woodMat(C.woodDark), 0, 0.66, 0.06);
+  for (const x of [-0.42, 0.42]) add(g, box(0.09, 0.8, 1.5), body, x, 1.05, 0.06);
+  add(g, box(0.86, 0.62, 0.09), body, 0, 0.96, -0.72);
+  add(g, box(0.86, 0.8, 0.09), body, 0, 1.05, 0.84);
+  // wyściółka burt: od środka kabina jest drewniana jak tablica i podłoga
+  for (const x of [-0.36, 0.36]) add(g, box(0.02, 0.78, 1.5), woodMat(C.wood), x, 1.05, 0.06);
+  // burta obłożona skórą — rama otwartego kokpitu
+  for (const x of [-0.45, 0.45]) add(g, box(0.1, 0.06, 1.56), dark, x, 1.45, 0.06);
+  add(g, box(1.0, 0.06, 0.1), dark, 0, 1.45, -0.76);
+  add(g, box(1.0, 0.06, 0.1), dark, 0, 1.45, 0.87);
+
+  // fotel i zagłówek
+  add(g, box(0.5, 0.09, 0.44), mat(C.velvet), 0, 0.76, 0.28);
+  add(g, box(0.5, 0.6, 0.09), mat(C.velvet), 0, 1.09, 0.53);
+  add(g, box(0.34, 0.22, 0.1), dark, 0, 1.5, 0.6);
+
+  // tablica przyrządów z zegarami (tarcza + wskazówka pod różnym kątem)
+  add(g, box(0.8, 0.34, 0.07), woodMat(C.woodDark), 0, 1.18, -0.64);
+  const dials: [number, number][] = [[-0.24, -0.9], [0, 2.1], [0.24, 0.7]];
+  for (const [x, a] of dials) {
+    add(g, cyl(0.085, 0.085, 0.03, 12), metal, x, 1.19, -0.6, [Math.PI / 2, 0, 0]);
+    add(g, cyl(0.07, 0.07, 0.02, 12), mat(C.linen), x, 1.19, -0.585, [Math.PI / 2, 0, 0]);
+    add(g, box(0.012, 0.056, 0.012), dark, x + Math.sin(a) * 0.027, 1.19 + Math.cos(a) * 0.027, -0.575, [0, 0, -a]);
+  }
+  for (const x of [-0.1, 0.1]) add(g, cyl(0.02, 0.02, 0.05, 6), mat(C.gold), x, 1.04, -0.59, [Math.PI / 2, 0, 0]);
+  // wiatrochron: niska szyba, nad którą widać maskę silnika i śmigło
+  add(g, box(0.78, 0.05, 0.07), dark, 0, 1.35, -0.71);
+  add(g, box(0.72, 0.28, 0.03), glassMat(), 0, 1.5, -0.73, [-0.3, 0, 0]);
+
+  // drążek i pedały
+  add(g, cyl(0.028, 0.036, 0.44, 8), metal, 0, 0.95, -0.06, [-0.12, 0, 0]);
+  add(g, sphere(0.055, 8), dark, 0, 1.18, -0.09);
+  for (const x of [-0.14, 0.14]) add(g, box(0.16, 0.05, 0.2), metal, x, 0.76, -0.48, [-0.35, 0, 0]);
+
+  // skrzydło dolne z lekkim wzniosem, przed kabiną — inaczej zasłaniałoby widok w dół
+  add(g, box(0.9, 0.16, 1.3), body, 0, 0.58, -1.0);
+  for (const s of [-1, 1]) {
+    add(g, box(2.55, 0.13, 1.2), body, s * 1.725, 0.67, -1.0, [0, 0, s * 0.06]);
+    add(g, box(0.1, 0.16, 1.0), accent, s * 2.98, 0.75, -1.0, [0, 0, s * 0.06]);
+  }
+
+  // usterzenie
+  add(g, box(2.3, 0.1, 0.62), body, 0, 1.05, 2.4);
+  add(g, prism(0.85, 0.8, 0.09), accent, 0, 1.1, 2.42, [0, Math.PI / 2, 0]);
+
+  // podwozie
+  for (const s of [-1, 1]) {
+    add(g, box(0.1, 0.44, 0.13), metal, s * 1.0, 0.42, -1.1);
+    add(g, cyl(0.3, 0.3, 0.16, 12), dark, s * 1.0, 0.3, -1.1, [0, 0, Math.PI / 2]);
+    add(g, cyl(0.1, 0.1, 0.18, 8), metal, s * 1.0, 0.3, -1.1, [0, 0, Math.PI / 2]);
+  }
+  add(g, box(0.07, 0.58, 0.07), metal, 0, 0.57, 2.55);
+  add(g, cyl(0.14, 0.14, 0.09, 8), dark, 0, 0.14, 2.55, [0, 0, Math.PI / 2]);
+
+  // śmigło: osobna grupa, którą scena obraca w locie
+  const prop = new THREE.Group();
+  prop.position.set(0, 1.0, -2.42);
+  prop.userData.propeller = true;
+  g.add(prop);
+  add(prop, cone(0.2, 0.42, 10), accent, 0, 0, -0.16, [-Math.PI / 2, 0, 0]);
+  add(prop, box(0.16, 1.75, 0.04), woodMat(C.wood), 0, 0, 0);
+  add(prop, cyl(0.09, 0.09, 0.1, 8), metal, 0, 0, 0, [Math.PI / 2, 0, 0]);
+}
+
 function buildTree(g: THREE.Group) {
   add(g, cyl(0.12, 0.18, 1.2, 8), woodMat(C.woodDark), 0, 0.6, 0);
   add(g, dodeca(0.85, 0), mat(C.leaf), 0, 1.75, 0);
@@ -1707,6 +1788,7 @@ const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   chest: buildChest,
   signpost: buildSignpost,
   well: buildWell,
+  plane: buildPlane,
   tree: buildTree,
   cypress: buildCypress,
   bush: buildBush,
@@ -1777,6 +1859,11 @@ export const DOORS: Record<string, { local: [number, number, number]; outside: [
 /** Punkt zaczepienia emitera cząsteczek w lokalnych współrzędnych modelu. */
 /** Punkt, w którym staje gracz wchodząc przez bramę (lokalnie, przed bramą). */
 export const GATE_SPAWN: [number, number, number] = [0, 0, 1.8];
+
+/** Oczy pilota w kokpicie samolotu (lokalne współrzędne modelu). */
+export const PLANE_SEAT: [number, number, number] = [0, 1.66, 0.16];
+/** Miejsce, w którym pilot staje po wysiadce — obok kadłuba, za skrzydłem. */
+export const PLANE_EXIT: [number, number, number] = [-1.9, 0, 1.4];
 
 export const EMITTER_ANCHORS: Record<string, [number, number, number]> = {
   volcano: [0, 3.7, 0],
