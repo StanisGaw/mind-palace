@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { buildAnimalBody, type AnimalKind } from './wildlife';
 import { DOOR_OPENING, FACADE, SHELLS, SHELL_WALL_T, WALL_SEGMENT, WALL_THICKNESS, type Opening, type ShellSpec } from '../lib/rooms';
 import { subtractRect, type Rect } from './interior';
+import { paintingTexture } from './art';
 
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
 export function mat(color: string, opts: { emissive?: string; roughness?: number; metalness?: number; flat?: boolean } = {}) {
@@ -55,6 +56,11 @@ const C = {
   volcano: '#5e5852',
   volcanoDark: '#463f3b',
   lava: '#ff6a3d',
+  fabric: '#7d8fa8',
+  fabric2: '#bfc9d6',
+  gold: '#c9a45c',
+  velvet: '#8b3a3f',
+  linen: '#efe9dc',
 };
 
 function add(group: THREE.Group, geo: THREE.BufferGeometry, material: THREE.Material, x = 0, y = 0, z = 0, rot?: [number, number, number]) {
@@ -686,6 +692,8 @@ export interface BuildCtx {
   facade?: Record<string, WallHole[]>;
   /** Taras: wysokość podłogi parteru nad ziemią (schodki w dół), metry świata. */
   drop?: number;
+  /** Obraz: styl płótna (z hasza id obiektu). */
+  variant?: number;
 }
 
 /** Otwór w ścianie powłoki w układzie ściany: `u` wzdłuż niej (od jej środka), `v` to wysokość w modelu. */
@@ -938,7 +946,7 @@ function buildChair(g: THREE.Group) {
   }
 }
 
-function buildPainting(g: THREE.Group) {
+function buildEasel(g: THREE.Group) {
   // sztaluga
   add(g, cyl(0.03, 0.04, 1.6, 5), mat(C.woodDark), -0.28, 0.8, 0.12, [0.12, 0, 0.14]);
   add(g, cyl(0.03, 0.04, 1.6, 5), mat(C.woodDark), 0.28, 0.8, 0.12, [0.12, 0, -0.14]);
@@ -946,6 +954,157 @@ function buildPainting(g: THREE.Group) {
   add(g, box(0.68, 0.05, 0.08), mat(C.wood), 0, 0.72, 0.1);
   add(g, box(0.76, 0.6, 0.05), mat(C.wood), 0, 1.05, 0.08, [0.06, 0, 0]);
   add(g, box(0.66, 0.5, 0.02), mat(C.flower3), 0, 1.05, 0.11, [0.06, 0, 0]);
+}
+
+const artMats = new Map<number, THREE.MeshStandardMaterial>();
+/** Materiał płótna danego stylu — współdzielony między obrazami, jak `mat()`. */
+function artMat(variant: number): THREE.MeshStandardMaterial {
+  let m = artMats.get(variant);
+  if (!m) {
+    m = new THREE.MeshStandardMaterial({ map: paintingTexture(variant), roughness: 0.9 });
+    artMats.set(variant, m);
+  }
+  return m;
+}
+
+/** Obraz w ramie z passe-partout: wisi na 1,5 m, płótno z generowanym motywem. */
+function buildPainting(g: THREE.Group, ctx: BuildCtx) {
+  const y = 1.5;
+  add(g, box(0.92, 0.72, 0.05), mat(C.woodDark), 0, y, 0);
+  add(g, box(0.86, 0.66, 0.02), mat(C.gold, { metalness: 0.6, roughness: 0.4 }), 0, y, 0.03);
+  add(g, box(0.8, 0.6, 0.015), mat(C.paper), 0, y, 0.045);
+  add(g, box(0.72, 0.52, 0.012), artMat(ctx.variant ?? 0), 0, y, 0.058);
+  add(g, cyl(0.01, 0.01, 0.2, 5), mat(C.metal), 0, y + 0.42, -0.01);
+}
+
+/** Popiersie na cokole. */
+function buildBust(g: THREE.Group) {
+  add(g, box(0.44, 0.06, 0.44), mat(C.stone), 0, 0.03, 0);
+  add(g, box(0.36, 0.94, 0.36), mat(C.stone), 0, 0.5, 0);
+  add(g, box(0.46, 0.06, 0.46), mat(C.stoneDark), 0, 1.0, 0);
+  add(g, box(0.5, 0.2, 0.24), mat(C.cream2), 0, 1.13, 0);
+  add(g, sphere(0.11, 8), mat(C.cream2), -0.24, 1.2, 0);
+  add(g, sphere(0.11, 8), mat(C.cream2), 0.24, 1.2, 0);
+  add(g, cyl(0.06, 0.07, 0.14, 8), mat(C.cream2), 0, 1.29, 0);
+  add(g, sphere(0.14, 12), mat(C.cream2, { flat: false }), 0, 1.47, 0);
+}
+
+/** Kominek z płomieniem i światłem. */
+function buildFireplace(g: THREE.Group) {
+  add(g, box(1.6, 1.2, 0.5), mat(C.stoneDark), 0, 0.6, 0);
+  add(g, box(0.8, 0.72, 0.46), mat('#1d1a17'), 0, 0.4, 0.04);
+  add(g, box(1.8, 0.08, 0.62), mat(C.wood), 0, 1.24, 0.02);
+  add(g, box(1.2, 1.4, 0.42), mat(C.stone), 0, 1.98, -0.04);
+  add(g, box(0.9, 0.04, 0.5), mat('#2a2622'), 0, 0.06, 0.05);
+  add(g, cyl(0.06, 0.06, 0.5, 6), mat(C.woodDark), 0, 0.12, 0.08, [0, 0, Math.PI / 2]);
+  add(g, cyl(0.05, 0.05, 0.46, 6), mat(C.woodDark), 0.04, 0.22, 0.12, [0, 0.4, Math.PI / 2]);
+  add(g, cone(0.14, 0.4, 6), mat('#ff7a2e', { emissive: '#ff4d12' }), -0.06, 0.38, 0.1);
+  add(g, cone(0.09, 0.3, 5), mat('#ffd36b', { emissive: '#ffc44d' }), 0.08, 0.36, 0.14);
+  const light = new THREE.PointLight('#ff9a4a', 5, 6, 2);
+  light.position.set(0, 0.5, 0.35);
+  g.add(light);
+}
+
+/** Wspólny szkielet fotela i sofy: siedzisko, oparcie, podłokietniki, poduszki, nóżki. */
+function seating(g: THREE.Group, width: number, cushions: number) {
+  add(g, box(width, 0.34, 0.8), mat(C.fabric), 0, 0.27, 0);
+  add(g, box(width, 0.5, 0.2), mat(C.fabric), 0, 0.65, -0.3);
+  for (const x of [-width / 2 + 0.07, width / 2 - 0.07]) add(g, box(0.14, 0.3, 0.8), mat(C.fabric), x, 0.55, 0);
+  const cw = (width - 0.28 - 0.04 * (cushions - 1)) / cushions;
+  for (let i = 0; i < cushions; i++) {
+    const x = -width / 2 + 0.14 + cw / 2 + i * (cw + 0.04);
+    add(g, box(cw, 0.12, 0.62), mat(C.fabric2), x, 0.5, 0.05);
+    add(g, box(cw - 0.06, 0.34, 0.1), mat(C.fabric2), x, 0.68, -0.22);
+  }
+  for (const x of [-width / 2 + 0.08, width / 2 - 0.08]) for (const z of [-0.32, 0.32]) add(g, cyl(0.03, 0.03, 0.1, 6), mat(C.woodDark), x, 0.05, z);
+}
+
+function buildArmchair(g: THREE.Group) {
+  seating(g, 0.9, 1);
+}
+
+function buildSofa(g: THREE.Group) {
+  seating(g, 1.9, 3);
+}
+
+/** Łóżko z kołdrą, poduszkami i wezgłowiem. */
+function buildBed(g: THREE.Group) {
+  add(g, box(1.6, 0.3, 2.1), mat(C.woodDark), 0, 0.2, 0);
+  add(g, box(1.5, 0.22, 2.0), mat(C.linen), 0, 0.46, 0);
+  add(g, box(1.52, 0.1, 1.3), mat('#a3b7c9'), 0, 0.6, 0.3);
+  for (const x of [-0.4, 0.4]) add(g, box(0.55, 0.14, 0.4), mat(C.paper), x, 0.62, -0.72);
+  add(g, box(1.6, 0.9, 0.08), mat(C.woodDark), 0, 0.75, -1.06);
+  for (const x of [-0.72, 0.72]) for (const z of [-0.98, 0.98]) add(g, box(0.08, 0.1, 0.08), mat(C.woodDark), x, 0.05, z);
+}
+
+/** Biurko z szufladami i lampką. */
+function buildDesk(g: THREE.Group) {
+  add(g, box(1.4, 0.06, 0.7), mat(C.wood), 0, 0.75, 0);
+  for (const x of [-0.45, 0.45]) {
+    add(g, box(0.45, 0.66, 0.6), mat(C.woodDark), x, 0.36, 0);
+    for (let i = 0; i < 3; i++) add(g, box(0.3, 0.03, 0.02), mat(C.cream2), x, 0.16 + i * 0.2, 0.31);
+  }
+  add(g, cyl(0.06, 0.08, 0.03, 8), mat(C.metal), -0.45, 0.8, -0.2);
+  add(g, cyl(0.012, 0.012, 0.36, 6), mat(C.metal), -0.45, 0.97, -0.2);
+  add(g, cone(0.11, 0.14, 8), mat(C.glow, { emissive: '#f4d27a' }), -0.45, 1.16, -0.2, [Math.PI, 0, 0]);
+  const light = new THREE.PointLight('#ffe2b0', 1.2, 3, 2);
+  light.position.set(-0.45, 1.1, -0.2);
+  g.add(light);
+}
+
+/** Kredens z drzwiczkami. */
+function buildSideboard(g: THREE.Group) {
+  add(g, box(1.4, 0.86, 0.5), mat(C.woodDark), 0, 0.47, 0);
+  add(g, box(1.46, 0.04, 0.54), mat(C.wood), 0, 0.92, 0);
+  for (const x of [-0.34, 0.34]) {
+    add(g, box(0.6, 0.66, 0.02), mat(C.wood), x, 0.45, 0.26);
+    add(g, box(0.03, 0.1, 0.02), mat(C.gold, { metalness: 0.6, roughness: 0.4 }), x + (x < 0 ? 0.24 : -0.24), 0.45, 0.28);
+  }
+  for (const x of [-0.6, 0.6]) for (const z of [-0.2, 0.2]) add(g, box(0.06, 0.08, 0.06), mat(C.woodDark), x, 0.04, z);
+}
+
+/** Zegar stojący z tarczą i wahadłem. */
+function buildClock(g: THREE.Group) {
+  add(g, box(0.5, 2.0, 0.3), mat(C.woodDark), 0, 1.0, 0);
+  add(g, box(0.56, 0.08, 0.34), mat(C.wood), 0, 2.04, 0);
+  add(g, box(0.18, 0.9, 0.02), mat('#1d1a17'), 0, 0.85, 0.15);
+  add(g, cyl(0.012, 0.012, 0.6, 5), mat(C.gold, { metalness: 0.7, roughness: 0.3 }), 0, 0.95, 0.16);
+  add(g, cyl(0.06, 0.06, 0.02, 12), mat(C.gold, { metalness: 0.7, roughness: 0.3 }), 0, 0.62, 0.16, [Math.PI / 2, 0, 0]);
+  add(g, cyl(0.18, 0.18, 0.03, 16), mat(C.paper), 0, 1.68, 0.16, [Math.PI / 2, 0, 0]);
+  add(g, box(0.02, 0.13, 0.01), mat(C.dark), 0, 1.74, 0.18);
+  add(g, box(0.1, 0.02, 0.01), mat(C.dark), 0.05, 1.68, 0.18);
+}
+
+/** Lustro w złotej ramie na stojaku (bez odbić — tafla lśni światłem). */
+function buildMirror(g: THREE.Group) {
+  const gold = mat(C.gold, { metalness: 0.8, roughness: 0.3 });
+  add(g, box(0.8, 1.4, 0.05), gold, 0, 1.0, 0, [-0.08, 0, 0]);
+  add(g, box(0.68, 1.28, 0.02), mat('#dbe6ee', { metalness: 0.9, roughness: 0.05, flat: false }), 0, 1.0, 0.03, [-0.08, 0, 0]);
+  for (const x of [-0.3, 0.3]) add(g, box(0.05, 0.4, 0.4), mat(C.woodDark), x, 0.2, -0.08);
+}
+
+/** Wazon z pięcioma kwiatami. */
+function buildVase(g: THREE.Group) {
+  add(g, cyl(0.1, 0.07, 0.36, 10), mat('#8fa3b5', { roughness: 0.5 }), 0, 0.18, 0);
+  add(g, cyl(0.05, 0.09, 0.1, 10), mat('#8fa3b5', { roughness: 0.5 }), 0, 0.41, 0);
+  const petals = [C.flower1, C.flower2, C.flower3, C.flower1, C.flower2];
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const tilt = 0.25;
+    add(g, cyl(0.006, 0.006, 0.4, 4), mat(C.leaf2), Math.sin(a) * 0.06, 0.6, Math.cos(a) * 0.06, [Math.cos(a) * tilt, 0, -Math.sin(a) * tilt]);
+    add(g, sphere(0.05, 7), mat(petals[i]), Math.sin(a) * 0.14, 0.8, Math.cos(a) * 0.14);
+  }
+}
+
+/** Zasłony z karniszem i lambrekinem. */
+function buildCurtains(g: THREE.Group) {
+  add(g, cyl(0.02, 0.02, 1.9, 8), mat(C.gold, { metalness: 0.7, roughness: 0.3 }), 0, 2.3, 0, [0, 0, Math.PI / 2]);
+  for (const x of [-0.65, 0.65]) {
+    add(g, box(0.5, 2.2, 0.1), mat(C.velvet), x, 1.15, 0);
+    add(g, box(0.56, 0.1, 0.12), mat(C.velvet), x, 0.06, 0);
+    add(g, box(0.4, 0.08, 0.12), mat(C.gold, { metalness: 0.7, roughness: 0.3 }), x, 1.0, 0.02);
+  }
+  add(g, box(1.9, 0.18, 0.14), mat(C.velvet), 0, 2.26, 0.01);
 }
 
 function buildRug(g: THREE.Group) {
@@ -1071,6 +1230,18 @@ const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   shelf: buildShelf,
   chair: buildChair,
   painting: buildPainting,
+  easel: buildEasel,
+  bust: buildBust,
+  fireplace: buildFireplace,
+  armchair: buildArmchair,
+  sofa: buildSofa,
+  bed: buildBed,
+  desk: buildDesk,
+  sideboard: buildSideboard,
+  clock: buildClock,
+  mirror: buildMirror,
+  vase: buildVase,
+  curtains: buildCurtains,
   rug: buildRug,
   candle: buildCandle,
   torch: buildTorch,

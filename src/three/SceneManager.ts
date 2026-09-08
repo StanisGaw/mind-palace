@@ -8,6 +8,8 @@ import { yawOfObject } from '../lib/transform';
 import type { CameraKind, Palace, PalaceObject, RoomSpec, Vec3, ViewMode } from '../types';
 import { AMBIENCES, catalogItem, hasInterior } from '../catalog';
 import { buildModel, disposeObject, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN } from './builders';
+import { ART_VARIANTS } from './art';
+import { hashString } from './noise';
 import { makeTextPanel, disposeTextPanel } from './text';
 import { WeatherSystem } from './weather';
 import { PuffEmitter, type Updatable } from './particles';
@@ -866,6 +868,7 @@ export class SceneManager {
     if (isInPlace(o)) return { floorHeight, floors: o.floors ?? 1, slabOpenings: buildingOpenings(o, p.objects), facade: facadeHoles(o, p.objects) };
     // taras: schodki od podłogi parteru do ziemi
     if (o.type === 'terrace' && b) return { floorHeight, drop: Math.round((buildingFloorY(b, 0) - b.position[1]) * 100) / 100 };
+    if (o.type === 'painting') return { floorHeight, variant: hashString(o.id) % ART_VARIANTS };
     return { floorHeight };
   }
 
