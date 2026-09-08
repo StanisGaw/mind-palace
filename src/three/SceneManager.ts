@@ -7,7 +7,7 @@ import { useStore, descendants, movableRoots, selectionRoots } from '../store';
 import { yawOfObject } from '../lib/transform';
 import type { CameraKind, Palace, PalaceObject, RoomSpec, Vec3, ViewMode } from '../types';
 import { AMBIENCES, catalogItem, hasInterior } from '../catalog';
-import { buildModel, disposeObject, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN } from './builders';
+import { buildModel, disposeObject, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN, type BuildCtx } from './builders';
 import { ART_VARIANTS } from './art';
 import { hashString } from './noise';
 import { makeTextPanel, disposeTextPanel } from './text';
@@ -646,7 +646,7 @@ export class SceneManager {
       spec = roomSpecFor(p, useStore.getState().data.palaces);
       openings = stairOpenings(p.objects, spec.height);
     }
-    const roomKey = isInterior && spec ? `${p.id}|${p.interior!.buildingType}|${spec.width}|${spec.depth}|${spec.floors}|${JSON.stringify(openings)}` : '';
+    const roomKey = isInterior && spec ? `${p.id}|${p.interior!.buildingType}|${spec.width}|${spec.depth}|${spec.floors}|${p.settings.wallTexture ?? ''}|${JSON.stringify(openings)}` : '';
     if (roomKey !== this.roomKey) {
       this.roomKey = roomKey;
       if (this.room) {
@@ -656,7 +656,7 @@ export class SceneManager {
       }
       if (isInterior && spec) {
         const type = p.interior!.buildingType;
-        this.room = buildRoom(spec, type, { floors: spec.floors, openings });
+        this.room = buildRoom(spec, type, { floors: spec.floors, openings, wallTexture: p.settings.wallTexture });
         this.scene.add(this.room.group);
         this.physicsDirty = true; // powłoka się przebudowała
       }
@@ -861,15 +861,18 @@ export class SceneManager {
    * Kontekst budowy modelu obiektu: ścianki, drzwi, schody i lampy w budynku z wnętrzem w miejscu mają
    * wysokość jego kondygnacji; ścianka zależy od skali X i otworów na drzwi; budynek od pięter i otworów w stropach.
    */
-  private modelCtx(o: PalaceObject, p: Palace) {
+  private modelCtx(o: PalaceObject, p: Palace): Partial<BuildCtx> {
     const b = buildingOf(p.objects, o);
     const floorHeight = Math.round((b ? buildingFloorHeight(b) : floorHeightFor(p)) * 1000) / 1000;
-    if (o.type === 'wall') return { floorHeight, scaleX: o.scale[0], openings: doorOffsets(o, p.objects).map((t) => Math.round(t * 100) / 100) };
-    if (isInPlace(o)) return { floorHeight, floors: o.floors ?? 1, slabOpenings: buildingOpenings(o, p.objects), facade: facadeHoles(o, p.objects) };
+    const base: Partial<BuildCtx> = { floorHeight };
+    if (o.colors && Object.keys(o.colors).length) base.colors = o.colors;
+    if (o.type === 'wall') return { ...base, scaleX: o.scale[0], openings: doorOffsets(o, p.objects).map((t) => Math.round(t * 100) / 100) };
+    if (isInPlace(o)) return { ...base, floors: o.floors ?? 1, slabOpenings: buildingOpenings(o, p.objects), facade: facadeHoles(o, p.objects), finish: o.finish };
+    if (o.type === 'path') return { ...base, scaleX: o.scale[0], finish: o.finish };
     // taras: schodki od podłogi parteru do ziemi
-    if (o.type === 'terrace' && b) return { floorHeight, drop: Math.round((buildingFloorY(b, 0) - b.position[1]) * 100) / 100 };
-    if (o.type === 'painting') return { floorHeight, variant: hashString(o.id) % ART_VARIANTS };
-    return { floorHeight };
+    if (o.type === 'terrace' && b) return { ...base, drop: Math.round((buildingFloorY(b, 0) - b.position[1]) * 100) / 100 };
+    if (o.type === 'painting') return { ...base, variant: hashString(o.id) % ART_VARIANTS };
+    return base;
   }
 
   private removeEntry(e: Entry) {

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { RoomSpec } from '../types';
-import { discRects, mat, spiralStairs, type Trimesh } from './builders';
+import { discRects, finishMat, mat, scaleUv, spiralStairs, type Trimesh } from './builders';
 import type { Opening } from '../lib/rooms';
 
 export interface RoomBox {
@@ -62,7 +62,17 @@ const DOOR_H = 2.4;
 const SLAB_T = 0.24; // grubość stropu/sufitu/podłogi
 
 /** Proceduralna powłoka budynku: podłoga, ściany każdej kondygnacji, stropy z otworami nad schodami, sufit. */
-export function buildRoom(spec: RoomSpec, buildingType: string, opts: { floors: number; openings: Opening[][] }): Room {
+export interface RoomOpts {
+  floors: number;
+  openings: Opening[][];
+  /** Tekstura ścian (id z `textures.ts`); brak = kolor z `RoomSpec`. */
+  wallTexture?: string;
+}
+
+/** Kafel tekstury ścian pokoju w metrach. */
+const WALL_TILE = 2.5;
+
+export function buildRoom(spec: RoomSpec, buildingType: string, opts: RoomOpts): Room {
   if (buildingType === 'tower') return buildTowerRoom(spec, opts);
   const g = new THREE.Group();
   const w = spec.width;
@@ -80,7 +90,7 @@ export function buildRoom(spec: RoomSpec, buildingType: string, opts: { floors: 
   };
   const walls: THREE.Mesh[] = [];
   const wall = (sx: number, sy: number, sz: number, x: number, y: number, z: number, m: THREE.Material, floorIndex: number, normal?: [number, number]) => {
-    const mm = mesh(new THREE.BoxGeometry(sx, sy, sz), m, x, y, z);
+    const mm = mesh(scaleUv(new THREE.BoxGeometry(sx, sy, sz), Math.max(sx, sz) / WALL_TILE, sy / WALL_TILE), m, x, y, z);
     g.add(mm);
     colliders.push({ size: [sx, sy, sz], pos: [x, y, z] });
     mm.userData.floorIndex = floorIndex;
@@ -91,7 +101,7 @@ export function buildRoom(spec: RoomSpec, buildingType: string, opts: { floors: 
     return mm;
   };
 
-  const wallMat = mat(spec.wall, { roughness: 0.95 });
+  const wallMat = finishMat(opts.wallTexture, spec.wall, { roughness: 0.95 });
   // podłoga ma własny materiał (nie z cache), bo może dostać teksturę
   const floorMat = new THREE.MeshStandardMaterial({ color: spec.floor, roughness: 1 });
   const trimMat = mat('#c7c0ae', { roughness: 0.9 });
@@ -187,7 +197,7 @@ export function buildRoom(spec: RoomSpec, buildingType: string, opts: { floors: 
  * wzdłuż muru — wieża ma być wieżą, nie prostokątnym pokojem, a schodów w niej nie da się dobrze
  * zbudować ręcznie.
  */
-function buildTowerRoom(spec: RoomSpec, opts: { floors: number; openings: Opening[][] }): Room {
+function buildTowerRoom(spec: RoomSpec, opts: RoomOpts): Room {
   const g = new THREE.Group();
   const R = Math.min(spec.width, spec.depth) / 2;
   const h = spec.height;
@@ -201,7 +211,7 @@ function buildTowerRoom(spec: RoomSpec, opts: { floors: number; openings: Openin
     mm.receiveShadow = true;
     return mm;
   };
-  const wallMat = mat(spec.wall, { roughness: 0.95 });
+  const wallMat = finishMat(opts.wallTexture, spec.wall, { roughness: 0.95 });
   const floorMat = new THREE.MeshStandardMaterial({ color: spec.floor, roughness: 1 });
   const trimMat = mat('#c7c0ae', { roughness: 0.9 });
   const slabMat = mat('#e8e2d5', { roughness: 1 });
@@ -228,7 +238,7 @@ function buildTowerRoom(spec: RoomSpec, opts: { floors: number; openings: Openin
       const lintel = k === 0 && i === 0;
       const sy = lintel ? h - DOOR_H : h;
       const cy = lintel ? y0 + DOOR_H + sy / 2 : y0 + h / 2;
-      const mm = mesh(new THREE.BoxGeometry(side + 0.02, sy, WALL_T), wallMat, x, cy, z);
+      const mm = mesh(scaleUv(new THREE.BoxGeometry(side + 0.02, sy, WALL_T), side / WALL_TILE, sy / WALL_TILE), wallMat, x, cy, z);
       mm.rotation.y = a;
       mm.userData.floorIndex = k;
       mm.userData.wallNormal = [Math.sin(a), Math.cos(a)];

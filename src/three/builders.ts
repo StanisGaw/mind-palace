@@ -3,10 +3,20 @@ import { buildAnimalBody, type AnimalKind } from './wildlife';
 import { DOOR_OPENING, FACADE, SHELLS, SHELL_WALL_T, WALL_SEGMENT, WALL_THICKNESS, type Opening, type ShellSpec } from '../lib/rooms';
 import { subtractRect, type Rect } from './interior';
 import { paintingTexture } from './art';
+import { grainTexture, textureById } from './textures';
+import { MATERIAL_DEFAULTS, MATERIAL_ROLES, paletteOf, type MaterialRole } from '../lib/materials';
 
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
-export function mat(color: string, opts: { emissive?: string; roughness?: number; metalness?: number; flat?: boolean } = {}) {
-  const key = `${color}|${opts.emissive ?? ''}|${opts.roughness ?? 0.85}|${opts.metalness ?? 0}|${opts.flat ?? true}`;
+export interface MatOpts {
+  emissive?: string;
+  roughness?: number;
+  metalness?: number;
+  flat?: boolean;
+  /** Tekstura mnożona przez kolor (słoje drewna, wykończenie podłogi) — klucz cache bierze jej uuid. */
+  map?: THREE.Texture;
+}
+export function mat(color: string, opts: MatOpts = {}) {
+  const key = `${color}|${opts.emissive ?? ''}|${opts.roughness ?? 0.85}|${opts.metalness ?? 0}|${opts.flat ?? true}|${opts.map?.uuid ?? ''}`;
   let m = matCache.get(key);
   if (!m) {
     m = new THREE.MeshStandardMaterial({
@@ -15,53 +25,53 @@ export function mat(color: string, opts: { emissive?: string; roughness?: number
       metalness: opts.metalness ?? 0,
       flatShading: opts.flat ?? true,
       emissive: opts.emissive ? new THREE.Color(opts.emissive) : new THREE.Color(0x000000),
+      map: opts.map ?? null,
     });
     matCache.set(key, m);
   }
   return m;
 }
 
-const C = {
-  cream: '#f3efe6',
-  cream2: '#e8e2d5',
-  stone: '#d9d4c7',
-  stoneDark: '#b8b2a3',
-  dome: '#9db6b0',
-  domeDark: '#86a39c',
-  roof: '#d9a689',
-  roofDark: '#c58f72',
-  wood: '#b98a5c',
-  woodDark: '#8b6a4f',
-  leaf: '#8fae7c',
-  leaf2: '#7ea06d',
-  leafDark: '#5e8a5f',
-  cypress: '#4f7c5c',
-  cypress2: '#5f8c68',
-  water: '#a9d3e6',
-  metal: '#4a4f4a',
-  glow: '#ffe7a3',
-  dark: '#3b3f3a',
-  paper: '#f7f2e5',
-  book1: '#c9705f',
-  book2: '#6b8fb3',
-  book3: '#d9b45a',
-  flower1: '#e88a8a',
-  flower2: '#f0c36b',
-  flower3: '#c9a2d8',
-  soil: '#8d7358',
-  rock: '#8f8b82',
-  rockDark: '#75726b',
-  rockLight: '#a5a096',
-  snow: '#f2f4f3',
-  volcano: '#5e5852',
-  volcanoDark: '#463f3b',
-  lava: '#ff6a3d',
-  fabric: '#7d8fa8',
-  fabric2: '#bfc9d6',
-  gold: '#c9a45c',
-  velvet: '#8b3a3f',
-  linen: '#efe9dc',
-};
+/** Drewno ze słojami: jasna tekstura słojów mnożona przez kolor warstwy. */
+export function woodMat(color: string, opts: MatOpts = {}) {
+  return mat(color, { ...opts, map: grainTexture() });
+}
+
+/** Wykończenie powierzchni: tekstura o id `id` (wbudowana albo własna) albo sam kolor, gdy jej brak. */
+export function finishMat(id: string | undefined, color: string, opts: MatOpts = {}) {
+  const tex = textureById(id);
+  return tex ? mat('#ffffff', { ...opts, flat: false, map: tex }) : mat(color, opts);
+}
+
+/**
+ * Skaluje UV geometrii tak, by kafel tekstury powtarzał się co `tile` jednostek (pudełka mają UV 0..1 na
+ * ścianę). `ou`/`ov` przesuwają wzór, żeby sąsiednie płyty stropu miały wspólną siatkę kafli.
+ */
+export function scaleUv(geo: THREE.BufferGeometry, su: number, sv: number, ou = 0, ov = 0) {
+  const uv = geo.getAttribute('uv') as THREE.BufferAttribute | undefined;
+  if (!uv) return geo;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su + ou, uv.getY(i) * sv + ov);
+  uv.needsUpdate = true;
+  return geo;
+}
+
+/**
+ * Paleta warstw: odczyt `C.rola` zwraca kolor bieżącej palety (domyślna albo nadpisana przez obiekt) i notuje,
+ * że model tej warstwy używa — panel pokazuje tylko warstwy obecne w modelu. Budowa jest synchroniczna,
+ * więc paleta ustawiona w `buildModel` nie miesza się między obiektami.
+ */
+let palette: Record<MaterialRole, string> = MATERIAL_DEFAULTS;
+let usedRoles = new Set<MaterialRole>();
+const C = {} as Readonly<Record<MaterialRole, string>>;
+for (const role of MATERIAL_ROLES) {
+  Object.defineProperty(C, role, {
+    enumerable: true,
+    get: () => {
+      usedRoles.add(role);
+      return palette[role];
+    },
+  });
+}
 
 function add(group: THREE.Group, geo: THREE.BufferGeometry, material: THREE.Material, x = 0, y = 0, z = 0, rot?: [number, number, number]) {
   const m = new THREE.Mesh(geo, material);
@@ -120,7 +130,7 @@ function roofLift(ctx: BuildCtx, spec: ShellSpec): number {
 
 /** Podłoga wnętrza: cienka płyta z flagą, po której stawia się obiekty. Wierzch 1 cm nad cokołem — wspólna płaszczyzna migotałaby. */
 function shellFloor(g: THREE.Group, w: number, d: number, x: number, y: number, z: number, material: THREE.Material) {
-  const f = add(g, box(w, 0.04, d), material, x, y - 0.01, z);
+  const f = add(g, scaleUv(box(w, 0.04, d), w, d), material, x, y - 0.01, z);
   f.userData.floorSurface = true;
   return f;
 }
@@ -264,16 +274,31 @@ function wallGeometry(u0: number, u1: number, v0: number, v1: number, holes: Wal
 }
 
 /** Ściana wzdłuż X na głębokości `z` (normalna ±Z). `u` = x modelu. */
-function shellWallX(g: THREE.Group, x0: number, x1: number, y0: number, y1: number, z: number, m: THREE.Material, normal: [number, number], holes: WallHole[]) {
+function shellWallX(g: THREE.Group, x0: number, x1: number, y0: number, y1: number, z: number, m: THREE.Material, normal: [number, number], holes: WallHole[], lining?: THREE.Material) {
   const mesh = add(g, wallGeometry(x0, x1, y0, y1, holes, SHELL_WALL_T), m, 0, 0, z);
   mesh.userData.wallNormal = normal;
+  if (lining) shellLining(g, wallGeometry(x0, x1, y0, y1, holes, LINING_T), lining, 0, z - normal[1] * (SHELL_WALL_T / 2 + LINING_T / 2 + 0.002), 0, normal);
   return mesh;
 }
 
+const LINING_T = 0.01;
+/**
+ * Okładzina wewnętrzna ściany powłoki (tapeta, boazeria): cienka bryła z tymi samymi otworami tuż przy licu
+ * od środka — jedna bryła ściany nie może mieć innej faktury na zewnątrz i wewnątrz. Chowa się razem ze ścianą.
+ */
+function shellLining(g: THREE.Group, geo: THREE.BufferGeometry, m: THREE.Material, x: number, z: number, yaw: number, normal: [number, number]) {
+  const lining = add(g, geo, m, x, 0, z, [0, yaw, 0]);
+  lining.castShadow = false;
+  lining.userData.wallNormal = normal;
+  lining.userData.skipCollider = true;
+  return lining;
+}
+
 /** Ściana wzdłuż Z na `x` (normalna ±X). `u` = z modelu (obrót −90° mapuje lokalne x na z świata). */
-function shellWallZ(g: THREE.Group, z0: number, z1: number, y0: number, y1: number, x: number, m: THREE.Material, normal: [number, number], holes: WallHole[]) {
+function shellWallZ(g: THREE.Group, z0: number, z1: number, y0: number, y1: number, x: number, m: THREE.Material, normal: [number, number], holes: WallHole[], lining?: THREE.Material) {
   const mesh = add(g, wallGeometry(z0, z1, y0, y1, holes, SHELL_WALL_T), m, x, 0, 0, [0, -Math.PI / 2, 0]);
   mesh.userData.wallNormal = normal;
+  if (lining) shellLining(g, wallGeometry(z0, z1, y0, y1, holes, LINING_T), lining, x - normal[0] * (SHELL_WALL_T / 2 + LINING_T / 2 + 0.002), 0, -Math.PI / 2, normal);
   return mesh;
 }
 
@@ -286,7 +311,7 @@ function shellSlabs(g: THREE.Group, ctx: BuildCtx, base: Rect[], floorY: number,
     for (const hole of extraHoles[k - 1] ?? []) rects = subtractRect(rects, hole);
     for (const r of rects) {
       if (r.x1 - r.x0 < 0.01 || r.z1 - r.z0 < 0.01) continue;
-      const slab = add(g, box(r.x1 - r.x0, 0.04, r.z1 - r.z0), m, (r.x0 + r.x1) / 2, floorY + k * H - 0.02, (r.z0 + r.z1) / 2);
+      const slab = add(g, scaleUv(box(r.x1 - r.x0, 0.04, r.z1 - r.z0), r.x1 - r.x0, r.z1 - r.z0, r.x0, r.z0), m, (r.x0 + r.x1) / 2, floorY + k * H - 0.02, (r.z0 + r.z1) / 2);
       slab.userData.floorSurface = true;
       slab.userData.slab = k;
     }
@@ -326,14 +351,16 @@ function shellBox(g: THREE.Group, ctx: BuildCtx, spec: ShellSpec, wallMat: THREE
   const y1 = spec.floorY + floors * h;
   const t = SHELL_WALL_T / 2;
   const f = ctx.facade ?? {};
-  shellFloor(g, w, d, spec.cx, y0, spec.cz, floorMat);
+  const floorFinish = ctx.finish?.floor ? finishMat(ctx.finish.floor, C.stone) : floorMat;
+  const lining = ctx.finish?.wall ? finishMat(ctx.finish.wall, C.cream) : undefined;
+  shellFloor(g, w, d, spec.cx, y0, spec.cz, floorFinish);
   const doorHole: WallHole[] = spec.door ? [{ u0: spec.door.x - spec.door.w / 2, u1: spec.door.x + spec.door.w / 2, v0: y0 - 0.02, v1: y0 + spec.door.h }] : [];
-  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z0 - t, wallMat, [0, -1], f.back ?? []); // tylna
-  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z1 + t, wallMat, [0, 1], [...doorHole, ...(f.front ?? [])]); // przednia
-  shellWallZ(g, z0, z1, y0 - 0.01, y1, x0 - t, wallMat, [-1, 0], f.left ?? []);
-  shellWallZ(g, z0, z1, y0 - 0.01, y1, x1 + t, wallMat, [1, 0], f.right ?? []);
+  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z0 - t, wallMat, [0, -1], f.back ?? [], lining); // tylna
+  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z1 + t, wallMat, [0, 1], [...doorHole, ...(f.front ?? [])], lining); // przednia
+  shellWallZ(g, z0, z1, y0 - 0.01, y1, x0 - t, wallMat, [-1, 0], f.left ?? [], lining);
+  shellWallZ(g, z0, z1, y0 - 0.01, y1, x1 + t, wallMat, [1, 0], f.right ?? [], lining);
   if (spec.door) shellLeaf(g, spec.door, y0, leafMat);
-  shellSlabs(g, ctx, [{ x0, x1, z0, z1 }], y0, h, floorMat);
+  shellSlabs(g, ctx, [{ x0, x1, z0, z1 }], y0, h, floorFinish);
 }
 
 /** Dekoracyjne okienko elewacji powtórzone na każdej kondygnacji. */
@@ -395,8 +422,9 @@ function buildTemple(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.temple;
   add(g, box(2.8, 0.22, 2.4), mat(C.stone), 0, 0.11, 0);
   add(g, box(2.4, 0.14, 2.0), mat(C.cream2), 0, 0.29, 0);
-  shellFloor(g, spec.inner.w, spec.inner.d, 0, spec.floorY, 0, mat(C.cream2));
-  shellSlabs(g, ctx, [{ x0: -spec.inner.w / 2, x1: spec.inner.w / 2, z0: -spec.inner.d / 2, z1: spec.inner.d / 2 }], spec.floorY, spec.inner.h, mat(C.cream2));
+  const templeFloor = finishMat(ctx.finish?.floor, C.cream2);
+  shellFloor(g, spec.inner.w, spec.inner.d, 0, spec.floorY, 0, templeFloor);
+  shellSlabs(g, ctx, [{ x0: -spec.inner.w / 2, x1: spec.inner.w / 2, z0: -spec.inner.d / 2, z1: spec.inner.d / 2 }], spec.floorY, spec.inner.h, templeFloor);
   shellRamp(g, 0, 1.6, 1.0, 2.0, spec.floorY); // wejście między kolumnami od frontu
   columns(g, [[-0.9, 0.7], [0.9, 0.7], [-0.9, -0.7], [0.9, -0.7]], 1.5, 0.1, 0.36);
   const roof = roofGroup(g, roofLift(ctx, spec));
@@ -408,7 +436,9 @@ function buildTemple(g: THREE.Group, ctx: BuildCtx) {
 function buildTower(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.tower;
   add(g, cyl(1.0, 1.1, 0.3, 12), mat(C.stone), 0, 0.15, 0);
-  const floor = add(g, cyl(0.72, 0.72, 0.04, 12), mat(C.stone), 0, spec.floorY - 0.01, 0);
+  const floorFinish = finishMat(ctx.finish?.floor, C.stone);
+  const lining = ctx.finish?.wall ? finishMat(ctx.finish.wall, C.cream) : undefined;
+  const floor = add(g, scaleUv(cyl(0.72, 0.72, 0.04, 12), 1.44, 1.44), floorFinish, 0, spec.floorY - 0.01, 0);
   floor.userData.floorSurface = true;
   // mur z dwunastu segmentów o wysokości wszystkich kondygnacji; przedni ma otwór drzwi
   const r = 0.8;
@@ -426,6 +456,7 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
     if (i === 0) holes.push({ u0: -door.w / 2, u1: door.w / 2, v0: spec.floorY - 0.02, v1: spec.floorY + door.h });
     const seg = add(g, wallGeometry(-side / 2 - 0.01, side / 2 + 0.01, spec.floorY - 0.01, top, holes, 0.1), mat(C.cream), x, 0, z, [0, a, 0]);
     seg.userData.wallNormal = [Math.sin(a), Math.cos(a)];
+    if (lining) shellLining(g, wallGeometry(-side / 2 - 0.01, side / 2 + 0.01, spec.floorY - 0.01, top, holes, LINING_T), lining, Math.sin(a) * (r - 0.05 - LINING_T / 2 - 0.002), Math.cos(a) * (r - 0.05 - LINING_T / 2 - 0.002), a, [Math.sin(a), Math.cos(a)]);
   }
   shellLeaf(g, door, spec.floorY, mat(C.dark));
   shellEntryRamp(g, spec, 1.5);
@@ -435,7 +466,7 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
     const { hole } = spiralStairs(g, { cx: 0, cz: 0, r: 0.72, inner: 0.26, y0: spec.floorY + k * h, height: h, start: Math.PI / 2, turn: Math.PI * 1.5, steps: Math.max(8, Math.round((h * 2.5) / 0.27)) }, mat(C.stoneDark));
     holes.push([hole]);
   }
-  shellSlabs(g, ctx, discRects(0.74), spec.floorY, h, mat(C.stone), holes);
+  shellSlabs(g, ctx, discRects(0.74), spec.floorY, h, floorFinish, holes);
   const lift = top - 3.9; // gzyms i stożek siedzą na szczycie muru
   const roof = roofGroup(g, lift);
   add(roof, cyl(0.9, 0.9, 0.22, 12), mat(C.cream2), 0, 3.9 + 0.11, 0);
@@ -452,7 +483,7 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
 function buildHouse(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.house;
   add(g, box(2.4, 0.16, 2.2), mat(C.stone), 0, 0.08, 0);
-  shellBox(g, ctx, spec, mat(C.cream), mat(C.wood), mat(C.dark));
+  shellBox(g, ctx, spec, mat(C.cream), woodMat(C.wood), mat(C.dark));
   shellEntryRamp(g, spec, 1.6);
   const roof = roofGroup(g, roofLift(ctx, spec));
   add(roof, prism(2.3, 0.9, 2.1), mat(C.roof), 0, 1.56, 0);
@@ -465,11 +496,11 @@ function buildGazebo(g: THREE.Group) {
   add(g, cyl(1.3, 1.3, 0.1, 6), mat(C.cream2), 0, 0.25, 0);
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
-    add(g, cyl(0.07, 0.07, 1.8, 8), mat(C.wood), Math.cos(a) * 1.15, 0.3 + 0.9, Math.sin(a) * 1.15);
+    add(g, cyl(0.07, 0.07, 1.8, 8), woodMat(C.wood), Math.cos(a) * 1.15, 0.3 + 0.9, Math.sin(a) * 1.15);
   }
-  add(g, cyl(1.45, 1.45, 0.12, 6), mat(C.woodDark), 0, 2.16, 0);
+  add(g, cyl(1.45, 1.45, 0.12, 6), woodMat(C.woodDark), 0, 2.16, 0);
   add(g, cone(1.6, 0.9, 6), mat(C.roof), 0, 2.22 + 0.45, 0);
-  add(g, box(0.7, 0.45, 0.7), mat(C.wood), 0, 0.3 + 0.22, 0);
+  add(g, box(0.7, 0.45, 0.7), woodMat(C.wood), 0, 0.3 + 0.22, 0);
 }
 
 function buildFountain(g: THREE.Group) {
@@ -483,8 +514,8 @@ function buildFountain(g: THREE.Group) {
 }
 
 function buildBench(g: THREE.Group) {
-  add(g, box(1.4, 0.08, 0.45), mat(C.wood), 0, 0.45, 0);
-  add(g, box(1.4, 0.4, 0.07), mat(C.wood), 0, 0.72, -0.2, [-0.15, 0, 0]);
+  add(g, box(1.4, 0.08, 0.45), woodMat(C.wood), 0, 0.45, 0);
+  add(g, box(1.4, 0.4, 0.07), woodMat(C.wood), 0, 0.72, -0.2, [-0.15, 0, 0]);
   for (const x of [-0.6, 0.6]) {
     add(g, box(0.08, 0.45, 0.4), mat(C.metal), x, 0.22, 0);
     add(g, box(0.08, 0.5, 0.06), mat(C.metal), x, 0.7, -0.19, [-0.15, 0, 0]);
@@ -525,31 +556,31 @@ function buildObelisk(g: THREE.Group) {
 }
 
 function buildChest(g: THREE.Group) {
-  add(g, box(0.9, 0.5, 0.6), mat(C.wood), 0, 0.25, 0);
+  add(g, box(0.9, 0.5, 0.6), woodMat(C.wood), 0, 0.25, 0);
   const lid = new THREE.CylinderGeometry(0.3, 0.3, 0.9, 10, 1, false, 0, Math.PI);
-  add(g, lid, mat(C.woodDark), 0, 0.5, 0, [0, 0, Math.PI / 2]);
+  add(g, lid, woodMat(C.woodDark), 0, 0.5, 0, [0, 0, Math.PI / 2]);
   add(g, box(0.92, 0.06, 0.62), mat(C.metal), 0, 0.5, 0);
   add(g, box(0.12, 0.16, 0.06), mat(C.metal), 0, 0.42, 0.31);
 }
 
 function buildSignpost(g: THREE.Group) {
-  add(g, cyl(0.05, 0.06, 2.0, 8), mat(C.woodDark), 0, 1.0, 0);
-  add(g, box(0.9, 0.22, 0.06), mat(C.wood), 0.3, 1.7, 0, [0, 0.4, 0]);
-  add(g, box(0.8, 0.22, 0.06), mat(C.wood), -0.25, 1.4, 0, [0, -0.6, 0]);
+  add(g, cyl(0.05, 0.06, 2.0, 8), woodMat(C.woodDark), 0, 1.0, 0);
+  add(g, box(0.9, 0.22, 0.06), woodMat(C.wood), 0.3, 1.7, 0, [0, 0.4, 0]);
+  add(g, box(0.8, 0.22, 0.06), woodMat(C.wood), -0.25, 1.4, 0, [0, -0.6, 0]);
   add(g, box(0.16, 0.16, 0.16), mat(C.stone), 0, 0.08, 0);
 }
 
 function buildWell(g: THREE.Group) {
   add(g, cyl(0.7, 0.75, 0.7, 12), mat(C.stoneDark), 0, 0.35, 0);
   add(g, cyl(0.5, 0.5, 0.05, 12), mat(C.water, { flat: false, roughness: 0.3 }), 0, 0.7, 0);
-  for (const x of [-0.6, 0.6]) add(g, box(0.1, 1.5, 0.1), mat(C.wood), x, 0.75 + 0.7, 0);
+  for (const x of [-0.6, 0.6]) add(g, box(0.1, 1.5, 0.1), woodMat(C.wood), x, 0.75 + 0.7, 0);
   add(g, prism(1.7, 0.5, 1.2), mat(C.roof), 0, 2.15, 0);
-  add(g, cyl(0.04, 0.04, 1.3, 6), mat(C.woodDark), 0, 1.75, 0, [0, 0, Math.PI / 2]);
-  add(g, cyl(0.16, 0.16, 0.24, 8), mat(C.woodDark), 0, 1.75, 0, [0, 0, Math.PI / 2]);
+  add(g, cyl(0.04, 0.04, 1.3, 6), woodMat(C.woodDark), 0, 1.75, 0, [0, 0, Math.PI / 2]);
+  add(g, cyl(0.16, 0.16, 0.24, 8), woodMat(C.woodDark), 0, 1.75, 0, [0, 0, Math.PI / 2]);
 }
 
 function buildTree(g: THREE.Group) {
-  add(g, cyl(0.12, 0.18, 1.2, 8), mat(C.woodDark), 0, 0.6, 0);
+  add(g, cyl(0.12, 0.18, 1.2, 8), woodMat(C.woodDark), 0, 0.6, 0);
   add(g, dodeca(0.85, 0), mat(C.leaf), 0, 1.75, 0);
   add(g, dodeca(0.6, 0), mat(C.leaf2), 0.45, 2.1, 0.2);
   add(g, dodeca(0.55, 0), mat(C.leafDark), -0.45, 1.5, -0.25);
@@ -557,7 +588,7 @@ function buildTree(g: THREE.Group) {
 }
 
 function buildCypress(g: THREE.Group) {
-  add(g, cyl(0.08, 0.12, 0.5, 8), mat(C.woodDark), 0, 0.25, 0);
+  add(g, cyl(0.08, 0.12, 0.5, 8), woodMat(C.woodDark), 0, 0.25, 0);
   add(g, cone(0.5, 1.6, 8), mat(C.cypress), 0, 0.4 + 0.8, 0);
   add(g, cone(0.4, 1.5, 8), mat(C.cypress2), 0, 1.4 + 0.75, 0);
   add(g, cone(0.26, 1.2, 8), mat(C.cypress), 0, 2.3 + 0.6, 0);
@@ -585,7 +616,7 @@ function buildFlowers(g: THREE.Group) {
 function buildPalm(g: THREE.Group) {
   const segs = 5;
   for (let i = 0; i < segs; i++) {
-    add(g, cyl(0.1 - i * 0.008, 0.13 - i * 0.008, 0.6, 7), mat(C.woodDark), i * 0.08, 0.3 + i * 0.55, 0, [0, 0, -0.12]);
+    add(g, cyl(0.1 - i * 0.008, 0.13 - i * 0.008, 0.6, 7), woodMat(C.woodDark), i * 0.08, 0.3 + i * 0.55, 0, [0, 0, -0.12]);
   }
   for (let i = 0; i < 7; i++) {
     const a = (i / 7) * Math.PI * 2;
@@ -624,12 +655,12 @@ function buildGate(g: THREE.Group) {
   add(g, prism(3.8, 0.5, 0.5), mat(C.roof), 0, 3.28, 0);
   // uchylone skrzydła
   for (const s2 of [-1, 1]) {
-    const wing = add(g, box(1.25, 2.3, 0.08), mat(C.woodDark), s2 * 1.28, 1.2, 0.1);
+    const wing = add(g, box(1.25, 2.3, 0.08), woodMat(C.woodDark), s2 * 1.28, 1.2, 0.1);
     wing.rotation.y = s2 * 0.55;
     wing.position.x = s2 * 0.95;
     wing.position.z = 0.35 * 1;
     for (let i = 0; i < 3; i++) {
-      const bar = add(g, box(1.1, 0.09, 0.11), mat(C.wood), 0, 0.5 + i * 0.8, 0);
+      const bar = add(g, box(1.1, 0.09, 0.11), woodMat(C.wood), 0, 0.5 + i * 0.8, 0);
       bar.position.copy(wing.position);
       bar.rotation.y = wing.rotation.y;
       bar.translateY(-0.7 + i * 0.75);
@@ -642,7 +673,7 @@ function buildGate(g: THREE.Group) {
 // ---------- oświetlenie ----------
 
 function buildTorch(g: THREE.Group) {
-  add(g, cyl(0.04, 0.05, 1.5, 6), mat(C.woodDark), 0, 0.75, 0);
+  add(g, cyl(0.04, 0.05, 1.5, 6), woodMat(C.woodDark), 0, 0.75, 0);
   add(g, cyl(0.09, 0.07, 0.24, 8), mat(C.metal), 0, 1.6, 0);
   add(g, cone(0.1, 0.34, 6), mat('#ff8a3d', { emissive: '#ff5a1a' }), 0, 1.88, 0);
   add(g, cone(0.05, 0.2, 5), mat('#ffd36b', { emissive: '#ffc44d' }), 0, 1.98, 0);
@@ -666,9 +697,9 @@ function buildCampfire(g: THREE.Group) {
     const a = (i / 8) * Math.PI * 2;
     add(g, dodeca(0.16, 0), mat(C.rock), Math.cos(a) * 0.55, 0.1, Math.sin(a) * 0.55, [0.3, a, 0.2]);
   }
-  add(g, cyl(0.06, 0.07, 0.9, 5), mat(C.woodDark), 0, 0.14, 0, [0, 0.4, 1.2]);
-  add(g, cyl(0.06, 0.07, 0.9, 5), mat(C.woodDark), 0, 0.14, 0, [0, 2.5, 1.2]);
-  add(g, cyl(0.06, 0.07, 0.9, 5), mat(C.woodDark), 0, 0.14, 0, [0, 4.6, 1.2]);
+  add(g, cyl(0.06, 0.07, 0.9, 5), woodMat(C.woodDark), 0, 0.14, 0, [0, 0.4, 1.2]);
+  add(g, cyl(0.06, 0.07, 0.9, 5), woodMat(C.woodDark), 0, 0.14, 0, [0, 2.5, 1.2]);
+  add(g, cyl(0.06, 0.07, 0.9, 5), woodMat(C.woodDark), 0, 0.14, 0, [0, 4.6, 1.2]);
   add(g, cone(0.22, 0.6, 6), mat('#ff7a2e', { emissive: '#ff4d12' }), 0, 0.45, 0);
   add(g, cone(0.12, 0.42, 5), mat('#ffd36b', { emissive: '#ffc44d' }), 0.05, 0.6, 0.03);
   const light = new THREE.PointLight('#ff9a4a', 6, 8, 2);
@@ -694,6 +725,10 @@ export interface BuildCtx {
   drop?: number;
   /** Obraz: styl płótna (z hasza id obiektu). */
   variant?: number;
+  /** Nadpisane kolory warstw (rola → `#rrggbb`). */
+  colors?: Record<string, string>;
+  /** Wykończenie: tekstura podłogi i ścian wnętrza budynku w miejscu; dla ścieżki `floor` to nawierzchnia. */
+  finish?: { floor?: string; wall?: string };
 }
 
 /** Otwór w ścianie powłoki w układzie ściany: `u` wzdłuż niej (od jej środka), `v` to wysokość w modelu. */
@@ -751,7 +786,7 @@ function buildDoor(g: THREE.Group) {
   const lightH = DOOR_OPENING.h - 0.08; // 2,1 m
   const jambW = 0.1; // 0,08 widoczne + 0,02 w murze
   const depth = WALL_THICKNESS + 0.04;
-  const frame = mat(C.woodDark);
+  const frame = woodMat(C.woodDark);
   const jambX = lightW / 2 + jambW / 2;
   add(g, box(jambW, lightH + 0.1, depth), frame, -jambX, (lightH + 0.1) / 2, 0);
   add(g, box(jambW, lightH + 0.1, depth), frame, jambX, (lightH + 0.1) / 2, 0);
@@ -769,7 +804,7 @@ function buildDoor(g: THREE.Group) {
   const leafT = 0.05;
   const leafX = 0.015 + leafW / 2;
   const leafY = 0.01 + leafH / 2;
-  const leafMat = mat(C.wood);
+  const leafMat = woodMat(C.wood);
   const panelMat = mat('#c9a074');
   const parts: THREE.Mesh[] = [];
   parts.push(add(pivot, box(leafW, leafH, leafT), leafMat, leafX, leafY, 0));
@@ -781,7 +816,7 @@ function buildDoor(g: THREE.Group) {
   ];
   for (const side of [-1, 1]) {
     for (const [py, ph] of panels) {
-      parts.push(add(pivot, box(panelW, ph, 0.012), mat(C.woodDark), leafX, py, side * (leafT / 2 + 0.003)));
+      parts.push(add(pivot, box(panelW, ph, 0.012), woodMat(C.woodDark), leafX, py, side * (leafT / 2 + 0.003)));
       parts.push(add(pivot, box(panelW - 0.08, ph - 0.08, 0.02), panelMat, leafX, py, side * (leafT / 2 - 0.004)));
     }
     // klamka: pręt poziomy i gałka przy krawędzi zamka
@@ -842,7 +877,7 @@ function railing(g: THREE.Group, x0: number, z0: number, x1: number, z1: number,
 /** Okno w murze: rama wpuszczona w otwór, słupek, przezroczysta tafla i parapet. */
 function buildWindow(g: THREE.Group) {
   const { w, h, sill } = FACADE.window;
-  const frame = mat(C.woodDark);
+  const frame = woodMat(C.woodDark);
   const depth = 0.24;
   const zc = -depth / 2 + 0.02;
   add(g, box(0.08, h, depth), frame, -w / 2 + 0.04, sill + h / 2, zc);
@@ -876,7 +911,7 @@ function buildBalcony(g: THREE.Group) {
   railing(g, -pw / 2, 0.05, -pw / 2, pd, 0, rail);
   railing(g, pw / 2, 0.05, pw / 2, pd, 0, rail);
   // ościeżnica wyjścia
-  const frame = mat(C.woodDark);
+  const frame = woodMat(C.woodDark);
   add(g, box(0.08, 2.1, 0.2), frame, -w / 2 - 0.04, 1.05, -0.08);
   add(g, box(0.08, 2.1, 0.2), frame, w / 2 + 0.04, 1.05, -0.08);
   add(g, box(w + 0.16, 0.08, 0.2), frame, 0, 2.1 + 0.04, -0.08);
@@ -907,7 +942,7 @@ function buildTerrace(g: THREE.Group, ctx: BuildCtx) {
   const len = steps * run;
   const ramp = add(g, box(1.2, 0.1, Math.hypot(len, drop) + 0.1), stone, 0, -drop / 2 + 0.02, pd + len / 2, [Math.atan2(drop, len), 0, 0]);
   ramp.visible = false;
-  const frame = mat(C.woodDark);
+  const frame = woodMat(C.woodDark);
   add(g, box(0.08, 2.1, 0.2), frame, -w / 2 - 0.04, 1.05, -0.08);
   add(g, box(0.08, 2.1, 0.2), frame, w / 2 + 0.04, 1.05, -0.08);
   add(g, box(w + 0.16, 0.08, 0.2), frame, 0, 2.1 + 0.04, -0.08);
@@ -916,21 +951,21 @@ function buildTerrace(g: THREE.Group, ctx: BuildCtx) {
 // ---------- wyposażenie wnętrz ----------
 
 function buildTable(g: THREE.Group) {
-  add(g, box(1.6, 0.1, 0.9), mat(C.wood), 0, 0.76, 0);
-  add(g, box(1.5, 0.06, 0.8), mat(C.woodDark), 0, 0.7, 0);
+  add(g, box(1.6, 0.1, 0.9), woodMat(C.wood), 0, 0.76, 0);
+  add(g, box(1.5, 0.06, 0.8), woodMat(C.woodDark), 0, 0.7, 0);
   for (const [x, z] of [[-0.68, -0.34], [0.68, -0.34], [-0.68, 0.34], [0.68, 0.34]] as [number, number][]) {
-    add(g, box(0.1, 0.72, 0.1), mat(C.woodDark), x, 0.36, z);
+    add(g, box(0.1, 0.72, 0.1), woodMat(C.woodDark), x, 0.36, z);
   }
   add(g, box(0.4, 0.04, 0.3), mat(C.paper), 0.3, 0.83, 0.1, [0, 0.3, 0]);
 }
 
 function buildShelf(g: THREE.Group) {
-  add(g, box(1.4, 2.2, 0.36), mat(C.woodDark), 0, 1.1, -0.02);
-  add(g, box(1.3, 2.05, 0.06), mat(C.wood), 0, 1.1, 0.14);
+  add(g, box(1.4, 2.2, 0.36), woodMat(C.woodDark), 0, 1.1, -0.02);
+  add(g, box(1.3, 2.05, 0.06), woodMat(C.wood), 0, 1.1, 0.14);
   const cols = [C.book1, C.book2, C.book3, C.flower3];
   for (let shelf = 0; shelf < 4; shelf++) {
     const y = 0.35 + shelf * 0.5;
-    add(g, box(1.28, 0.05, 0.32), mat(C.wood), 0, y, 0);
+    add(g, box(1.28, 0.05, 0.32), woodMat(C.wood), 0, y, 0);
     for (let i = 0; i < 7; i++) {
       const h = 0.28 + ((i * 7 + shelf * 3) % 5) * 0.02;
       add(g, box(0.13, h, 0.24), mat(cols[(i + shelf) % 4]), -0.53 + i * 0.17, y + h / 2 + 0.03, 0);
@@ -939,20 +974,20 @@ function buildShelf(g: THREE.Group) {
 }
 
 function buildChair(g: THREE.Group) {
-  add(g, box(0.48, 0.07, 0.46), mat(C.wood), 0, 0.45, 0);
-  add(g, box(0.46, 0.6, 0.07), mat(C.wood), 0, 0.75, -0.2);
+  add(g, box(0.48, 0.07, 0.46), woodMat(C.wood), 0, 0.45, 0);
+  add(g, box(0.46, 0.6, 0.07), woodMat(C.wood), 0, 0.75, -0.2);
   for (const [x, z] of [[-0.19, -0.18], [0.19, -0.18], [-0.19, 0.18], [0.19, 0.18]] as [number, number][]) {
-    add(g, box(0.06, 0.44, 0.06), mat(C.woodDark), x, 0.22, z);
+    add(g, box(0.06, 0.44, 0.06), woodMat(C.woodDark), x, 0.22, z);
   }
 }
 
 function buildEasel(g: THREE.Group) {
   // sztaluga
-  add(g, cyl(0.03, 0.04, 1.6, 5), mat(C.woodDark), -0.28, 0.8, 0.12, [0.12, 0, 0.14]);
-  add(g, cyl(0.03, 0.04, 1.6, 5), mat(C.woodDark), 0.28, 0.8, 0.12, [0.12, 0, -0.14]);
-  add(g, cyl(0.03, 0.04, 1.5, 5), mat(C.woodDark), 0, 0.75, -0.3, [-0.2, 0, 0]);
-  add(g, box(0.68, 0.05, 0.08), mat(C.wood), 0, 0.72, 0.1);
-  add(g, box(0.76, 0.6, 0.05), mat(C.wood), 0, 1.05, 0.08, [0.06, 0, 0]);
+  add(g, cyl(0.03, 0.04, 1.6, 5), woodMat(C.woodDark), -0.28, 0.8, 0.12, [0.12, 0, 0.14]);
+  add(g, cyl(0.03, 0.04, 1.6, 5), woodMat(C.woodDark), 0.28, 0.8, 0.12, [0.12, 0, -0.14]);
+  add(g, cyl(0.03, 0.04, 1.5, 5), woodMat(C.woodDark), 0, 0.75, -0.3, [-0.2, 0, 0]);
+  add(g, box(0.68, 0.05, 0.08), woodMat(C.wood), 0, 0.72, 0.1);
+  add(g, box(0.76, 0.6, 0.05), woodMat(C.wood), 0, 1.05, 0.08, [0.06, 0, 0]);
   add(g, box(0.66, 0.5, 0.02), mat(C.flower3), 0, 1.05, 0.11, [0.06, 0, 0]);
 }
 
@@ -970,7 +1005,7 @@ function artMat(variant: number): THREE.MeshStandardMaterial {
 /** Obraz w ramie z passe-partout: wisi na 1,5 m, płótno z generowanym motywem. */
 function buildPainting(g: THREE.Group, ctx: BuildCtx) {
   const y = 1.5;
-  add(g, box(0.92, 0.72, 0.05), mat(C.woodDark), 0, y, 0);
+  add(g, box(0.92, 0.72, 0.05), woodMat(C.woodDark), 0, y, 0);
   add(g, box(0.86, 0.66, 0.02), mat(C.gold, { metalness: 0.6, roughness: 0.4 }), 0, y, 0.03);
   add(g, box(0.8, 0.6, 0.015), mat(C.paper), 0, y, 0.045);
   add(g, box(0.72, 0.52, 0.012), artMat(ctx.variant ?? 0), 0, y, 0.058);
@@ -993,11 +1028,11 @@ function buildBust(g: THREE.Group) {
 function buildFireplace(g: THREE.Group) {
   add(g, box(1.6, 1.2, 0.5), mat(C.stoneDark), 0, 0.6, 0);
   add(g, box(0.8, 0.72, 0.46), mat('#1d1a17'), 0, 0.4, 0.04);
-  add(g, box(1.8, 0.08, 0.62), mat(C.wood), 0, 1.24, 0.02);
+  add(g, box(1.8, 0.08, 0.62), woodMat(C.wood), 0, 1.24, 0.02);
   add(g, box(1.2, 1.4, 0.42), mat(C.stone), 0, 1.98, -0.04);
   add(g, box(0.9, 0.04, 0.5), mat('#2a2622'), 0, 0.06, 0.05);
-  add(g, cyl(0.06, 0.06, 0.5, 6), mat(C.woodDark), 0, 0.12, 0.08, [0, 0, Math.PI / 2]);
-  add(g, cyl(0.05, 0.05, 0.46, 6), mat(C.woodDark), 0.04, 0.22, 0.12, [0, 0.4, Math.PI / 2]);
+  add(g, cyl(0.06, 0.06, 0.5, 6), woodMat(C.woodDark), 0, 0.12, 0.08, [0, 0, Math.PI / 2]);
+  add(g, cyl(0.05, 0.05, 0.46, 6), woodMat(C.woodDark), 0.04, 0.22, 0.12, [0, 0.4, Math.PI / 2]);
   add(g, cone(0.14, 0.4, 6), mat('#ff7a2e', { emissive: '#ff4d12' }), -0.06, 0.38, 0.1);
   add(g, cone(0.09, 0.3, 5), mat('#ffd36b', { emissive: '#ffc44d' }), 0.08, 0.36, 0.14);
   const light = new THREE.PointLight('#ff9a4a', 5, 6, 2);
@@ -1016,7 +1051,7 @@ function seating(g: THREE.Group, width: number, cushions: number) {
     add(g, box(cw, 0.12, 0.62), mat(C.fabric2), x, 0.5, 0.05);
     add(g, box(cw - 0.06, 0.34, 0.1), mat(C.fabric2), x, 0.68, -0.22);
   }
-  for (const x of [-width / 2 + 0.08, width / 2 - 0.08]) for (const z of [-0.32, 0.32]) add(g, cyl(0.03, 0.03, 0.1, 6), mat(C.woodDark), x, 0.05, z);
+  for (const x of [-width / 2 + 0.08, width / 2 - 0.08]) for (const z of [-0.32, 0.32]) add(g, cyl(0.03, 0.03, 0.1, 6), woodMat(C.woodDark), x, 0.05, z);
 }
 
 function buildArmchair(g: THREE.Group) {
@@ -1029,19 +1064,19 @@ function buildSofa(g: THREE.Group) {
 
 /** Łóżko z kołdrą, poduszkami i wezgłowiem. */
 function buildBed(g: THREE.Group) {
-  add(g, box(1.6, 0.3, 2.1), mat(C.woodDark), 0, 0.2, 0);
+  add(g, box(1.6, 0.3, 2.1), woodMat(C.woodDark), 0, 0.2, 0);
   add(g, box(1.5, 0.22, 2.0), mat(C.linen), 0, 0.46, 0);
   add(g, box(1.52, 0.1, 1.3), mat('#a3b7c9'), 0, 0.6, 0.3);
   for (const x of [-0.4, 0.4]) add(g, box(0.55, 0.14, 0.4), mat(C.paper), x, 0.62, -0.72);
-  add(g, box(1.6, 0.9, 0.08), mat(C.woodDark), 0, 0.75, -1.06);
-  for (const x of [-0.72, 0.72]) for (const z of [-0.98, 0.98]) add(g, box(0.08, 0.1, 0.08), mat(C.woodDark), x, 0.05, z);
+  add(g, box(1.6, 0.9, 0.08), woodMat(C.woodDark), 0, 0.75, -1.06);
+  for (const x of [-0.72, 0.72]) for (const z of [-0.98, 0.98]) add(g, box(0.08, 0.1, 0.08), woodMat(C.woodDark), x, 0.05, z);
 }
 
 /** Biurko z szufladami i lampką. */
 function buildDesk(g: THREE.Group) {
-  add(g, box(1.4, 0.06, 0.7), mat(C.wood), 0, 0.75, 0);
+  add(g, box(1.4, 0.06, 0.7), woodMat(C.wood), 0, 0.75, 0);
   for (const x of [-0.45, 0.45]) {
-    add(g, box(0.45, 0.66, 0.6), mat(C.woodDark), x, 0.36, 0);
+    add(g, box(0.45, 0.66, 0.6), woodMat(C.woodDark), x, 0.36, 0);
     for (let i = 0; i < 3; i++) add(g, box(0.3, 0.03, 0.02), mat(C.cream2), x, 0.16 + i * 0.2, 0.31);
   }
   add(g, cyl(0.06, 0.08, 0.03, 8), mat(C.metal), -0.45, 0.8, -0.2);
@@ -1054,19 +1089,19 @@ function buildDesk(g: THREE.Group) {
 
 /** Kredens z drzwiczkami. */
 function buildSideboard(g: THREE.Group) {
-  add(g, box(1.4, 0.86, 0.5), mat(C.woodDark), 0, 0.47, 0);
-  add(g, box(1.46, 0.04, 0.54), mat(C.wood), 0, 0.92, 0);
+  add(g, box(1.4, 0.86, 0.5), woodMat(C.woodDark), 0, 0.47, 0);
+  add(g, box(1.46, 0.04, 0.54), woodMat(C.wood), 0, 0.92, 0);
   for (const x of [-0.34, 0.34]) {
-    add(g, box(0.6, 0.66, 0.02), mat(C.wood), x, 0.45, 0.26);
+    add(g, box(0.6, 0.66, 0.02), woodMat(C.wood), x, 0.45, 0.26);
     add(g, box(0.03, 0.1, 0.02), mat(C.gold, { metalness: 0.6, roughness: 0.4 }), x + (x < 0 ? 0.24 : -0.24), 0.45, 0.28);
   }
-  for (const x of [-0.6, 0.6]) for (const z of [-0.2, 0.2]) add(g, box(0.06, 0.08, 0.06), mat(C.woodDark), x, 0.04, z);
+  for (const x of [-0.6, 0.6]) for (const z of [-0.2, 0.2]) add(g, box(0.06, 0.08, 0.06), woodMat(C.woodDark), x, 0.04, z);
 }
 
 /** Zegar stojący z tarczą i wahadłem. */
 function buildClock(g: THREE.Group) {
-  add(g, box(0.5, 2.0, 0.3), mat(C.woodDark), 0, 1.0, 0);
-  add(g, box(0.56, 0.08, 0.34), mat(C.wood), 0, 2.04, 0);
+  add(g, box(0.5, 2.0, 0.3), woodMat(C.woodDark), 0, 1.0, 0);
+  add(g, box(0.56, 0.08, 0.34), woodMat(C.wood), 0, 2.04, 0);
   add(g, box(0.18, 0.9, 0.02), mat('#1d1a17'), 0, 0.85, 0.15);
   add(g, cyl(0.012, 0.012, 0.6, 5), mat(C.gold, { metalness: 0.7, roughness: 0.3 }), 0, 0.95, 0.16);
   add(g, cyl(0.06, 0.06, 0.02, 12), mat(C.gold, { metalness: 0.7, roughness: 0.3 }), 0, 0.62, 0.16, [Math.PI / 2, 0, 0]);
@@ -1080,7 +1115,7 @@ function buildMirror(g: THREE.Group) {
   const gold = mat(C.gold, { metalness: 0.8, roughness: 0.3 });
   add(g, box(0.8, 1.4, 0.05), gold, 0, 1.0, 0, [-0.08, 0, 0]);
   add(g, box(0.68, 1.28, 0.02), mat('#dbe6ee', { metalness: 0.9, roughness: 0.05, flat: false }), 0, 1.0, 0.03, [-0.08, 0, 0]);
-  for (const x of [-0.3, 0.3]) add(g, box(0.05, 0.4, 0.4), mat(C.woodDark), x, 0.2, -0.08);
+  for (const x of [-0.3, 0.3]) add(g, box(0.05, 0.4, 0.4), woodMat(C.woodDark), x, 0.2, -0.08);
 }
 
 /** Wazon z pięcioma kwiatami. */
@@ -1169,7 +1204,7 @@ function buildHill(g: THREE.Group) {
   m.scale.set(1, 0.42, 1);
   add(g, dodeca(0.45, 0), mat(C.leafDark), 1.2, 0.85, 0.5);
   add(g, dodeca(0.35, 0), mat(C.leaf), -1.1, 0.8, -0.6);
-  add(g, cyl(0.1, 0.14, 0.7, 6), mat(C.woodDark), 0.2, 1.2, -0.3);
+  add(g, cyl(0.1, 0.14, 0.7, 6), woodMat(C.woodDark), 0.2, 1.2, -0.3);
   add(g, dodeca(0.55, 0), mat(C.leafDark), 0.2, 1.85, -0.3);
 }
 
@@ -1294,8 +1329,25 @@ export const EMITTER_ANCHORS: Record<string, [number, number, number]> = {
 
 export function buildModel(type: string, ctx?: Partial<BuildCtx>): THREE.Group {
   const g = new THREE.Group();
+  palette = paletteOf(ctx?.colors);
+  usedRoles = new Set();
   (BUILDERS[type] ?? buildObelisk)(g, { ...ctx, floorHeight: ctx?.floorHeight ?? 3.2 });
+  g.userData.roles = [...usedRoles];
+  palette = MATERIAL_DEFAULTS;
   return g;
+}
+
+const rolesCache = new Map<string, MaterialRole[]>();
+/** Warstwy materiałów, których używa model danego typu (z próbnej budowy; wynik jest zapamiętany). */
+export function rolesOf(type: string): MaterialRole[] {
+  let roles = rolesCache.get(type);
+  if (!roles) {
+    const g = buildModel(type, { floorHeight: 3.2, floors: 2 });
+    roles = (g.userData.roles as MaterialRole[]).filter((r) => r !== 'glow');
+    disposeObject(g);
+    rolesCache.set(type, roles);
+  }
+  return roles;
 }
 
 /** Wysokość modelu (do pozycjonowania etykiet). */

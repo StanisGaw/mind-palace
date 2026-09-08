@@ -32,6 +32,8 @@ export interface PalaceObject {
   groupId?: string; // grupa: kliknięcie zaznacza wszystkich członków, ruszają się i giną razem
   interiorMode?: 'inplace'; // budynek: wnętrze w tej samej scenie (brak = osobny pałac-wnętrze)
   floors?: number; // budynek z wnętrzem w miejscu: liczba kondygnacji (1–4)
+  colors?: Record<string, string>; // nadpisane kolory warstw materiałów (rola → #rrggbb), patrz `lib/materials.ts`
+  finish?: { floor?: string; wall?: string }; // tekstury wnętrza budynku w miejscu; dla ścieżki `floor` to nawierzchnia
   shellVersion?: 2; // 2: piętra podwyższają bryłę (stała wysokość kondygnacji); brak = stary podział bryły na piętra
 }
 
@@ -77,6 +79,7 @@ export interface PalaceSettings {
   scenery: Scenery;
   seed: number;
   groundTexture?: string; // id tekstury płyty (albo podłogi we wnętrzu)
+  wallTexture?: string; // wnętrze ładowane: tekstura ścian pokoju
 }
 
 export interface Palace {

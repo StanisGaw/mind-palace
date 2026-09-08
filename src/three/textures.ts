@@ -1,9 +1,14 @@
 import * as THREE from 'three';
 import { Noise2D } from './noise';
+import { loadCustomTextures } from '../lib/textureStore';
+
+/** Gdzie wzór ma sens: nawierzchnia planszy i ścieżek, podłoga wnętrza, ściany wnętrza. */
+export type TextureKind = 'ground' | 'floor' | 'wall';
 
 export interface TextureDef {
   id: string;
   name: string;
+  kinds: TextureKind[];
   draw: (ctx: CanvasRenderingContext2D, size: number) => void;
 }
 
@@ -56,6 +61,7 @@ export const BUILTIN_TEXTURES: TextureDef[] = [
   {
     id: 'grass',
     name: 'Trawa',
+    kinds: ['ground'],
     draw: (ctx, s) => {
       fill(ctx, s, '#9db884');
       grain(ctx, s, 11, 26, 0.14);
@@ -72,11 +78,12 @@ export const BUILTIN_TEXTURES: TextureDef[] = [
       }
     },
   },
-  { id: 'stone', name: 'Płyty kamienne', draw: (ctx, s) => { bricks(ctx, s, 4, 4, '#a9a79c', '#8d8b82', ['#bcbab0', '#b4b2a8', '#c2c0b6', '#b8b6ac']); grain(ctx, s, 5, 10); } },
-  { id: 'cobble', name: 'Bruk', draw: (ctx, s) => { bricks(ctx, s, 8, 8, '#8f8b84', '#6f6c66', ['#a5a099', '#9b968f', '#aca79f', '#918c85']); grain(ctx, s, 7, 14); } },
+  { id: 'stone', name: 'Płyty kamienne', kinds: ['ground', 'floor'], draw: (ctx, s) => { bricks(ctx, s, 4, 4, '#a9a79c', '#8d8b82', ['#bcbab0', '#b4b2a8', '#c2c0b6', '#b8b6ac']); grain(ctx, s, 5, 10); } },
+  { id: 'cobble', name: 'Bruk', kinds: ['ground'], draw: (ctx, s) => { bricks(ctx, s, 8, 8, '#8f8b84', '#6f6c66', ['#a5a099', '#9b968f', '#aca79f', '#918c85']); grain(ctx, s, 7, 14); } },
   {
     id: 'sand',
     name: 'Piasek',
+    kinds: ['ground'],
     draw: (ctx, s) => {
       fill(ctx, s, '#e0cda2');
       grain(ctx, s, 21, 18, 0.05);
@@ -86,6 +93,7 @@ export const BUILTIN_TEXTURES: TextureDef[] = [
   {
     id: 'planks',
     name: 'Deski',
+    kinds: ['ground', 'floor'],
     draw: (ctx, s) => {
       fill(ctx, s, '#b98a5c');
       const rows = 6;
@@ -109,6 +117,7 @@ export const BUILTIN_TEXTURES: TextureDef[] = [
   {
     id: 'marble',
     name: 'Marmur',
+    kinds: ['floor', 'wall'],
     draw: (ctx, s) => {
       fill(ctx, s, '#eeeae2');
       const n = new Noise2D(15);
@@ -127,9 +136,256 @@ export const BUILTIN_TEXTURES: TextureDef[] = [
       grain(ctx, s, 17, 6);
     },
   },
-  { id: 'soil', name: 'Ziemia', draw: (ctx, s) => { fill(ctx, s, '#8d7358'); grain(ctx, s, 31, 30, 0.1); grain(ctx, s, 32, 14, 0.35); } },
-  { id: 'snow', name: 'Śnieg', draw: (ctx, s) => { fill(ctx, s, '#f2f4f6'); grain(ctx, s, 41, 12, 0.12); } },
+  { id: 'soil', name: 'Ziemia', kinds: ['ground'], draw: (ctx, s) => { fill(ctx, s, '#8d7358'); grain(ctx, s, 31, 30, 0.1); grain(ctx, s, 32, 14, 0.35); } },
+  { id: 'snow', name: 'Śnieg', kinds: ['ground'], draw: (ctx, s) => { fill(ctx, s, '#f2f4f6'); grain(ctx, s, 41, 12, 0.12); } },
 ];
+
+/** Deski o różnych odcieniach z delikatnymi słojami; `rows` desek w poprzek, `along` = poziomo. */
+function boards(ctx: CanvasRenderingContext2D, s: number, rows: number, shades: string[], line: string, seed: number, along = true) {
+  const n = new Noise2D(seed);
+  const t = s / rows;
+  for (let r = 0; r < rows; r++) {
+    ctx.fillStyle = shades[r % shades.length];
+    if (along) ctx.fillRect(0, r * t + 1, s, t - 2);
+    else ctx.fillRect(r * t + 1, 0, t - 2, s);
+    ctx.strokeStyle = line;
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) {
+      const o = r * t + 3 + ((n.noise(r, i) + 1) / 2) * (t - 6);
+      ctx.beginPath();
+      if (along) {
+        ctx.moveTo(0, o);
+        ctx.bezierCurveTo(s * 0.3, o - 2, s * 0.6, o + 2, s, o);
+      } else {
+        ctx.moveTo(o, 0);
+        ctx.bezierCurveTo(o - 2, s * 0.3, o + 2, s * 0.6, o, s);
+      }
+      ctx.stroke();
+    }
+  }
+}
+
+/** Parkiet w jodełkę: dwa kierunki klepek na przemian. */
+function herringbone(ctx: CanvasRenderingContext2D, s: number) {
+  fill(ctx, s, '#8a6845');
+  const shades = ['#b98a5c', '#c2956a', '#ad7f54', '#b58860'];
+  const w = s / 8; // szerokość klepki
+  const len = w * 3;
+  let k = 0;
+  for (let y = -len; y < s + len; y += w) {
+    for (let x = -len; x < s + len; x += len) {
+      const off = ((y / w) % 2 + 2) % 2 === 0 ? 0 : w;
+      ctx.save();
+      ctx.translate(x + off, y);
+      ctx.fillStyle = shades[k++ % shades.length];
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(len, -len);
+      ctx.lineTo(len + w, -len + w);
+      ctx.lineTo(w, w);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+  ctx.strokeStyle = 'rgba(80,55,35,0.35)';
+  ctx.lineWidth = 1;
+  k = 0;
+  for (let y = -len; y < s + len; y += w) {
+    for (let x = -len; x < s + len; x += len) {
+      const off = ((y / w) % 2 + 2) % 2 === 0 ? 0 : w;
+      ctx.beginPath();
+      ctx.moveTo(x + off, y);
+      ctx.lineTo(x + off + len, y - len);
+      ctx.stroke();
+    }
+  }
+}
+
+/** Nieregularne kamienie: poligonalne plamy na spoinie. */
+function fieldstones(ctx: CanvasRenderingContext2D, s: number, count: number, shades: string[], joint: string, seed: number) {
+  fill(ctx, s, joint);
+  const n = new Noise2D(seed);
+  const cell = s / Math.sqrt(count);
+  let k = 0;
+  for (let cy = 0; cy < s; cy += cell) {
+    for (let cx = 0; cx < s; cx += cell) {
+      const x = cx + cell / 2 + n.noise(cx * 0.1, cy * 0.1) * cell * 0.2;
+      const y = cy + cell / 2 + n.noise(cy * 0.1, cx * 0.1) * cell * 0.2;
+      const r = cell * 0.42;
+      ctx.fillStyle = shades[k++ % shades.length];
+      ctx.beginPath();
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2;
+        const rr = r * (0.8 + ((n.noise(k, i) + 1) / 2) * 0.3);
+        const px = x + Math.cos(a) * rr;
+        const py = y + Math.sin(a) * rr;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+}
+
+function tiles(ctx: CanvasRenderingContext2D, s: number, cols: number, a: string, b: string, line: string) {
+  fill(ctx, s, line);
+  const t = s / cols;
+  for (let r = 0; r < cols; r++) {
+    for (let c = 0; c < cols; c++) {
+      ctx.fillStyle = (r + c) % 2 === 0 ? a : b;
+      ctx.fillRect(c * t + 1, r * t + 1, t - 2, t - 2);
+    }
+  }
+}
+
+export const EXTRA_TEXTURES: TextureDef[] = [
+  // nawierzchnie
+  {
+    id: 'gravel',
+    name: 'Żwir',
+    kinds: ['ground'],
+    draw: (ctx, s) => {
+      fill(ctx, s, '#b3aa9a');
+      grain(ctx, s, 51, 22, 0.5);
+      const n = new Noise2D(52);
+      for (let i = 0; i < 900; i++) {
+        const x = ((n.noise(i * 0.31, 2) + 1) / 2) * s;
+        const y = ((n.noise(3, i * 0.31) + 1) / 2) * s;
+        ctx.fillStyle = ['#9d9486', '#c4bcae', '#8e877b', '#b7ae9f'][i % 4];
+        ctx.beginPath();
+        ctx.arc(x, y, 1.2 + ((n.noise(i, i) + 1) / 2) * 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    },
+  },
+  { id: 'fieldstone', name: 'Kamienie polne', kinds: ['ground'], draw: (ctx, s) => { fieldstones(ctx, s, 36, ['#a39d92', '#8f8a80', '#b0aa9e', '#98928a'], '#6f6a62', 61); grain(ctx, s, 62, 10); } },
+  { id: 'pavers', name: 'Kostka', kinds: ['ground'], draw: (ctx, s) => { bricks(ctx, s, 12, 6, '#7b7670', '#5f5b56', ['#9a948c', '#8f8982', '#a29c94', '#938d86']); grain(ctx, s, 71, 12); } },
+  {
+    id: 'bark',
+    name: 'Kora',
+    kinds: ['ground'],
+    draw: (ctx, s) => {
+      fill(ctx, s, '#6e5440');
+      grain(ctx, s, 81, 26, 0.2);
+      const n = new Noise2D(82);
+      for (let i = 0; i < 160; i++) {
+        const x = ((n.noise(i * 0.4, 5) + 1) / 2) * s;
+        const y = ((n.noise(7, i * 0.4) + 1) / 2) * s;
+        ctx.fillStyle = ['#7d6249', '#5c4634', '#86694f'][i % 3];
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(n.noise(i, 1) * 1.5);
+        ctx.fillRect(-6, -2, 12, 4);
+        ctx.restore();
+      }
+    },
+  },
+  // podłogi
+  { id: 'parquet', name: 'Parkiet', kinds: ['floor'], draw: (ctx, s) => { herringbone(ctx, s); grain(ctx, s, 91, 6); } },
+  { id: 'panels', name: 'Panele', kinds: ['floor'], draw: (ctx, s) => { fill(ctx, s, '#7a5a40'); boards(ctx, s, 4, ['#c9a27a', '#bf9670', '#d0aa83', '#b88f69'], 'rgba(110,80,55,0.35)', 93); } },
+  { id: 'darkwood', name: 'Ciemne deski', kinds: ['floor', 'wall'], draw: (ctx, s) => { fill(ctx, s, '#3e2c20'); boards(ctx, s, 6, ['#6b4a34', '#5f412e', '#734f38', '#583c2a'], 'rgba(40,25,15,0.5)', 95); } },
+  { id: 'concrete', name: 'Beton', kinds: ['floor', 'wall', 'ground'], draw: (ctx, s) => { fill(ctx, s, '#a8a7a2'); grain(ctx, s, 101, 16, 0.06); grain(ctx, s, 102, 8, 0.4); } },
+  { id: 'tiles', name: 'Płytki', kinds: ['floor', 'wall'], draw: (ctx, s) => { tiles(ctx, s, 8, '#e9e4d8', '#c9c2b2', '#a9a396'); grain(ctx, s, 111, 5); } },
+  { id: 'terracotta', name: 'Terakota', kinds: ['floor', 'ground'], draw: (ctx, s) => { bricks(ctx, s, 4, 4, '#a9634a', '#7d4a37', ['#c27a5d', '#b87055', '#c98366', '#b06a50']); grain(ctx, s, 121, 12); } },
+  {
+    id: 'carpet',
+    name: 'Dywan',
+    kinds: ['floor'],
+    draw: (ctx, s) => {
+      fill(ctx, s, '#8a5a5e');
+      grain(ctx, s, 131, 18, 0.6);
+      ctx.strokeStyle = 'rgba(210,170,120,0.5)';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(s * 0.08, s * 0.08, s * 0.84, s * 0.84);
+      ctx.lineWidth = 1;
+      ctx.strokeRect(s * 0.14, s * 0.14, s * 0.72, s * 0.72);
+    },
+  },
+  // ściany
+  { id: 'plaster', name: 'Tynk', kinds: ['wall'], draw: (ctx, s) => { fill(ctx, s, '#f1ebdf'); grain(ctx, s, 141, 9, 0.05); grain(ctx, s, 142, 5, 0.35); } },
+  { id: 'wainscot', name: 'Boazeria', kinds: ['wall'], draw: (ctx, s) => { fill(ctx, s, '#6e4d36'); boards(ctx, s, 5, ['#b98a5c', '#b3835a', '#c19264', '#ad7d55'], 'rgba(100,70,45,0.4)', 151, false); } },
+  {
+    id: 'wallpaper',
+    name: 'Tapeta w pasy',
+    kinds: ['wall'],
+    draw: (ctx, s) => {
+      fill(ctx, s, '#e8dcc8');
+      const w = s / 8;
+      for (let i = 0; i < 8; i += 2) {
+        ctx.fillStyle = '#d9c7ab';
+        ctx.fillRect(i * w, 0, w, s);
+      }
+      ctx.fillStyle = 'rgba(160,120,90,0.35)';
+      for (let y = 0; y < s; y += s / 4) for (let i = 1; i < 8; i += 2) ctx.fillRect(i * w + w / 2 - 2, y + s / 8 - 2, 4, 4);
+      grain(ctx, s, 161, 4);
+    },
+  },
+  {
+    id: 'damask',
+    name: 'Tapeta zielona',
+    kinds: ['wall'],
+    draw: (ctx, s) => {
+      fill(ctx, s, '#5f7a68');
+      ctx.strokeStyle = 'rgba(200,190,150,0.35)';
+      ctx.lineWidth = 2;
+      const c = s / 4;
+      for (let y = 0; y < s; y += c) {
+        for (let x = 0; x < s; x += c) {
+          ctx.beginPath();
+          ctx.ellipse(x + c / 2, y + c / 2, c * 0.22, c * 0.34, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+      grain(ctx, s, 171, 6);
+    },
+  },
+  { id: 'brick', name: 'Cegła', kinds: ['wall', 'ground'], draw: (ctx, s) => { bricks(ctx, s, 8, 4, '#a0533f', '#d8cbb8', ['#b0604a', '#a45744', '#b8674f', '#9d5240']); grain(ctx, s, 181, 12); } },
+  { id: 'stonewall', name: 'Mur kamienny', kinds: ['wall'], draw: (ctx, s) => { fieldstones(ctx, s, 25, ['#b5aea2', '#a39c90', '#c0b9ad', '#aca498'], '#7d776d', 191); grain(ctx, s, 192, 10); } },
+];
+
+export const ALL_TEXTURES: TextureDef[] = [...BUILTIN_TEXTURES, ...EXTRA_TEXTURES];
+
+/** Wzory pasujące do miejsca (nawierzchnia, podłoga, ściana). */
+export function texturesOfKind(kind: TextureKind): TextureDef[] {
+  return ALL_TEXTURES.filter((t) => t.kinds.includes(kind));
+}
+
+let grain2d: THREE.Texture | null = null;
+/**
+ * Słoje drewna do mnożenia przez kolor warstwy: prawie biała podstawa z ciemniejszymi pasmami, więc
+ * kolor roli zostaje dominujący, a słoje tylko go różnicują.
+ */
+export function grainTexture(): THREE.Texture {
+  if (grain2d) return grain2d;
+  const c = document.createElement('canvas');
+  c.width = SIZE;
+  c.height = SIZE;
+  const ctx = c.getContext('2d')!;
+  fill(ctx, SIZE, '#f4f1ec');
+  const n = new Noise2D(201);
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 40; i++) {
+    ctx.strokeStyle = `rgba(120,90,60,${0.12 + ((n.noise(i, 9) + 1) / 2) * 0.18})`;
+    ctx.beginPath();
+    let x = ((n.noise(i, 3) + 1) / 2) * SIZE;
+    ctx.moveTo(x, 0);
+    for (let y = 0; y <= SIZE; y += 12) {
+      x += n.noise(i, y * 0.04) * 3;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  grain(ctx, SIZE, 202, 5, 0.2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.repeat.set(2, 2);
+  grain2d = tex;
+  return tex;
+}
 
 const cache = new Map<string, THREE.Texture>();
 const thumbs = new Map<string, string>();
@@ -152,7 +408,7 @@ export function getTexture(id: string | undefined, customUrl?: string): THREE.Te
   if (customUrl) {
     tex = new THREE.TextureLoader().load(customUrl);
   } else {
-    const def = BUILTIN_TEXTURES.find((t) => t.id === id);
+    const def = ALL_TEXTURES.find((t) => t.id === id);
     if (!def) return null;
     tex = new THREE.CanvasTexture(drawToCanvas(def));
   }
@@ -164,11 +420,18 @@ export function getTexture(id: string | undefined, customUrl?: string): THREE.Te
   return tex;
 }
 
+/** Tekstura po id z dowolnego źródła: wbudowana albo własna (`c_…` z pamięci przeglądarki). */
+export function textureById(id: string | undefined): THREE.Texture | null {
+  if (!id) return null;
+  const custom = id.startsWith('c_') ? loadCustomTextures().find((t) => t.id === id) : undefined;
+  return getTexture(id, custom?.dataUrl);
+}
+
 /** Miniatura do wyboru w interfejsie. */
 export function textureThumb(id: string): string {
   const hit = thumbs.get(id);
   if (hit) return hit;
-  const def = BUILTIN_TEXTURES.find((t) => t.id === id);
+  const def = ALL_TEXTURES.find((t) => t.id === id);
   if (!def) return '';
   const c = drawToCanvas(def);
   const small = document.createElement('canvas');
