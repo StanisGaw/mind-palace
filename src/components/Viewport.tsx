@@ -682,9 +682,14 @@ function FpLockHint() {
 function Joystick({ onChange }: { onChange: (x: number, y: number) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [knob, setKnob] = useState({ x: 0, y: 0 });
+  // `onChange` to nowa funkcja przy każdym renderze widoku (np. gdy pojawia się podpowiedź drzwi);
+  // nasłuchy muszą przeżyć render, inaczej palec traci gałkę w połowie ruchu
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    const onChange = (x: number, y: number) => onChangeRef.current(x, y);
     let active: number | null = null;
     const R = 40;
     const move = (e: PointerEvent) => {
@@ -723,7 +728,7 @@ function Joystick({ onChange }: { onChange: (x: number, y: number) => void }) {
       el.removeEventListener('pointercancel', up);
       onChange(0, 0);
     };
-  }, [onChange]);
+  }, []);
   return (
     <div ref={ref} className="joystick">
       <div className="knob" style={{ transform: `translate(${knob.x}px, ${knob.y}px)` }} />

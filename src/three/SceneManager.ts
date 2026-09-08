@@ -74,6 +74,7 @@ const tmpV = new THREE.Vector3();
 const tmpV2 = new THREE.Vector3();
 const tmpV3 = new THREE.Vector3();
 const tmpQ = new THREE.Quaternion();
+const tmpNdc = new THREE.Vector2();
 const tmpE = new THREE.Euler();
 const UP = new THREE.Vector3(0, 1, 0);
 // yawOf ma własny wektor — wołający trzymają w tmpV wektor ruchu, który nie może zostać nadpisany
@@ -169,6 +170,8 @@ export class SceneManager {
   private headOffset = 0;
   private lastClick: { id: string; t: number } | null = null;
   private pickedExitDoor = false;
+  /** Punkt ostatniego trafienia `pickRay` — do sprawdzenia, czy dotknięto budynek przy drzwiach. */
+  private pickPoint = new THREE.Vector3();
   // podgląd stawiania
   private ghost: THREE.Group | null = null;
   private ghostRing: THREE.Mesh | null = null;
@@ -2092,7 +2095,10 @@ export class SceneManager {
         return null;
       }
       const id = h.object.userData.objectId as string | undefined;
-      if (id) return id;
+      if (id) {
+        this.pickPoint.copy(h.point);
+        return id;
+      }
     }
     return null;
   }
@@ -2488,7 +2494,7 @@ export class SceneManager {
     // klik wprost w skrzydło drzwi obiektowych w zasięgu — niezależnie od aktualnej podpowiedzi
     if (id) {
       const e = this.entries.get(id);
-      if (e?.doorPivot && this.doorDistance(e) < 2.6) {
+      if (e?.doorPivot && this.doorDistance(e) < 2.6 && (e.type === 'door' || this.pickPoint.distanceTo(this.doorWorld(e)) < 0.7 * hs(e) + 0.5)) {
         this.toggleDoor(id);
         return;
       }
@@ -2790,48 +2796,51 @@ export class SceneManager {
   }
 
   /** Szuka drzwi w zasięgu ręki i publikuje podpowiedź do interfejsu. */
+  /**
+   * Podpowiedź drzwi: promień z celownika (środek widoku) musi trafić w drzwi z odległości do 3 m.
+   * Sama bliskość nie wystarcza, a ścianka albo mur budynku zasłaniają drzwi za sobą.
+   */
   private updateDoorPrompt() {
     const st = useStore.getState();
     const p = this.lastPalace;
     if (!p) return;
-    const pos = this.rig.position;
-    const fwd = tmpV2.set(0, 0, -1).applyAxisAngle(UP, this.renderer.xr.isPresenting || this.stereo ? yawOf(this.camera.getWorldQuaternion(tmpQ)) : this.rig.rotation.y);
-    if (p.interior) {
-      // drzwi wyjściowe mają pierwszeństwo, gdy są bliżej niż najbliższe drzwi obiektowe
-      let best: { kind: 'exit' | 'door'; objectId?: string; label: string; d: number } | null = null;
-      const door = this.room?.exitDoor;
-      if (door) {
-        const dw = door.getWorldPosition(tmpV);
-        const d = Math.hypot(dw.x - pos.x, dw.z - pos.z);
-        if (d < 2.6) best = { kind: 'exit', label: 'Wyjdź na zewnątrz', d };
-      }
-      for (const [id, e] of this.entries) {
-        if (!e.doorPivot) continue;
-        const d = Math.hypot(e.group.position.x - pos.x, e.group.position.z - pos.z);
-        if (d > 2.2 || (best && d >= best.d)) continue;
-        best = { kind: 'door', objectId: id, label: this.openDoors.has(id) ? 'Zamknij drzwi' : 'Otwórz drzwi', d };
-      }
-      st.setDoorPrompt(best ? { kind: best.kind, objectId: best.objectId, label: best.label } : null);
-      return;
+    const cam = this.renderer.xr.isPresenting ? this.renderer.xr.getCamera() : this.camera;
+    this.raycaster.setFromCamera(tmpNdc.set(0, 0), cam);
+    this.raycaster.far = 3.0;
+    const targets: THREE.Object3D[] = [];
+    for (const e of this.entries.values()) {
+      if (!e.group.visible) continue;
+      if (e.type === 'door' || e.type === 'wall' || hasInterior(e.type)) targets.push(e.group);
     }
-    let best: { id: string; name: string; d: number; kind: 'enter' | 'door' } | null = null;
-    for (const [id, e] of this.entries) {
-      if (!hasInterior(e.type) && e.type !== 'door') continue;
-      if (e.inplace && !e.doorPivot) continue; // np. świątynia — wejście bez drzwi
-      const dw = this.doorWorld(e);
-      const dx = dw.x - pos.x;
-      const dz = dw.z - pos.z;
-      const d = Math.hypot(dx, dz);
-      if (d > 2.6) continue;
-      // drzwi muszą być mniej więcej przed graczem
-      if ((dx / (d || 1)) * fwd.x + (dz / (d || 1)) * fwd.z < 0.2) continue;
-      const o = p.objects.find((x) => x.id === id);
-      if (!o) continue;
-      if (!best || d < best.d) best = { id, name: o.name, d, kind: e.doorPivot ? 'door' : 'enter' };
+    if (this.room?.exitDoor) targets.push(this.room.exitDoor);
+    const hits = this.raycaster.intersectObjects(targets, true);
+    this.raycaster.far = Infinity;
+    let prompt: { kind: 'enter' | 'exit' | 'door'; objectId?: string; label: string } | null = null;
+    for (const h of hits) {
+      if (!isShown(h.object) || h.object.userData.noPick) continue;
+      if (h.object.userData.exitDoor) {
+        prompt = { kind: 'exit', label: 'Wyjdź na zewnątrz' };
+        break;
+      }
+      const id = h.object.userData.objectId as string | undefined;
+      const e = id ? this.entries.get(id) : undefined;
+      if (!e) continue;
+      if (e.type === 'door') {
+        prompt = { kind: 'door', objectId: e.id, label: this.openDoors.has(e.id) ? 'Zamknij drzwi' : 'Otwórz drzwi' };
+        break;
+      }
+      if (hasInterior(e.type)) {
+        // budynek: liczy się trafienie w pobliże drzwi, nie w dowolną ścianę
+        const near = h.point.distanceTo(this.doorWorld(e)) < 0.7 * hs(e) + 0.5;
+        const o = p.objects.find((x) => x.id === e.id);
+        if (near && o) {
+          if (e.doorPivot) prompt = { kind: 'door', objectId: e.id, label: this.openDoors.has(e.id) ? 'Zamknij drzwi' : 'Otwórz drzwi' };
+          else if (!e.inplace) prompt = { kind: 'enter', objectId: e.id, label: `Wejdź do: ${o.name}` };
+        }
+      }
+      break; // ścianka albo mur zasłania to, co za nimi
     }
-    if (!best) st.setDoorPrompt(null);
-    else if (best.kind === 'door') st.setDoorPrompt({ kind: 'door', objectId: best.id, label: this.openDoors.has(best.id) ? 'Zamknij drzwi' : 'Otwórz drzwi' });
-    else st.setDoorPrompt({ kind: 'enter', objectId: best.id, label: `Wejdź do: ${best.name}` });
+    st.setDoorPrompt(prompt);
   }
 
   /** Punkt drzwi wpisu w świecie: środek obiektu dla drzwi z Konstrukcji, próg z `DOORS` dla budynku. */
