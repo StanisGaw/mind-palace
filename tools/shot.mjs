@@ -9,6 +9,7 @@
 //   mdown:x,y  mup  mdrag:x1,y1,x2,y2  (środkowy przycisk myszy)
 //   key|down|up:<KodKlawisza>            wait:<ms>
 //   upload:<selektor>,<plik>             eval:<javascript>
+// SHOT_VIEWPORT=390x844 ustawia rozmiar okna (poniżej 900 px krótszego boku udaje telefon z dotykiem).
 //
 // W trybie deweloperskim dostępne: window.__mneme (magazyn), __scene (SceneManager),
 // __mnemeStorage, __mnemeLandscapes. Wypisuje logi konsoli i błędy strony.
@@ -22,7 +23,11 @@ const browser = await puppeteer.launch({
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--no-sandbox'],
 });
 const page = await browser.newPage();
-await page.setViewport({ width: 1600, height: 1000, deviceScaleFactor: 1 });
+// SHOT_VIEWPORT=390x844 (albo 844x390) udaje telefon: dotyk i mobilny user agent
+const vp = (process.env.SHOT_VIEWPORT ?? '').match(/^(\d+)x(\d+)$/);
+const mobile = !!vp && Math.min(Number(vp[1]), Number(vp[2])) < 900;
+await page.setViewport({ width: vp ? Number(vp[1]) : 1600, height: vp ? Number(vp[2]) : 1000, deviceScaleFactor: 1, isMobile: mobile, hasTouch: mobile });
+if (mobile) await page.setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1');
 const logs = [];
 page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
 page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
