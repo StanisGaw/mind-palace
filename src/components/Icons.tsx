@@ -4,6 +4,10 @@ const base = (p: SVGProps<SVGSVGElement>) => ({ width: 16, height: 16, viewBox: 
 
 export const I = {
   Cursor: (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M5 3l14 8-6 2-3 6z" /></svg>),
+  Menu: (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M4 7h16M4 12h16M4 17h16" /></svg>),
+  Library: (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M4 4h6v16H4zM10 4h6v16h-6zM16 6l4-1 2 14-4 1z" /></svg>),
+  List: (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M9 6h11M9 12h11M9 18h11M4 6h1M4 12h1M4 18h1" /></svg>),
+  Note: (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M4 20l4-1 11-11-3-3L5 16z" /><path d="M13 7l3 3" /></svg>),
   Move: (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3" /></svg>),
   Rotate: (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M20 12a8 8 0 1 1-2.3-5.7" /><path d="M20 4v5h-5" /></svg>),
   Undo: (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M9 14L4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-3" /></svg>),

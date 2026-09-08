@@ -8,6 +8,8 @@ import type { Scenery, SoundLevels, Weather } from '../types';
 import { useCurrentPalace, useStore } from '../store';
 import { SceneManager } from '../three/SceneManager';
 import { I } from './Icons';
+import { catalogItem } from '../catalog';
+import { COARSE_Q, useMediaQuery } from '../lib/media';
 import { ReviewOverlay } from './ReviewOverlay';
 import { Tip } from './Tip';
 
@@ -31,7 +33,16 @@ export function Viewport() {
   const doorPrompt = useStore((s) => s.doorPrompt);
   const setSettings = useStore((s) => s.setSettings);
   const palace = useCurrentPalace();
-  const isTouch = typeof window !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+  const isTouch = useMediaQuery(COARSE_Q);
+  const placing = useStore((s) => s.placing);
+  const setPlacing = useStore((s) => s.setPlacing);
+  const [sticky, setSticky] = useState(false);
+  useEffect(() => {
+    if (!placing) {
+      setSticky(false);
+      if (mgrRef.current) mgrRef.current.stickyPlacing = false;
+    }
+  }, [placing]);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -76,7 +87,7 @@ export function Viewport() {
       <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
 
       {/* góra-lewo: tryb */}
-      <div className="hud hud-top-left" style={{ top: 16, left: 16, gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div className="hud hud-top-left">
         <span className={'chip' + (review ? ' warm' : '')}>
           <span className="dot" /> {review ? 'Spacer pamięci' : modeChip}
         </span>
@@ -110,14 +121,14 @@ export function Viewport() {
       </div>
 
       {/* góra-prawo: otoczenie */}
-      <div className="hud hud-top-right" style={{ top: 16, right: 16, display: 'flex', gap: 8 }}>
+      <div className="hud hud-top-right">
         <SoundMenu />
         <EnvironmentMenu />
       </div>
 
       {/* narzędzia */}
       {viewMode === 'editor' && (
-        <div className="hud tools" style={{ top: 70, left: 16 }}>
+        <div className="hud tools hud-tools-left">
           <Tip label="Zaznacz" keys="V">
             <button className={tool === 'select' ? 'active' : ''} onClick={() => setTool('select')}>
               <I.Cursor />
@@ -143,7 +154,7 @@ export function Viewport() {
       )}
 
       {viewMode === 'editor' && (
-        <div className="hud compass" style={{ top: 64, right: 16 }}>
+        <div className="hud compass hud-compass">
           <svg width="26" height="26" viewBox="0 0 24 24">
             <path d="M12 3l4 9h-8z" fill="var(--accent)" />
             <path d="M12 21l-4-9h8z" fill="var(--border-2)" />
@@ -153,7 +164,7 @@ export function Viewport() {
       )}
 
       {/* dół-prawo: kamera */}
-      <div className="hud tools" style={{ bottom: 64, right: 16 }}>
+      <div className="hud tools hud-camera">
         <Tip label="Przybliż" side="left">
           <button onClick={() => camera('zoomIn')} disabled={viewMode !== 'editor'}>
             <I.Plus />
@@ -183,7 +194,7 @@ export function Viewport() {
       </div>
 
       {/* dół: podpowiedzi i przełączniki */}
-      <div className="hud hint" style={{ bottom: 16, left: 16 }}>
+      <div className="hud hint hud-hint">
         {viewMode === 'editor' ? (
           <>
             <span>
@@ -200,7 +211,7 @@ export function Viewport() {
           </span>
         ) : null}
       </div>
-      <div className="hud toggles" style={{ bottom: 16, right: 16 }}>
+      <div className="hud toggles hud-toggles">
         <Tip label="Siatka i przyciąganie co pół metra" side="top-end">
           <button className={'toggle' + (palace.settings.grid ? ' on' : '')} onClick={() => setSettings({ grid: !palace.settings.grid })}>
             <I.Grid width={13} height={13} /> Siatka
@@ -213,12 +224,38 @@ export function Viewport() {
         </Tip>
       </div>
 
+      {viewMode === 'editor' && isTouch && placing && (
+        <div className="hud placing-bar">
+          <span className="placing-label">{placing.ids ? 'Kopia' : catalogItem(placing.type).name}</span>
+          {placing.type !== 'wall' && (
+            <button onClick={() => mgrRef.current?.rotateGhost()} title="Obróć podgląd o 15°">
+              <I.Rotate width={14} height={14} /> Obróć
+            </button>
+          )}
+          <button
+            className={sticky ? 'active' : ''}
+            onClick={() => {
+              setSticky((v) => {
+                if (mgrRef.current) mgrRef.current.stickyPlacing = !v;
+                return !v;
+              });
+            }}
+            title="Po postawieniu zostań w trybie stawiania"
+          >
+            Wiele
+          </button>
+          <button onClick={() => setPlacing(null)} title="Anuluj stawianie">
+            <I.X width={14} height={14} /> Anuluj
+          </button>
+        </div>
+      )}
+
       {viewMode !== 'editor' && !vrActive && doorPrompt && (
         <button
           className="door-prompt"
           onClick={() => mgrRef.current?.useDoor()}
         >
-          <I.Door width={15} height={15} /> {doorPrompt.label} <kbd>F</kbd>
+          <I.Door width={15} height={15} /> {doorPrompt.label} {!isTouch && <kbd>F</kbd>}
         </button>
       )}
 
@@ -267,11 +304,11 @@ function EnvironmentMenu() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
-    const h = (e: MouseEvent) => {
+    const h = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    window.addEventListener('mousedown', h);
-    return () => window.removeEventListener('mousedown', h);
+    window.addEventListener('pointerdown', h);
+    return () => window.removeEventListener('pointerdown', h);
   }, [open]);
   const s = palace.settings;
   const ambName = AMBIENCES.find((a) => a.id === s.ambience)?.name ?? s.ambience;
@@ -345,11 +382,11 @@ function SoundMenu() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
-    const h = (e: MouseEvent) => {
+    const h = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    window.addEventListener('mousedown', h);
-    return () => window.removeEventListener('mousedown', h);
+    window.addEventListener('pointerdown', h);
+    return () => window.removeEventListener('pointerdown', h);
   }, [open]);
   const playing = sound.master > 0 && SOUND_LAYERS.some((l) => sound[l.id] > 0);
   const pct = (v: number) => `${Math.round(v * 100)}%`;

@@ -219,6 +219,45 @@ export function SubBar() {
 }
 
 /** Plik zawiera własne presety — pyta osobno o pałac (dodaj / zastąp / pomiń) i o presety (importuj / pomiń). */
+/** Belka telefonu w pionie: dom, nazwa, spacer i menu z resztą działań. */
+export function PhoneBar({ onMenu }: { onMenu: () => void }) {
+  const palace = useCurrentPalace();
+  const palaces = useStore((s) => s.data.palaces);
+  const renamePalace = useStore((s) => s.renamePalace);
+  const startReview = useStore((s) => s.startReview);
+  const review = useStore((s) => s.review);
+  const endReview = useStore((s) => s.endReview);
+  const exitInterior = useStore((s) => s.exitInterior);
+  const camera = useStore((s) => s.camera);
+  const due = dueCount(palace, palaces);
+  return (
+    <div className="phone-bar">
+      <button className="home-btn" onClick={() => (palace.interior ? exitInterior() : camera('center'))} title={palace.interior ? 'Wyjdź na zewnątrz' : 'Wyśrodkuj widok'}>
+        {palace.interior ? <I.Back /> : <I.Home />}
+      </button>
+      {palace.interior ? (
+        <div className="palace-name">
+          {palace.name} <span className="type-tag">wnętrze</span>
+        </div>
+      ) : (
+        <input className="palace-name" value={palace.name} onChange={(e) => renamePalace(e.target.value)} aria-label="Nazwa pałacu" />
+      )}
+      {review ? (
+        <button className="btn danger" onClick={endReview} title="Zakończ spacer">
+          <I.X />
+        </button>
+      ) : (
+        <button className="btn primary" onClick={() => startReview(false)} title="Spacer pamięci">
+          <I.Walk /> {due > 0 && <span className="badge">{due}</span>}
+        </button>
+      )}
+      <button className="icon-btn" onClick={onMenu} aria-label="Menu">
+        <I.Menu />
+      </button>
+    </div>
+  );
+}
+
 function ImportDialog({ data, onClose }: { data: { palaces: Palace[]; presets: RoomPreset[] }; onClose: () => void }) {
   const palace = useCurrentPalace();
   const allPalaces = useStore((s) => s.data.palaces);

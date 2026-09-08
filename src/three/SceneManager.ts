@@ -229,6 +229,8 @@ export class SceneManager {
   // pierwsza osoba
   private keys = new Set<string>();
   joystick = { x: 0, y: 0 };
+  /** Dotyk: po postawieniu zostań w trybie stawiania (odpowiednik Shift). */
+  stickyPlacing = false;
   private yaw = 0;
   private pitch = 0;
   private touchLook: { id: number; x: number; y: number; moved: boolean } | null = null;
@@ -1454,6 +1456,14 @@ export class SceneManager {
     (this.ghostRing.material as THREE.MeshBasicMaterial).color.set(this.ghostBlocked ? '#b4483d' : '#2b6ea8');
   }
 
+  /** Obrót podglądu o 15° (przycisk na dotyku; drzwi zmieniają stronę zawiasów). */
+  rotateGhost() {
+    if (!this.ghost) return;
+    if (this.ghostType === 'door') this.doorFlip = !this.doorFlip;
+    else this.ghostRot += Math.PI / 12;
+    this.updateGhost();
+  }
+
   /** Krycie podglądu: bledszy, gdy jeszcze nie ma miejsca (drzwi poza ścianką). */
   private setGhostOpacity(opacity: number) {
     this.ghost?.traverse((c) => {
@@ -1911,6 +1921,7 @@ export class SceneManager {
     this.orbit.enableDamping = false;
     this.orbit.screenSpacePanning = true;
     this.orbit.mouseButtons.LEFT = THREE.MOUSE.PAN;
+    this.orbit.touches.ONE = THREE.TOUCH.PAN; // rzut z góry na dotyku: palec przesuwa planszę
     this.orbit.maxDistance = 400;
     this.camera.fov = TOP_VIEW_FOV;
     this.camera.updateProjectionMatrix();
@@ -1975,6 +1986,7 @@ export class SceneManager {
     this.orbit.enabled = !this.gizmoDragging;
     this.orbit.screenSpacePanning = false;
     this.orbit.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+    this.orbit.touches.ONE = THREE.TOUCH.ROTATE;
     this.orbit.maxDistance = 70;
     this.camera.fov = 38;
     this.camera.updateProjectionMatrix();
@@ -2395,10 +2407,10 @@ export class SceneManager {
         if (started && moved < 6) return;
         this.setPointer(ev);
         this.updateGhost();
-        this.commitPlacement(ev.shiftKey);
+        this.commitPlacement(ev.shiftKey || this.stickyPlacing);
         return;
       }
-      if (isTouch || moved < 6) this.commitPlacement(ev.shiftKey);
+      if (isTouch || moved < 6) this.commitPlacement(ev.shiftKey || this.stickyPlacing);
       return;
     }
     if (this.drag) {

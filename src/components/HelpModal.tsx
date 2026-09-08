@@ -18,7 +18,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         <ul>
           <li>Kliknij scenę, aby zablokować kursor. <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> — chodzenie, <kbd>Shift</kbd> — bieg, <kbd>Q</kbd>/<kbd>E</kbd> — obrót, <kbd>Spacja</kbd> — skok.</li>
           <li>Obowiązuje grawitacja i kolizje: da się wejść po schodach, wskoczyć na ławkę czy głaz i wspiąć się na wzgórze.</li>
-          <li>Na telefonie: joystick po lewej, przeciąganie po prawej, przycisk <b>Skok</b> po prawej na dole, dotknięcie obiektu — wybór.</li>
+          <li>Na telefonie: joystick po lewej, przeciąganie po prawej, przycisk <b>Skok</b> po prawej na dole, dotknięcie obiektu — wybór. W edytorze pasek stawiania ma „Obróć”, „Wiele” i „Anuluj”, a w rzucie z góry palec przesuwa planszę. Obróć telefon poziomo: belki znikają, menu i panele są pod ikonami przy lewej krawędzi.</li>
         </ul>
         <h3>Stawianie i układanie</h3>
         <ul>
