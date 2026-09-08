@@ -275,6 +275,14 @@ function dropChildrenOf(pl: Palace, id: string) {
   }
 }
 
+/** Dokłada obiekt „Schody" bez wpisu cofania i bez zmiany zaznaczenia (towarzyszy zmianie liczby pięter). */
+function addStairsObject(get: () => State, position: Vec3, rotationY: number, anchorId?: string) {
+  const item = catalogItem('stairs');
+  get().setPalace((pl) => {
+    pl.objects.push({ id: uid(), type: 'stairs', name: item.name, position, rotation: yawRotation(rotationY), scale: [1, 1, 1], anchorId });
+  }, { undo: false });
+}
+
 function seedPalace(): Palace {
   const p = makePalace('Ogród dobrych myśli');
   const add = (type: string, name: string, position: Vec3, rotationY = 0) => {
@@ -511,9 +519,8 @@ export const useStore = create<State>((set, get) => ({
       get().showToast('Nie ma miejsca na schody przy żadnej ścianie — zrób miejsce i postaw „Schody" z Konstrukcji.');
       return;
     }
-    const { selectedIds, leftTab } = get();
-    get().addObject('stairs', spot.position, spot.rotationY, id);
-    set({ selectedIds, leftTab });
+    // schody dokładamy bez osobnego wpisu cofania — jedno Ctrl+Z ma cofnąć piętro razem z nimi
+    addStairsObject(get, spot.position, spot.rotationY, id);
   },
   setInteriorMode(id, mode) {
     const p = get().palace();
@@ -588,9 +595,7 @@ export const useStore = create<State>((set, get) => ({
       get().showToast('Nie ma miejsca na schody — zrób miejsce i postaw „Schody" z Konstrukcji.');
       return;
     }
-    const { selectedIds, leftTab } = get();
-    get().addObject('stairs', spot.position, spot.rotationY);
-    set({ selectedIds, leftTab });
+    addStairsObject(get, spot.position, spot.rotationY);
   },
   applyRoomPreset(id) {
     const p = get().palace();

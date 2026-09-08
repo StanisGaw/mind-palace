@@ -247,6 +247,20 @@ export const SHELLS: Record<string, ShellSpec> = {
   tower: { inner: { w: 4.0, d: 4.0, h: 1.4 }, cx: 0, cz: 0, floorY: 0.3, door: { x: 0, z: 2.0, w: 0.43, h: 1.0 }, minScale: 2.5, defaultFloors: 3, maxFloors: 4 },
 };
 
+/**
+ * Bryły wbudowane w powłokę, które stoją w środku pokoju i zajmują miejsce tak samo jak meble
+ * (świątynia: osiem kolumn i blok ołtarza). Jednostki modelu, wspólne dla `buildTemple` i sprawdzania układów.
+ */
+export function shellFixedBoxes(type: string): { cx: number; cz: number; hx: number; hz: number }[] {
+  if (type !== 'temple') return [];
+  const { w, d } = SHELLS.temple.inner;
+  const cx = w / 2 - 0.3;
+  const cz = d / 2 - 0.3;
+  // pośrodku frontu kolumny nie ma — tamtędy się wchodzi
+  const cols: [number, number][] = [[-cx, cz], [cx, cz], [-cx, -cz], [cx, -cz], [0, -cz], [-cx, 0], [cx, 0]];
+  return [...cols.map(([x, z]) => ({ cx: x, cz: z, hx: 0.15, hz: 0.15 })), { cx: 0, cz: -d * 0.3, hx: 0.4, hz: 0.4 }];
+}
+
 /** Budynek z wnętrzem w tej samej scenie (bez ładowania osobnego pałacu). */
 export function isInPlace(o: Pick<PalaceObject, 'type' | 'interiorMode'>): boolean {
   return o.interiorMode === 'inplace' && o.type in SHELLS;

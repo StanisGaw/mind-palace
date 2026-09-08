@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { buildAnimalBody, type AnimalKind } from './wildlife';
-import { DOOR_OPENING, FACADE, SHELLS, SHELL_WALL_T, TOWER_R, WALL_SEGMENT, WALL_THICKNESS, facadeWallsOf, shellWindowHoles, type FacadeWall, type Opening, type ShellSpec, type WallHole } from '../lib/rooms';
+import { DOOR_OPENING, FACADE, SHELLS, SHELL_WALL_T, TOWER_R, WALL_SEGMENT, WALL_THICKNESS, facadeWallsOf, shellFixedBoxes, shellWindowHoles, type FacadeWall, type Opening, type ShellSpec, type WallHole } from '../lib/rooms';
 import { subtractRect, type Rect } from './interior';
 import { paintingTexture } from './art';
 import { Noise2D } from './noise';
@@ -525,13 +525,12 @@ function buildTemple(g: THREE.Group, ctx: BuildCtx) {
   shellFloor(g, w, d, 0, spec.floorY, 0, templeFloor);
   shellSlabs(g, ctx, [{ x0: -w / 2, x1: w / 2, z0: -d / 2, z1: d / 2 }], spec.floorY, spec.inner.h, templeFloor);
   shellRamp(g, 0, d / 2 + 0.6, d / 2, 2.0, spec.floorY); // wejście między kolumnami od frontu
-  const cx = w / 2 - 0.3;
-  const cz = d / 2 - 0.3;
-  columns(g, [[-cx, cz], [cx, cz], [-cx, -cz], [cx, -cz], [0, -cz], [0, cz], [-cx, 0], [cx, 0]], 1.5, 0.1, 0.36);
+  const fixed = shellFixedBoxes('temple');
+  columns(g, fixed.slice(0, -1).map((b) => [b.cx, b.cz] as [number, number]), 1.5, 0.1, 0.36);
   const roof = roofGroup(g, roofLift(ctx, spec));
   add(roof, box(w, 0.16, d), mat(C.cream), 0, 0.36 + 1.5 + 0.08, 0);
   add(roof, prism(w + 0.2, 1.0, d + 0.2), mat(C.roof), 0, 0.36 + 1.66, 0);
-  add(g, box(0.8, 0.9, 0.8), mat(C.cream2), 0, 0.36 + 0.45, -d * 0.3);
+  add(g, box(0.8, 0.9, 0.8), mat(C.cream2), 0, 0.36 + 0.45, fixed[fixed.length - 1].cz); // ołtarz
 }
 
 function buildTower(g: THREE.Group, ctx: BuildCtx) {
@@ -562,8 +561,8 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
   shellLeaf(g, door, spec.floorY, mat(C.dark));
   shellEntryRamp(g, spec, r + 0.7);
   // wieża ma wbudowane kręcone schody wzdłuż muru: jeden ciągły bieg przez wszystkie kondygnacje (każda
-  // kondygnacja to 3/4 obrotu, następny bieg zaczyna się tam, gdzie poprzedni doszedł do stropu). Bieg 0,5
-  // szerokości zostawia pośrodku każdej izby wolne koło o promieniu ~3,7 m przy skali 2,5.
+  // następny bieg zaczyna się tam, gdzie poprzedni doszedł do stropu. Pierścień biegu zostawia pośrodku każdej
+  // izby wolne koło o promieniu ~3,5 m przy skali 2,5.
   const sy = ctx.scaleY ?? spec.minScale;
   // kąt biegu z nachylenia ~30°: przy szerokim murze pełne 3/4 obrotu dałoby pochylnię, przy wąskim byłoby za stromo
   const rm = (r - 0.08 + (r - 0.58)) / 2;

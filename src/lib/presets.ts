@@ -1,7 +1,6 @@
-import { catalogItem } from '../catalog';
 import { yawRotation } from './transform';
 import { uid } from './ids';
-import { ROOMS } from '../catalog';
+import { ROOMS, catalogItem } from '../catalog';
 import { SHELLS, WALL_SEGMENT, attachLegacyDoors, buildingFloorY, floorOf, worldXZ } from './rooms';
 import type { Palace, PalaceObject, PresetObject, RoomPreset, RoomSpec, Vec3 } from '../types';
 
@@ -165,33 +164,31 @@ export const ROOM_PRESETS: RoomPreset[] = [
   {
     id: 'temple-hall',
     name: 'Sala główna',
-    description: 'Świece i dywan prowadzą wzrok w głąb świątyni.',
+    description: 'Świece przy ołtarzu, dywan na osi i ławki między kolumnami.',
     buildingTypes: ['temple'],
     floors: 1,
     objects: [
-      { type: 'statue', u: 0, v: -0.5, dz: 0.6, floor: 0, rotationY: 0 },
-      { type: 'candle', u: -0.22, v: -0.2, floor: 0, rotationY: 0 },
-      { type: 'candle', u: 0.22, v: -0.2, floor: 0, rotationY: 0 },
+      { type: 'candle', u: -0.15, v: -0.3, floor: 0, rotationY: 0 },
+      { type: 'candle', u: 0.15, v: -0.3, floor: 0, rotationY: 0 },
       { type: 'rug', u: 0, v: 0.05, floor: 0, rotationY: 0, scale: [1, 1, 1.6] },
-      { type: 'bench', u: -0.5, dx: 0.3, v: 0.1, floor: 0, rotationY: Math.PI / 2 },
-      { type: 'bench', u: 0.5, dx: -0.3, v: 0.1, floor: 0, rotationY: -Math.PI / 2 },
-      { type: 'painting', u: -0.25, v: -0.5, dz: 0.08, floor: 0, rotationY: 0 },
+      // ławki między kolumnami: kolumny stoją 0,3 jednostki od krawędzi, więc trzymamy się bliżej środka
+      { type: 'bench', u: -0.344, v: 0.1, floor: 0, rotationY: Math.PI / 2 },
+      { type: 'bench', u: 0.344, v: 0.1, floor: 0, rotationY: -Math.PI / 2 },
       ...lamps(1),
     ],
   },
   {
     id: 'temple-antechamber',
     name: 'Ołtarz i przedsionek',
-    description: 'Mały przedsionek oddziela wejście od ołtarza.',
+    description: 'Ścianka z drzwiami oddziela wejście od ołtarza.',
     buildingTypes: ['temple'],
     floors: 1,
     objects: [
       { type: 'wall', u: 0, v: 0.22, floor: 0, rotationY: 0, span: { axis: 'x', frac: 1 } },
-      { type: 'door', u: 0, v: 0.22, floor: 0, rotationY: 0, anchor: 0 },
-      { type: 'statue', u: 0, v: -0.5, dz: 0.6, floor: 0, rotationY: 0 },
-      { type: 'candle', u: -0.2, v: -0.1, floor: 0, rotationY: 0 },
-      { type: 'candle', u: 0.2, v: -0.1, floor: 0, rotationY: 0 },
-      { type: 'bench', u: -0.5, dx: 0.3, v: 0.35, floor: 0, rotationY: Math.PI / 2 },
+      { type: 'door', u: -0.2, v: 0.22, floor: 0, rotationY: 0, anchor: 0 },
+      { type: 'candle', u: -0.15, v: -0.3, floor: 0, rotationY: 0 },
+      { type: 'candle', u: 0.15, v: -0.3, floor: 0, rotationY: 0 },
+      { type: 'bench', u: -0.344, v: 0.38, floor: 0, rotationY: Math.PI / 2 },
       ...lamps(1),
     ],
   },
@@ -339,9 +336,9 @@ export const ROOM_PRESETS: RoomPreset[] = [
       { type: 'chair', u: 0, v: -0.15, dz: 0.75, floor: 0, rotationY: Math.PI },
       { type: 'shelf', u: -0.2, v: 0.12, floor: 0, rotationY: Math.PI / 2 },
       { type: 'candle', u: 0.18, v: 0.16, floor: 0, rotationY: 0 },
-      { type: 'bed', u: 0, v: -0.05, floor: 1, rotationY: 0 },
-      { type: 'sideboard', u: 0.12, v: 0.13, floor: 1, rotationY: Math.PI },
-      { type: 'vase', u: 0.12, v: 0.13, dy: 0.94, floor: 1, rotationY: 0, anchor: 5 },
+      { type: 'bed', u: 0, v: -0.12, floor: 1, rotationY: 0 },
+      { type: 'sideboard', u: 0, v: 0.25, floor: 1, rotationY: Math.PI },
+      { type: 'vase', u: 0, v: 0.25, dy: 0.94, floor: 1, rotationY: 0, anchor: 5 },
       ...lamps(2),
     ],
   },

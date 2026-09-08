@@ -1,6 +1,6 @@
 import type { PalaceObject, RoomSpec, Vec3 } from '../types';
 import { catalogItem } from '../catalog';
-import { DOOR_OPENING, SHELLS, SHELL_WINDOWS, TOWER_R, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, facadeWallsOf, floorOf, floorOfIn, isInPlace, wallLength, wallOffsetOf, worldXZ } from './rooms';
+import { DOOR_OPENING, SHELLS, SHELL_WINDOWS, TOWER_R, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, buildingOf, facadeWallsOf, floorOf, floorOfIn, isInPlace, shellFixedBoxes, wallLength, wallOffsetOf, worldXZ } from './rooms';
 
 /**
  * Geometria układu pokoju w rzucie z góry: obrysy mebli i ścianek, miejsce potrzebne przy schodach
@@ -110,6 +110,8 @@ export interface RoomShape {
   entry: [number, number];
   /** Wbudowane okna muru w świecie (środek i połowa szerokości) — obraz ani lustro nie mogą ich zasłaniać. */
   windows?: { x: number; z: number; half: number }[];
+  /** Bryły wbudowane w powłokę stojące w pokoju (kolumny i ołtarz świątyni) — zajmują miejsce jak meble. */
+  fixed?: Box2[];
 }
 
 /** Szerokość pierścienia zajętego przez kręcone schody wieży (jednostki modelu, jak `inner` w `buildTower`). */
@@ -131,7 +133,11 @@ export function roomOfBuilding(b: PalaceObject): RoomShape {
     const [x, z] = worldXZ(b, w.cx + w.tx * win.u, w.cz + w.tz * win.u);
     return [{ x, z, half: (win.w / 2) * Math.max(b.scale[0], b.scale[2]) }];
   });
-  return { box, radius, floorHeight: buildingFloorHeight(b), entry, windows };
+  const fixed = shellFixedBoxes(b.type).map((f) => {
+    const [x, z] = worldXZ(b, f.cx, f.cz);
+    return { cx: x, cz: z, hx: f.hx * b.scale[0], hz: f.hz * b.scale[2], yaw: b.rotation[1] };
+  });
+  return { box, radius, floorHeight: buildingFloorHeight(b), entry, windows, fixed };
 }
 
 /** Kształt pokoju ładowanego osobno (środek w zerze, wejście przy przedniej ścianie). */
@@ -206,18 +212,28 @@ export class WalkGrid {
   readonly blocked: Uint8Array;
 
   constructor(readonly room: RoomShape, obstacles: Box2[]) {
-    const reach = room.radius ?? Math.hypot(room.box.hx, room.box.hz);
-    this.x0 = room.box.cx - reach;
-    this.z0 = room.box.cz - reach;
-    this.nx = Math.ceil((2 * reach) / this.cell) + 1;
-    this.nz = this.nx;
+    // siatka tylko nad obrysem pokoju (obróconym), nie nad kołem opisanym — przy obróconym budynku to i tak prostokąt
+    const corners = room.radius !== undefined
+      ? [[room.box.cx - room.radius, room.box.cz - room.radius], [room.box.cx + room.radius, room.box.cz + room.radius]] as [number, number][]
+      : boxCorners(room.box);
+    const xs = corners.map(([x]) => x);
+    const zs = corners.map(([, z]) => z);
+    this.x0 = Math.min(...xs);
+    this.z0 = Math.min(...zs);
+    this.nx = Math.ceil((Math.max(...xs) - this.x0) / this.cell) + 1;
+    this.nz = Math.ceil((Math.max(...zs) - this.z0) / this.cell) + 1;
     this.blocked = new Uint8Array(this.nx * this.nz);
+    // przeszkody odsiewamy najpierw po obrysie osiowym — sprawdzanie obrotu dla każdej komórki byłoby drogie
+    const bounds = obstacles.map((b) => {
+      const c = boxCorners(b);
+      return { b, x0: Math.min(...c.map((p) => p[0])) - PLAYER_R, x1: Math.max(...c.map((p) => p[0])) + PLAYER_R, z0: Math.min(...c.map((p) => p[1])) - PLAYER_R, z1: Math.max(...c.map((p) => p[1])) + PLAYER_R };
+    });
     for (let j = 0; j < this.nz; j++) {
       for (let i = 0; i < this.nx; i++) {
         const x = this.x0 + i * this.cell;
         const z = this.z0 + j * this.cell;
         let bad = !insideRoom(room, x, z, PLAYER_R);
-        if (!bad) for (const b of obstacles) if (pointInBox(b, x, z, PLAYER_R)) { bad = true; break; }
+        if (!bad) for (const o of bounds) if (x >= o.x0 && x <= o.x1 && z >= o.z0 && z <= o.z1 && pointInBox(o.b, x, z, PLAYER_R)) { bad = true; break; }
         this.blocked[j * this.nx + i] = bad ? 1 : 0;
       }
     }
@@ -230,7 +246,7 @@ export class WalkGrid {
     return j * this.nx + i;
   }
 
-  /** Wszystkie komórki osiągalne z punktu startowego (BFS po czterech sąsiadach). */
+  /** Wszystkie komórki osiągalne z punktu startowego (przechodzenie po czterech sąsiadach). */
   reachable(fromX: number, fromZ: number): Uint8Array {
     const seen = new Uint8Array(this.nx * this.nz);
     const start = this.index(fromX, fromZ);
@@ -288,7 +304,7 @@ export function layoutProblems(room: RoomShape, objects: PalaceObject[], floors:
   for (let k = 0; k < floors; k++) {
     const onFloor = objects.filter((o) => floorIndex(o, baseY, H) === k);
     const below = objects.filter((o) => floorIndex(o, baseY, H) === k - 1 && o.type === 'stairs');
-    const obstacles: Box2[] = [];
+    const obstacles: Box2[] = [...(room.fixed ?? [])];
     for (const o of onFloor) obstacles.push(...obstacleOf(o, objects, H));
     // otwór w stropie nad schodami z piętra niżej — na tym piętrze to dziura, nie podłoga
     const holes: Box2[] = below.map((s) => {
@@ -309,21 +325,19 @@ export function layoutProblems(room: RoomShape, objects: PalaceObject[], floors:
       const others = onFloor.filter((o) => o.id !== s.id).flatMap((o) => obstacleOf(o, objects, H));
       for (const [label, box] of [['bieg', steps], ['podejście', approach], ['podest', landing]] as [string, Box2][]) {
         if (!boxCorners(box).every(([x, z]) => insideRoom(room, x, z, label === 'bieg' ? 0.02 : 0.1))) out.push(`piętro ${k}: schody — ${label} wychodzi poza pokój`);
-        if (others.some((b) => boxesOverlap(box, b))) out.push(`piętro ${k}: schody — ${label} przecina ścianę albo mebel`);
+        if ([...others, ...(room.fixed ?? [])].some((b) => boxesOverlap(box, b))) out.push(`piętro ${k}: schody — ${label} przecina ścianę albo mebel`);
       }
       // podest musi leżeć na stropie, nie nad własnym otworem — ten sprawdza piętro wyżej, tu prześwit nad biegiem
     }
-    // 3. przejścia: od wejścia (parter) albo od szczytu schodów (piętra) do każdych drzwi, mebla i schodów
-    if (room.radius !== undefined) continue; // wieża: pierścień schodów zajmuje obrzeże, środek jest zawsze wolny
-    const grid = new WalkGrid(room, [...obstacles, ...holes]);
+    // 3. przejścia: od wejścia (parter) albo od szczytu schodów (piętra) do każdych drzwi, mebla i schodów.
+    // W wieży pomijamy tylko tę sekcję: pierścień kręconych schodów zajmuje obrzeże, a środek izby jest zawsze wolny.
+    const walkable = room.radius === undefined;
+    const grid = walkable ? new WalkGrid(room, [...obstacles, ...holes]) : null;
     const starts: [number, number][] = k === 0 ? [room.entry] : below.map((s) => [stairBoxes(s, H).landing.cx, stairBoxes(s, H).landing.cz]);
-    if (starts.length === 0) {
-      if (k > 0 && onFloor.length > 0) out.push(`piętro ${k}: brak schodów prowadzących na to piętro`);
-      continue;
-    }
-    const seen = starts.map(([x, z]) => grid.reachable(x, z));
-    const reach = (x: number, z: number, r: number) => seen.some((s) => grid.near(s, x, z, r));
-    if (!starts.some(([x, z]) => reach(x, z, 0.3))) out.push(`piętro ${k}: wejście zastawione`);
+    if (walkable && starts.length === 0 && k > 0 && onFloor.length > 0) out.push(`piętro ${k}: brak schodów prowadzących na to piętro`);
+    const seen = grid && starts.length > 0 ? starts.map(([x, z]) => grid.reachable(x, z)) : [];
+    const reach = (x: number, z: number, r: number) => (grid && seen.length > 0 ? seen.some((sn) => grid.near(sn, x, z, r)) : true);
+    if (grid && seen.length > 0 && !starts.some(([x, z]) => reach(x, z, 0.3))) out.push(`piętro ${k}: wejście zastawione`);
     const anchoredOnObject = (o: PalaceObject) => !!o.anchorId && objects.some((x) => x.id === o.anchorId);
     for (const o of onFloor) {
       if (o.type === 'wall' || o.type === 'ceiling_lamp' || o.type === 'rug' || o.type === 'window') continue;
@@ -367,7 +381,7 @@ export function layoutProblems(room: RoomShape, objects: PalaceObject[], floors:
         if (tables.length > 0 && !ok) out.push(`piętro ${k}: ${name(o)} stoi z dala od stołu`);
       }
     }
-    // 5. meble nie nachodzą na siebie ani na ścianki
+    // 5. meble nie nachodzą na siebie, na ścianki ani na wbudowane kolumny powłoki
     for (let i = 0; i < onFloor.length; i++) {
       for (let j = i + 1; j < onFloor.length; j++) {
         const a = onFloor[i];
@@ -375,6 +389,12 @@ export function layoutProblems(room: RoomShape, objects: PalaceObject[], floors:
         if (a.anchorId === b.id || b.anchorId === a.id) continue;
         if (a.type === 'door' || b.type === 'door') continue;
         for (const ba of obstacleOf(a, objects, H)) for (const bb of obstacleOf(b, objects, H)) if (boxesOverlap(ba, bb, -0.02)) out.push(`piętro ${k}: ${name(a)} nachodzi na ${name(b)}`);
+      }
+    }
+    for (const o of onFloor) {
+      if (o.type === 'door') continue;
+      for (const ob of obstacleOf(o, objects, H)) {
+        if ((room.fixed ?? []).some((f) => boxesOverlap(ob, f, -0.02))) out.push(`piętro ${k}: ${name(o)} wchodzi w kolumnę albo ołtarz`);
       }
     }
   }
@@ -389,7 +409,7 @@ export function layoutProblems(room: RoomShape, objects: PalaceObject[], floors:
  */
 export function findStairsSpot(b: PalaceObject, objects: PalaceObject[]): { position: Vec3; rotationY: number } | null {
   if (!isInPlace(b) || b.type === 'tower') return null;
-  const inside = objects.filter((o) => o.id !== b.id && (o.anchorId === b.id || objects.some((p) => p.id === o.anchorId && p.anchorId === b.id)));
+  const inside = objects.filter((o) => o.id !== b.id && buildingOf(objects, o)?.id === b.id);
   const ground = inside.filter((o) => floorOfIn(b, o.position[1]) === 0);
   return findStairsIn(roomOfBuilding(b), ground, objects, buildingFloorY(b, 0));
 }
@@ -398,13 +418,26 @@ export function findStairsSpot(b: PalaceObject, objects: PalaceObject[]): { posi
 export function findStairsIn(room: RoomShape, ground: PalaceObject[], objects: PalaceObject[], baseY: number): { position: Vec3; rotationY: number } | null {
   if (room.radius !== undefined) return null; // wieża ma schody wbudowane w mur
   const H = room.floorHeight;
-  const len = stairLength(H);
-  const obstacles = ground.flatMap((o) => obstacleOf(o, objects, H));
+  const obstacles = [...(room.fixed ?? []), ...ground.flatMap((o) => obstacleOf(o, objects, H))];
+  // obrysy osiowe przeszkód: tani wstępny odsiew przed dokładnym testem obrotu
+  const bounds = obstacles.map((o) => {
+    const c = boxCorners(o);
+    return { o, x0: Math.min(...c.map((p) => p[0])), x1: Math.max(...c.map((p) => p[0])), z0: Math.min(...c.map((p) => p[1])), z1: Math.max(...c.map((p) => p[1])) };
+  });
+  const hits = (box: Box2) => {
+    const c = boxCorners(box);
+    const bx0 = Math.min(...c.map((p) => p[0])) - 0.1;
+    const bx1 = Math.max(...c.map((p) => p[0])) + 0.1;
+    const bz0 = Math.min(...c.map((p) => p[1])) - 0.1;
+    const bz1 = Math.max(...c.map((p) => p[1])) + 0.1;
+    return bounds.some((o) => o.x0 <= bx1 && o.x1 >= bx0 && o.z0 <= bz1 && o.z1 >= bz0 && boxesOverlap(box, o.o, 0.1));
+  };
   const doors = ground.filter((o) => o.type === 'door');
   const { hx, hz, yaw } = room.box;
-  type Cand = { position: Vec3; rotationY: number; score: number; approach: Box2 };
+  type Cand = { position: Vec3; rotationY: number; score: number; approach: Box2; q: number; wall: number };
   const cands: Cand[] = [];
-  const step = 0.4;
+  // w większym pokoju rzadsza siatka kandydatów — inaczej koszt rośnie z kwadratem boku
+  const step = Math.max(0.4, Math.min(hx, hz) / 12);
   for (let q = 0; q < 4; q++) {
     const rotationY = yaw + (q * Math.PI) / 2;
     for (let lx = -hx + step; lx <= hx - step; lx += step) {
@@ -413,18 +446,31 @@ export function findStairsIn(room: RoomShape, ground: PalaceObject[], objects: P
         const cand = { position: [x, baseY, z] as Vec3, rotation: [0, rotationY, 0] as Vec3, scale: [1, 1, 1] as Vec3 };
         const { steps, approach, landing } = stairBoxes(cand, H);
         if (![steps, approach, landing].every((box) => boxCorners(box).every(([px, pz]) => insideRoom(room, px, pz, 0.1)))) continue;
-        if ([steps, approach, landing].some((box) => obstacles.some((o) => boxesOverlap(box, o, 0.1)))) continue;
+        if ([steps, approach, landing].some(hits)) continue;
         // światło drzwi ścianek i wejście do budynku muszą zostać wolne
         if (doors.some((d) => pointInBox(steps, d.position[0], d.position[2], 0.9) || pointInBox(approach, d.position[0], d.position[2], 0.6))) continue;
         if ([steps, approach, landing].some((box) => pointInBox(box, room.entry[0], room.entry[1], 0.5))) continue;
         // bieg przy ścianie: im bliżej muru, tym lepiej (środek pokoju zostaje przejezdny)
         const toWall = Math.min(hx - Math.abs(lx), hz - Math.abs(lz));
-        cands.push({ position: cand.position, rotationY, score: toWall, approach });
+        // przy której ścianie stoi bieg (do rozrzucenia kandydatów, żeby nie sprawdzać samego jednego pasa)
+        const wall = hx - Math.abs(lx) < hz - Math.abs(lz) ? (lx < 0 ? 0 : 1) : lz < 0 ? 2 : 3;
+        cands.push({ position: cand.position, rotationY, score: toWall, approach, q, wall });
       }
     }
   }
   cands.sort((a, b2) => a.score - b2.score);
-  for (const c of cands.slice(0, 40)) {
+  // z każdej pary (ściana, orientacja) bierzemy kilku najlepszych — inaczej cała czterdziestka to jeden pas
+  const perBucket = new Map<string, number>();
+  const tries: Cand[] = [];
+  for (const c of cands) {
+    const key = `${c.wall}|${c.q}`;
+    const n = perBucket.get(key) ?? 0;
+    if (n >= 4) continue;
+    perBucket.set(key, n + 1);
+    tries.push(c);
+    if (tries.length >= 24) break;
+  }
+  for (const c of tries) {
     // do dołu schodów trzeba dojść od wejścia — inaczej piętro i tak jest nieosiągalne
     const withStairs = [...obstacles, stairBoxes({ position: c.position, rotation: [0, c.rotationY, 0], scale: [1, 1, 1] }, H).steps];
     const grid = new WalkGrid(room, withStairs);

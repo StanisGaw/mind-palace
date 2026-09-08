@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ROOM_PRESETS, instantiatePreset, instantiatePresetIn } from './presets';
-import { SHELLS, buildingFloorY, maxFloorsOf } from './rooms';
+import { SHELLS, buildingFloorY, floorOf, maxFloorsOf } from './rooms';
 import { ROOMS } from '../catalog';
-import { PLAYER_R, WalkGrid, boxCorners, findStairsIn, findStairsSpot, insideRoom, layoutProblems, obstacleOf, roomOfBuilding, roomOfSpec, stairBoxes } from './layout';
+import { PLAYER_R, WalkGrid, boxCorners, boxesOverlap, findStairsIn, findStairsSpot, insideRoom, layoutProblems, obstacleOf, pointInBox, roomOfBuilding, roomOfSpec, stairBoxes } from './layout';
 import type { PalaceObject, Vec3 } from '../types';
 
 /**
@@ -46,7 +46,8 @@ describe('powierzchnia budynków', () => {
     for (const type of TYPES) {
       const b = building(type);
       const spec = SHELLS[type];
-      const area = type === 'tower' ? Math.PI * (spec.inner.w / 2) ** 2 * b.scale[0] * b.scale[2] : spec.inner.w * b.scale[0] * spec.inner.d * b.scale[2];
+      // w wieży liczy się wolne koło wewnątrz pierścienia kręconych schodów, nie całe wnętrze muru
+      const area = type === 'tower' ? Math.PI * (roomOfBuilding(b).radius ?? 0) ** 2 : spec.inner.w * b.scale[0] * spec.inner.d * b.scale[2];
       expect(area, `${type}: ${area.toFixed(1)} m²`).toBeGreaterThanOrEqual(30);
     }
   });
@@ -78,20 +79,25 @@ describe('schody dodane z panelem pięter', () => {
     const spot = findStairsSpot(b, objects);
     expect(spot).not.toBeNull();
     const room = roomOfBuilding(b);
-    const { steps } = stairBoxes({ position: spot!.position, rotation: [0, spot!.rotationY, 0], scale: [1, 1, 1] }, room.floorHeight);
-    const walls = objects.filter((o) => o.type === 'wall');
-    for (const w of walls) {
+    const stairs = { position: spot!.position, rotation: [0, spot!.rotationY, 0] as Vec3, scale: [1, 1, 1] as Vec3 };
+    const { steps, approach, landing } = stairBoxes(stairs, room.floorHeight);
+    for (const w of objects.filter((o) => o.type === 'wall')) {
       for (const piece of obstacleOf(w, objects, room.floorHeight)) {
-        const corners = boxCorners(piece);
-        const overlap = corners.some(([x, z]) => {
-          const [lx, lz] = [x - steps.cx, z - steps.cz];
-          const c = Math.cos(steps.yaw);
-          const s = Math.sin(steps.yaw);
-          return Math.abs(lx * c - lz * s) <= steps.hx && Math.abs(lx * s + lz * c) <= steps.hz;
-        });
-        expect(overlap, 'schody przecinają ściankę działową').toBe(false);
+        expect(boxesOverlap(steps, piece), 'schody przecinają ściankę działową').toBe(false);
       }
     }
+    // wejście do budynku i światło drzwi ścianek muszą zostać wolne
+    for (const box of [steps, approach, landing]) {
+      expect(pointInBox(box, room.entry[0], room.entry[1], 0.5), 'schody zastawiają wejście').toBe(false);
+    }
+    for (const d of objects.filter((o) => o.type === 'door')) {
+      expect(pointInBox(steps, d.position[0], d.position[2], 0.9), 'schody stoją w świetle drzwi').toBe(false);
+    }
+    // do dołu schodów da się dojść od wejścia
+    const obstacles = objects.filter((o) => o.id !== b.id).flatMap((o) => obstacleOf(o, objects, room.floorHeight));
+    const grid = new WalkGrid(room, [...obstacles, steps]);
+    const seen = grid.reachable(room.entry[0], room.entry[1]);
+    expect(grid.near(seen, approach.cx, approach.cz, 0.35), 'nie da się dojść do schodów od wejścia').toBe(true);
   });
 });
 
@@ -128,7 +134,7 @@ describe('wbudowane układy pokoi', () => {
         const floors = Math.min(maxFloorsOf(type), preset.floors);
         // pokój ładowany dostaje schody tak samo jak w aplikacji (`addStairsToRoom`)
         if (floors > 1 && type !== 'tower' && !objects.some((o) => o.type === 'stairs')) {
-          const spot = findStairsIn(room, objects.filter((o) => o.position[1] < spec.height / 2), objects, 0);
+          const spot = findStairsIn(room, objects.filter((o) => floorOf(o.position[1], spec.height) === 0), objects, 0);
           expect(spot, `${preset.name} / ${type}: brak miejsca na schody`).not.toBeNull();
           objects.push({ id: 's1', type: 'stairs', name: 'Schody', position: spot!.position, rotation: [0, spot!.rotationY, 0], scale: [1, 1, 1] });
         }
