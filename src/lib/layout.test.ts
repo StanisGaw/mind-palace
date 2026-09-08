@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { ROOM_PRESETS, instantiatePreset, instantiatePresetIn } from './presets';
-import { SHELLS, buildingFloorY, floorOf, maxFloorsOf } from './rooms';
-import { ROOMS } from '../catalog';
-import { PLAYER_R, WalkGrid, boxCorners, boxesOverlap, findStairsIn, findStairsSpot, insideRoom, layoutProblems, obstacleOf, pointInBox, roomOfBuilding, roomOfSpec, stairBoxes } from './layout';
-import type { PalaceObject, Vec3 } from '../types';
+import { FURNITURE_SETS, SET_WALL_GAP, instantiateSet } from './sets';
+import { SHELLS, buildingFloorY } from './rooms';
+import { PLAYER_R, WalkGrid, boxCorners, boxPoint, boxesOverlap, findStairsSpot, insideRoom, layoutProblems, obstacleOf, pointInBox, roomOfBuilding, stairBoxes, type Box2, type RoomShape } from './layout';
+import type { FurnitureSet, PalaceObject, Vec3 } from '../types';
 
 /**
  * Testy integracyjne układów pokoi: każdy wbudowany układ musi dać się użyć — gracz (kapsuła o promieniu
@@ -74,8 +73,7 @@ describe('schody dodane z panelem pięter', () => {
 
   it('schody nie zastawiają wejścia ani drzwi ścianki', () => {
     const b = building('palace', SHELLS.palace.minScale, 0, 2);
-    const preset = ROOM_PRESETS.find((p) => p.id === 'palace-hall')!;
-    const objects = [b, ...instantiatePresetIn(preset, b)];
+    const objects = [b, ...placeSetIn(FURNITURE_SETS.find((s) => s.id === 'jadalnia')!, roomOfBuilding(b), buildingFloorY(b, 0))];
     const spot = findStairsSpot(b, objects);
     expect(spot).not.toBeNull();
     const room = roomOfBuilding(b);
@@ -101,48 +99,67 @@ describe('schody dodane z panelem pięter', () => {
   });
 });
 
-describe('wbudowane układy pokoi', () => {
-  for (const preset of ROOM_PRESETS) {
-    const types = preset.buildingTypes ?? (TYPES as readonly string[]);
-    for (const type of types) {
-      for (const scale of [SHELLS[type].minScale, SHELLS[type].minScale * 1.4]) {
-        it(`„${preset.name}" w ${type} (skala ${scale.toFixed(2)}): da się z niego korzystać`, () => {
-          const floors = Math.min(maxFloorsOf(type), Math.max(1, preset.floors));
-          const b = building(type, scale, 0, floors);
-          const objects = [b, ...instantiatePresetIn(preset, b)];
-          // układ na kilka pięter dostaje schody tak samo jak w aplikacji
-          if (floors > 1 && type !== 'tower' && !objects.some((o) => o.type === 'stairs')) {
-            const spot = findStairsSpot(b, objects);
-            expect(spot, 'układ wielopiętrowy bez miejsca na schody').not.toBeNull();
-            objects.push({ id: 's1', type: 'stairs', name: 'Schody', position: spot!.position, rotation: [0, spot!.rotationY, 0], scale: [1, 1, 1], anchorId: b.id });
+/** Zestaw postawiony w pokoju: tyłem do ściany −Z, przesunięty wzdłuż niej o `offset`, jak przyciąganie podglądu. */
+function placeSetIn(set: FurnitureSet, room: RoomShape, baseY = 0, offset = 0): PalaceObject[] {
+  const lz = set.back ? -room.box.hz + set.depth / 2 + SET_WALL_GAP : 0;
+  return instantiateSet(set, ((n) => () => `s${n++}`)(0)).map((o) => {
+    const [x, z] = boxPoint(room.box, o.position[0] + offset, o.position[2] + lz);
+    return { ...o, position: [x, baseY + o.position[1], z] as Vec3, rotation: [0, o.rotation[1] + room.box.yaw, 0] as Vec3 };
+  });
+}
+
+/** Pokój dokładnie pod zestaw: tył przy ścianie (obrazy mają na czym wisieć), z przodu miejsce na wejście. */
+function roomForSet(set: FurnitureSet): RoomShape {
+  const side = 0.8;
+  const front = set.back ? side : side + 1.2;
+  const back = set.back ? SET_WALL_GAP : side + 1.2;
+  const hz = (set.depth + front + back) / 2;
+  const box: Box2 = { cx: 0, cz: -set.depth / 2 - back + hz, hx: set.width / 2 + side, hz, yaw: 0 };
+  return { box, floorHeight: 3.2, entry: [box.cx, box.cz + hz - 0.7] };
+}
+
+describe('wbudowane zestawy mebli', () => {
+  for (const set of FURNITURE_SETS) {
+    it(`„${set.name}" w pokoju na swoją miarę: nic nie nachodzi i do wszystkiego da się dojść`, () => {
+      const room = roomForSet(set);
+      const problems = layoutProblems(room, placeSetIn(set, room), 1);
+      expect(problems, problems.join('\n')).toEqual([]);
+    });
+
+    it(`„${set.name}" mieści się w swoim obrysie ${set.width} × ${set.depth} m`, () => {
+      const objects = placeSetIn(set, { box: { cx: 0, cz: 0, hx: set.width / 2, hz: set.depth / 2, yaw: 0 }, floorHeight: 3.2, entry: [0, 0] });
+      for (const o of objects) {
+        for (const b of obstacleOf(o, objects, 3.2)) {
+          for (const [x, z] of boxCorners(b)) {
+            expect(Math.abs(x) <= set.width / 2 + 0.01 && Math.abs(z) <= set.depth / 2 + 0.01, `${o.type} wystaje poza obrys w (${x.toFixed(2)}, ${z.toFixed(2)})`).toBe(true);
           }
+        }
+      }
+    });
+  }
+
+  // Zestawy wnętrz w prawdziwych budynkach. Zestaw wolno przesuwać wzdłuż ściany (obraz nie może zasłonić
+  // wbudowanego okna), więc wymagamy, żeby dało się go postawić w którymkolwiek miejscu przy tylnym murze.
+  // Świątynia (kolumny) i wieża (pierścień kręconych schodów) mają własne przeszkody — tam meble stawia się ręcznie.
+  for (const set of FURNITURE_SETS.filter((s) => !s.outdoor)) {
+    for (const type of ['house', 'palace', 'library'] as const) {
+      for (const scale of [SHELLS[type].minScale, SHELLS[type].minScale * 1.4]) {
+        it(`„${set.name}" w ${type} (skala ${scale.toFixed(2)}): jest gdzie go postawić`, () => {
+          const b = building(type, scale, 0.4, 1);
           const room = roomOfBuilding(b);
-          const problems = layoutProblems(room, objects.filter((o) => o.id !== b.id), floors, buildingFloorY(b, 0));
-          expect(problems, problems.join('\n')).toEqual([]);
+          if (set.width + 0.6 > 2 * room.box.hx || set.depth + 0.6 > 2 * room.box.hz) return; // zestaw większy niż wnętrze — użytkownik dostaje ostrzeżenie
+          const span = room.box.hx - set.width / 2 - 0.15;
+          let best: string[] | null = null;
+          for (let off = -span; off <= span + 1e-6; off += 0.5) {
+            const problems = layoutProblems(room, placeSetIn(set, room, buildingFloorY(b, 0), off), 1, buildingFloorY(b, 0));
+            if (problems.length === 0) return;
+            if (!best || problems.length < best.length) best = problems;
+          }
+          expect(best ?? ['brak miejsca przy ścianie'], `nigdzie przy ścianie:\n${(best ?? []).join('\n')}`).toEqual([]);
         });
       }
     }
   }
-
-  it('układ w pokoju ładowanym osobno też jest przejezdny', () => {
-    for (const preset of ROOM_PRESETS) {
-      for (const type of preset.buildingTypes ?? ['house']) {
-        // pokój ładowany osobno ma wymiary z katalogu (mniejszy niż wnętrze w miejscu) — ostrzejszy przypadek
-        const spec = { ...ROOMS[type] };
-        const objects = instantiatePreset(preset, spec);
-        const room = roomOfSpec(spec, type);
-        const floors = Math.min(maxFloorsOf(type), preset.floors);
-        // pokój ładowany dostaje schody tak samo jak w aplikacji (`addStairsToRoom`)
-        if (floors > 1 && type !== 'tower' && !objects.some((o) => o.type === 'stairs')) {
-          const spot = findStairsIn(room, objects.filter((o) => floorOf(o.position[1], spec.height) === 0), objects, 0);
-          expect(spot, `${preset.name} / ${type}: brak miejsca na schody`).not.toBeNull();
-          objects.push({ id: 's1', type: 'stairs', name: 'Schody', position: spot!.position, rotation: [0, spot!.rotationY, 0], scale: [1, 1, 1] });
-        }
-        const problems = layoutProblems(room, objects, floors);
-        expect(problems, `${preset.name} / ${type}:\n${problems.join('\n')}`).toEqual([]);
-      }
-    }
-  });
 });
 
 describe('siatka przejść', () => {

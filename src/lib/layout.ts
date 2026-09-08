@@ -32,6 +32,8 @@ const SIZES: Record<string, [number, number]> = {
   bed: [1.6, 2.1],
   desk: [1.4, 0.7],
   sideboard: [1.46, 0.54],
+  counter: [1.2, 0.6],
+  stove: [0.7, 0.6],
   sofa: [1.9, 0.9],
   armchair: [0.9, 0.9],
   shelf: [1.4, 0.4],

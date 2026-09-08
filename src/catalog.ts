@@ -74,6 +74,8 @@ export const CATALOG: CatalogItem[] = [
   { id: 'sofa', name: 'Sofa', category: 'furniture', emoji: '🛋️', description: 'Trzy poduszki, jedna historia.', footprint: 1.0, collider: 'box' },
   { id: 'bed', name: 'Łóżko', category: 'furniture', emoji: '🛏️', description: 'Sen porządkuje wspomnienia.', footprint: 1.1, collider: 'box' },
   { id: 'desk', name: 'Biurko', category: 'furniture', emoji: '🖥️', description: 'Szuflady na notatki i lampka.', footprint: 0.8, collider: 'box' },
+  { id: 'counter', name: 'Szafka kuchenna', category: 'furniture', emoji: '🚰', description: 'Szafka z kamiennym blatem i zlewem — na blacie da się coś postawić.', footprint: 0.6, collider: 'box' },
+  { id: 'stove', name: 'Piec', category: 'furniture', emoji: '🔥', description: 'Kaflowy piec z paleniskiem i płytą do gotowania.', footprint: 0.5, collider: 'box' },
   { id: 'sideboard', name: 'Kredens', category: 'furniture', emoji: '🗄️', description: 'Zamknięte drzwiczki, ukryte skarby.', footprint: 0.8, collider: 'box' },
   { id: 'clock', name: 'Zegar stojący', category: 'furniture', emoji: '🕰️', description: 'Wahadło odmierza czas.', footprint: 0.4, collider: 'box' },
   { id: 'mirror', name: 'Lustro', category: 'furniture', emoji: '🪞', description: 'Złota rama, lśniąca tafla.', footprint: 0.5, collider: 'box' },

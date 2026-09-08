@@ -261,6 +261,23 @@ export function shellFixedBoxes(type: string): { cx: number; cz: number; hx: num
   return [...cols.map(([x, z]) => ({ cx: x, cz: z, hx: 0.15, hz: 0.15 })), { cx: 0, cz: -d * 0.3, hx: 0.4, hz: 0.4 }];
 }
 
+/**
+ * Lampy sufitowe kondygnacji budynku z wnętrzem w miejscu, we współrzędnych świata i zakotwiczone w budynku.
+ * Bez nich świeżo dołożone piętro jest kompletnie ciemne — wcześniej lampy dokładał gotowy układ pokoju.
+ */
+export function buildingLamps(b: PalaceObject, floors: number[], makeId: () => string): PalaceObject[] {
+  const spec = SHELLS[b.type] ?? SHELLS.house;
+  const name = catalogItem('ceiling_lamp').name;
+  const out: PalaceObject[] = [];
+  for (const k of floors) {
+    for (const u of [-0.28, 0.28]) {
+      const [x, z] = worldXZ(b, spec.cx + u * spec.inner.w, spec.cz);
+      out.push({ id: makeId(), type: 'ceiling_lamp', name, position: [x, buildingFloorY(b, k), z], rotation: [0, 0, 0], scale: [1, 1, 1], anchorId: b.id });
+    }
+  }
+  return out;
+}
+
 /** Budynek z wnętrzem w tej samej scenie (bez ładowania osobnego pałacu). */
 export function isInPlace(o: Pick<PalaceObject, 'type' | 'interiorMode'>): boolean {
   return o.interiorMode === 'inplace' && o.type in SHELLS;

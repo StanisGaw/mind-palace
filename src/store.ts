@@ -1,14 +1,14 @@
 import { create } from 'zustand';
-import type { AppData, CameraKind, Palace, PalaceObject, Rating, RoomPreset, SoundLevels, Tool, Vec3, ViewMode } from './types';
+import type { AppData, CameraKind, FurnitureSet, Palace, PalaceObject, Rating, SoundLevels, Tool, Vec3, ViewMode } from './types';
 import { ROOMS, catalogItem, hasInterior } from './catalog';
 import { uid } from './lib/ids';
 import { yawRotation } from './lib/transform';
 import { getPref, setPref } from './lib/prefs';
 import { chainOf, collectSubtree, loadData, makeInteriorPalace, makePalace, rootOf, saveData } from './lib/storage';
-import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingFloorY, buildingOf, maxFloorsOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt, worldXZ, isFacade } from './lib/rooms';
-import { ROOM_PRESETS, capturePreset, instantiatePreset, instantiatePresetIn } from './lib/presets';
+import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingLamps, buildingFloorY, buildingOf, maxFloorsOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt, worldXZ, isFacade } from './lib/rooms';
+import { captureSet, furnitureSet, instantiateSet } from './lib/sets';
 import { findStairsIn, findStairsSpot, roomOfSpec } from './lib/layout';
-import { loadCustomPresets, saveCustomPresets } from './lib/presetStore';
+import { loadCustomSets, saveCustomSets } from './lib/setStore';
 import { isDue, newSrs, reviewSrs } from './lib/srs';
 import { flattenStops, dueInTree, type ReviewStop } from './lib/review';
 
@@ -37,7 +37,7 @@ interface State {
   hoverId: string | null;
   tool: Tool;
   viewMode: ViewMode;
-  leftTab: 'library' | 'scene' | 'presets';
+  leftTab: 'library' | 'scene' | 'sets';
   saved: boolean;
   undoStack: Snapshot[];
   redoStack: Snapshot[];
@@ -54,11 +54,11 @@ interface State {
   flying: boolean;
   /** Budynek z wnętrzem w miejscu, w którym stoi gracz w spacerze (biblioteka ogranicza się do wyposażenia wnętrz). */
   insideBuildingId: string | null;
-  placing: { type: string; ids?: string[] } | null; // element z biblioteki (albo `template`: kopie obiektów `ids`) czekający na kliknięcie w scenie
+  placing: { type: string; ids?: string[]; setId?: string } | null; // element z biblioteki, zestaw mebli (`set`) albo kopie obiektów `ids` — czeka na kliknięcie w scenie
   sound: SoundLevels; // głośność dźwięków otoczenia; trzymana w preferencjach, nie w danych pałacu
   editFloor: number; // piętro edytowane w edytorze (nieutrwalane — zerowane przy zmianie sceny)
   activeBuildingId: string | null; // budynek z wnętrzem w miejscu, któremu edytor chowa dach (nieutrwalane)
-  customPresets: RoomPreset[]; // własne układy pokoi, poza danymi pałacu (jak własne tekstury)
+  customSets: FurnitureSet[]; // własne zestawy mebli, poza danymi pałacu (jak własne tekstury)
 
   palace(): Palace;
   setPalace(mut: (p: Palace) => void, opts?: { undo?: boolean }): void;
@@ -80,17 +80,17 @@ interface State {
   addStairsToRoom(): void;
   setInteriorMode(id: string, mode: 'inplace' | 'nested'): void;
   setFloors(n: number): void;
-  // presety pokoi
-  applyRoomPreset(id: string): void;
-  saveCurrentAsPreset(name: string): void;
-  deleteCustomPreset(id: string): void;
-  importPresets(list: RoomPreset[]): void;
+  // zestawy mebli
+  placeSet(setId: string, target: { position: Vec3; rotation: number; anchorId?: string } | null): string[];
+  saveSelectionAsSet(name: string): void;
+  deleteCustomSet(id: string): void;
+  importSets(list: FurnitureSet[]): void;
   // obiekty
   addObject(type: string, position?: Vec3, rotationY?: number, anchorId?: string, scale?: Vec3): string;
   dropToGround(id: string): void;
   /** Scala współliniowe, stykające się ścianki spośród podanych; zwraca id ścianek, które zostały. */
   mergeWalls(ids: string[], opts?: { undo?: boolean }): string[];
-  setPlacing(p: { type: string; ids?: string[] } | null): void;
+  setPlacing(p: { type: string; ids?: string[]; setId?: string } | null): void;
   removeObject(id: string): void;
   updateObject(id: string, patch: Partial<PalaceObject>, opts?: { undo?: boolean }): void;
   duplicateObject(id: string): void;
@@ -110,7 +110,7 @@ interface State {
   setHover(id: string | null): void;
   setTool(t: Tool): void;
   setViewMode(v: ViewMode): void;
-  setLeftTab(t: 'library' | 'scene' | 'presets'): void;
+  setLeftTab(t: 'library' | 'scene' | 'sets'): void;
   // notatki
   setNote(id: string, title: string, body: string): void;
   clearNote(id: string): void;
@@ -375,7 +375,7 @@ export const useStore = create<State>((set, get) => ({
   sound: initialSound(),
   editFloor: 0,
   activeBuildingId: null,
-  customPresets: loadCustomPresets(),
+  customSets: loadCustomSets(),
 
   palace() {
     const d = get().data;
@@ -505,7 +505,13 @@ export const useStore = create<State>((set, get) => ({
     }
     get().setPalace((pl) => {
       const o = pl.objects.find((x) => x.id === id);
-      if (o) o.floors = floors;
+      if (!o) return;
+      o.floors = floors;
+      // świeżo dołożone piętro bez lamp byłoby ciemne — wcześniej dokładał je gotowy układ pokoju
+      const lit = new Set(pl.objects.filter((x) => x.type === 'ceiling_lamp' && x.anchorId === id).map((x) => floorOfIn(o, x.position[1])));
+      const dark: number[] = [];
+      for (let k = cur; k < floors; k++) if (!lit.has(k)) dark.push(k);
+      if (dark.length > 0) pl.objects.push(...buildingLamps(o, dark, uid));
     });
     if (get().activeBuildingId === id && get().editFloor > floors - 1) set({ editFloor: floors - 1 });
     // pierwsze piętro bez schodów byłoby nieosiągalne: budynek bez wbudowanych schodów (wieża ma spiralę) dostaje
@@ -548,6 +554,7 @@ export const useStore = create<State>((set, get) => ({
         o.shellVersion = 5;
         o.finish = o.finish ?? DEFAULT_FINISH;
         o.scale = bumped;
+        pl.objects.push(...buildingLamps(o, Array.from({ length: o.floors ?? 1 }, (_, k) => k), uid));
       });
       if (bumped.some((v, i) => v !== b.scale[i])) get().showToast(`Skala budynku podniesiona do ${min}, żeby dało się wejść do środka.`);
       get().setActiveBuilding(id);
@@ -601,70 +608,56 @@ export const useStore = create<State>((set, get) => ({
     }
     addStairsObject(get, spot.position, spot.rotationY);
   },
-  applyRoomPreset(id) {
+  placeSet(setId, target) {
     const p = get().palace();
-    const preset = [...ROOM_PRESETS, ...get().customPresets].find((r) => r.id === id);
-    if (!preset) return;
-    if (!p.interior) {
-      // wnętrze w miejscu: układ w układzie pokoju o wymiarach wnętrza budynku, przeniesiony do świata i zakotwiczony w budynku
-      const b = p.objects.find((o) => o.id === get().activeBuildingId);
-      if (!b || !isInPlace(b)) return;
-      // obiekty z notatkami zostają — piętro, na którym stoją, nie może zniknąć
-      const kept = p.objects.filter((o) => o.note && buildingOf(p.objects, o)?.id === b.id);
-      const keptTop = kept.reduce((m, o) => Math.max(m, floorOfIn(b, o.position[1]) + 1), 1);
-      const floors = Math.min(maxFloorsOf(b.type), Math.max(keptTop, preset.floors));
-      const fresh = instantiatePresetIn(preset, b);
-      get().setPalace((pl) => {
-        // elewacja (okna, balkony, tarasy) należy do bryły, nie do układu pokoju — zostaje
-        const inside = new Set(pl.objects.filter((o) => !o.note && !isFacade(o.type) && buildingOf(pl.objects, o)?.id === b.id).map((o) => o.id));
-        pl.objects = [...pl.objects.filter((o) => !inside.has(o.id)), ...fresh];
-        pl.path = pl.path.filter((x) => !inside.has(x));
-        const bb = pl.objects.find((o) => o.id === b.id);
-        if (bb) bb.floors = floors;
-      });
-      set({ editFloor: 0 });
-      // układ na kilka pięter bez własnych schodów (albo budynek z piętrem, którego układ nie przewidział)
-      if (floors > 1 && b.type !== 'tower' && !fresh.some((o) => o.type === 'stairs')) get().addStairsTo(b.id);
+    const fs = furnitureSet(setId, get().customSets);
+    if (!fs) return [];
+    const b = target?.anchorId ? p.objects.find((o) => o.id === target.anchorId) : undefined;
+    const rot = target?.rotation ?? 0;
+    const cos = Math.cos(rot);
+    const sin = Math.sin(rot);
+    // zestaw powstaje wokół zera; obracamy go wokół punktu wstawienia tak samo jak podgląd
+    const objects = instantiateSet(fs).map((o) => {
+      const [dx, , dz] = o.position;
+      const x = (target?.position[0] ?? 0) + dx * cos + dz * sin;
+      const z = (target?.position[2] ?? 0) - dx * sin + dz * cos;
+      return { ...o, position: [x, (target?.position[1] ?? 0) + o.position[1], z] as Vec3, rotation: yawRotation(o.rotation[1] + rot), anchorId: o.anchorId ?? b?.id };
+    });
+    get().setPalace((pl) => {
+      pl.objects.push(...objects);
+    });
+    set({ selectedIds: objects.map((o) => o.id) });
+    return objects.map((o) => o.id);
+  },
+
+  saveSelectionAsSet(name) {
+    const p = get().palace();
+    const chosen = p.objects.filter((o) => get().selectedIds.includes(o.id) && !o.note && !isFacade(o.type) && !isInPlace(o));
+    if (chosen.length === 0) {
+      get().showToast('Zaznacz meble, które mają wejść do zestawu.');
       return;
     }
-    const spec = roomSpecFor(p, get().data.palaces);
-    get().setPalace((pl) => {
-      const keep = pl.objects.filter((o) => o.note);
-      pl.objects = [...keep, ...instantiatePreset(preset, spec)];
-      const keptIds = new Set(keep.map((o) => o.id));
-      pl.path = pl.path.filter((x) => keptIds.has(x));
-      if (pl.interior) pl.interior.floors = Math.min(FLOOR_MAX, Math.max(1, preset.floors));
-    });
-    set({ editFloor: 0 });
-    const after = get().palace();
-    if ((after.interior?.floors ?? 1) > 1 && after.interior?.buildingType !== 'tower' && !after.objects.some((o) => o.type === 'stairs')) get().addStairsToRoom();
+    const list = [...get().customSets, captureSet(name, chosen)];
+    saveCustomSets(list);
+    set({ customSets: list });
+    get().showToast(`Zestaw „${name}” zapisany.`);
   },
 
-  saveCurrentAsPreset(name) {
-    const p = get().palace();
-    if (!p.interior) return;
-    const spec = roomSpecFor(p, get().data.palaces);
-    const preset = capturePreset(name, p, spec);
-    const list = [...get().customPresets, preset];
-    saveCustomPresets(list);
-    set({ customPresets: list });
+  deleteCustomSet(id) {
+    const list = get().customSets.filter((s) => s.id !== id);
+    saveCustomSets(list);
+    set({ customSets: list });
   },
 
-  deleteCustomPreset(id) {
-    const list = get().customPresets.filter((p) => p.id !== id);
-    saveCustomPresets(list);
-    set({ customPresets: list });
-  },
-
-  importPresets(list) {
-    const merged = [...get().customPresets, ...list];
-    saveCustomPresets(merged);
-    set({ customPresets: merged });
+  importSets(list) {
+    const merged = [...get().customSets, ...list];
+    saveCustomSets(merged);
+    set({ customSets: merged });
   },
 
   setPlacing(p) {
     const cur = get().placing;
-    if (cur?.type === p?.type && (cur?.ids ?? []).join(',') === (p?.ids ?? []).join(',')) return;
+    if (cur?.type === p?.type && cur?.setId === p?.setId && (cur?.ids ?? []).join(',') === (p?.ids ?? []).join(',')) return;
     set({ placing: p });
   },
 
@@ -721,7 +714,7 @@ export const useStore = create<State>((set, get) => ({
     // nowe budynki mają wnętrze w tej samej scenie i skalę, przy której gracz mieści się w drzwiach
     const finalScale: Vec3 = shell ? ((scale ?? [1, 1, 1]).map((v) => Math.max(v, shell.minScale)) as Vec3) : (scale ?? [1, 1, 1]);
     get().setPalace((pl) => {
-      pl.objects.push({
+      const fresh: PalaceObject = {
         id,
         type,
         name: item.name,
@@ -730,7 +723,10 @@ export const useStore = create<State>((set, get) => ({
         scale: finalScale,
         anchorId,
         ...(shell ? { interiorMode: 'inplace' as const, floors: shell.defaultFloors, shellVersion: 5 as const, finish: DEFAULT_FINISH } : {}),
-      });
+      };
+      pl.objects.push(fresh);
+      // wnętrze bez lamp byłoby ciemne; wcześniej dokładał je gotowy układ pokoju, teraz nikt inny tego nie robi
+      if (shell) pl.objects.push(...buildingLamps(fresh, Array.from({ length: shell.defaultFloors }, (_, k) => k), uid));
     });
     set({ selectedIds: [id], ...(get().placing ? {} : { leftTab: 'scene' as const }) });
     return id;

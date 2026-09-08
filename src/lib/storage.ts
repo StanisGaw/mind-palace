@@ -1,9 +1,10 @@
-import type { AppData, GroundSpec, Palace, PalaceObject, PalaceSettings, RoomPreset, RoomSpec, Vec3 } from '../types';
+import type { AppData, FurnitureSet, GroundSpec, Palace, PalaceObject, PalaceSettings, RoomSpec, Vec3 } from '../types';
 import { catalogItem, ROOMS } from '../catalog';
 import { uid } from './ids';
 import { hashString } from '../three/noise';
 import { FLOOR_MAX, SHELLS, attachLegacyDoors, buildingOf, facadeSnap, isFacade, localXZ, roomLamps, worldXZ } from './rooms';
 import { yawRotation } from './transform';
+import { asSet } from './setStore';
 
 const KEY = 'mneme.data.v1';
 
@@ -355,9 +356,9 @@ export function collectSubtree(rootId: string, palaces: Palace[]): Palace[] {
   return out;
 }
 
-/** Eksport całego drzewa: pałac + wszystkie jego wnętrza + własne układy pokoi. */
-export function exportPalaceJson(root: Palace, all: Palace[], presets: RoomPreset[] = []): string {
-  return JSON.stringify({ app: 'mneme', version: 2, palace: root, interiors: collectSubtree(root.id, all), presets }, null, 2);
+/** Eksport całego drzewa: pałac + wszystkie jego wnętrza + własne zestawy mebli. */
+export function exportPalaceJson(root: Palace, all: Palace[], sets: FurnitureSet[] = []): string {
+  return JSON.stringify({ app: 'mneme', version: 2, palace: root, interiors: collectSubtree(root.id, all), sets }, null, 2);
 }
 
 /** Nadaje nowe identyfikatory pałacom i przepina odsyłacze, żeby import nigdy nie nadpisał istniejących danych. */
@@ -372,21 +373,23 @@ export function remapIds(palaces: Palace[]): Palace[] {
   }));
 }
 
-/** Nadaje nowe identyfikatory zaimportowanym presetom i oznacza je jako własne. */
-function remapPresets(list: unknown): RoomPreset[] {
+/** Nadaje nowe identyfikatory zaimportowanym zestawom i oznacza je jako własne. Stare układy pokoi przelicza na metry. */
+function remapSets(list: unknown): FurnitureSet[] {
   if (!Array.isArray(list)) return [];
   return list
-    .filter((p): p is RoomPreset => !!p && typeof p === 'object' && Array.isArray((p as RoomPreset).objects))
-    .map((p) => ({ ...p, id: uid('rp'), custom: true }));
+    .map(asSet)
+    .filter((s): s is FurnitureSet => !!s)
+    .map((s) => ({ ...s, id: uid('fs'), custom: true }));
 }
 
-export function parseImport(text: string): { palaces: Palace[]; presets: RoomPreset[] } {
+export function parseImport(text: string): { palaces: Palace[]; sets: FurnitureSet[] } {
   const parsed = JSON.parse(text);
   let list: Palace[] | null = null;
-  let presets: RoomPreset[] = [];
+  let sets: FurnitureSet[] = [];
   if (parsed && parsed.app === 'mneme' && parsed.palace) {
     list = [normalizePalace(parsed.palace), ...(Array.isArray(parsed.interiors) ? parsed.interiors.map(normalizePalace) : [])];
-    presets = remapPresets(parsed.presets);
+    // pliki sprzed zestawów mają układy pokoi pod kluczem `presets`
+    sets = remapSets(parsed.sets ?? parsed.presets);
   } else if (parsed && Array.isArray(parsed.palaces)) {
     list = parsed.palaces.map(normalizePalace);
   } else if (parsed && Array.isArray(parsed.objects)) {
@@ -394,7 +397,7 @@ export function parseImport(text: string): { palaces: Palace[]; presets: RoomPre
   }
   if (!list || list.length === 0) throw new Error('Nieznany format pliku');
   const fixed = normalizeData({ version: 2, currentId: list[0].id, palaces: remapIds(list) });
-  return { palaces: fixed.palaces, presets };
+  return { palaces: fixed.palaces, sets };
 }
 
 export function downloadText(filename: string, text: string) {

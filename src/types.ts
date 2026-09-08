@@ -95,32 +95,31 @@ export interface Palace {
   interior?: { buildingType: string; floors: number; lamps?: true }; // `lamps`: lampy są już obiektami (migracja)
 }
 
-/** Obiekt układu pokoju we współrzędnych względnych (patrz `lib/presets.ts`). */
-export interface PresetObject {
+/** Obiekt zestawu we współrzędnych względem punktu wstawienia, w METRACH (patrz `lib/sets.ts`). */
+export interface SetObject {
   type: string;
   name?: string;
-  u: number; // -0.5..0.5 względem szerokości pokoju
-  v: number; // -0.5..0.5 względem głębokości pokoju
-  /** Przesunięcie w metrach od punktu (u, v) — meble w grupie (krzesła przy stole) trzymają stałe odstępy niezależnie od wielkości pokoju. */
-  dx?: number;
-  dz?: number;
-  floor: number;
+  /** Przesunięcie w metrach od punktu wstawienia zestawu (środek jego obrysu w rzucie). */
+  dx: number;
+  dz: number;
   dy?: number; // wysokość nad podłogą piętra
   rotationY: number;
   scale?: Vec3;
-  span?: { axis: 'x' | 'z'; frac: number }; // ściany: długość jako ułamek wymiaru pokoju
-  anchor?: number; // indeks obiektu w układzie, w którym ten obiekt jest zakotwiczony (drzwi w ściance)
-  group?: number; // numer grupy w układzie (obiekty z tym samym numerem tworzą grupę)
+  length?: number; // ścianka: długość w metrach (zestaw ma stałe wymiary, nie ułamki pokoju)
+  anchor?: number; // indeks obiektu w zestawie, na którym stoi ten obiekt (wazon na kredensie)
 }
 
-/** Gotowy układ pokoju: wbudowany albo zapisany przez użytkownika. */
-export interface RoomPreset {
+/** Gotowy zestaw mebli: wbudowany albo zapisany przez użytkownika. Ten sam w każdym rodzaju budynku. */
+export interface FurnitureSet {
   id: string;
   name: string;
   description: string;
-  buildingTypes?: string[]; // brak = dla wszystkich typów budynków
-  floors: number;
-  objects: PresetObject[];
+  /** Obrys w metrach — pierścień podglądu, przyciąganie do ściany i sprawdzanie, czy się mieści. */
+  width: number;
+  depth: number;
+  back?: boolean; // zestaw ma tył (krawędź −Z) do przystawienia do ściany
+  outdoor?: boolean; // ogród — stawiany tylko na planszy
+  objects: SetObject[];
   custom?: boolean;
 }
 
