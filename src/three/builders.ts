@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { buildAnimalBody, type AnimalKind } from './wildlife';
-import { DOOR_OPENING, WALL_SEGMENT, WALL_THICKNESS } from '../lib/rooms';
+import { DOOR_OPENING, SHELLS, WALL_SEGMENT, WALL_THICKNESS, type ShellSpec } from '../lib/rooms';
 
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
 export function mat(color: string, opts: { emissive?: string; roughness?: number; metalness?: number; flat?: boolean } = {}) {
@@ -92,70 +92,166 @@ function columns(g: THREE.Group, positions: [number, number][], h: number, r = 0
   }
 }
 
+// ---------- powłoki budynków ----------
+// Budynek jest pusty w środku: podłoga (`floorSurface`), ściany z grubością, skrzydło drzwi na pivocie
+// (`doorLeaf`) i dach (`roof`), który edytor chowa dla aktywnego budynku. Z zewnątrz wygląda jak dawniej.
+
+const SHELL_WALL_T = 0.06;
+
+/** Oznacza wszystko w grupie jako dach — chowany w edytorze, gdy budynek jest aktywny. */
+function roofGroup(g: THREE.Group): THREE.Group {
+  const r = new THREE.Group();
+  r.userData.roof = true;
+  g.add(r);
+  return r;
+}
+
+/** Podłoga wnętrza: cienka płyta z flagą, po której stawia się obiekty. */
+function shellFloor(g: THREE.Group, w: number, d: number, x: number, y: number, z: number, material: THREE.Material) {
+  const f = add(g, box(w, 0.04, d), material, x, y - 0.02, z);
+  f.userData.floorSurface = true;
+  return f;
+}
+
+/** Ściana wzdłuż X (na `z`) z ewentualnym otworem na drzwi: słupki i nadproże, jak w ściance działowej. */
+function shellWallX(g: THREE.Group, x0: number, x1: number, y0: number, y1: number, z: number, m: THREE.Material, door?: { x: number; w: number; h: number }) {
+  const h = y1 - y0;
+  if (!door) {
+    add(g, box(x1 - x0, h, SHELL_WALL_T), m, (x0 + x1) / 2, y0 + h / 2, z);
+    return;
+  }
+  const a = door.x - door.w / 2;
+  const b = door.x + door.w / 2;
+  if (a - x0 > 1e-3) add(g, box(a - x0, h, SHELL_WALL_T), m, (x0 + a) / 2, y0 + h / 2, z);
+  if (x1 - b > 1e-3) add(g, box(x1 - b, h, SHELL_WALL_T), m, (b + x1) / 2, y0 + h / 2, z);
+  const lh = h - door.h;
+  if (lh > 1e-3) add(g, box(b - a + 0.02, lh, SHELL_WALL_T - 0.004), m, door.x, y0 + door.h + lh / 2, z);
+}
+
+/** Ściana wzdłuż Z (na `x`). */
+function shellWallZ(g: THREE.Group, z0: number, z1: number, y0: number, y1: number, x: number, m: THREE.Material) {
+  const h = y1 - y0;
+  add(g, box(SHELL_WALL_T, h, z1 - z0), m, x, y0 + h / 2, (z0 + z1) / 2);
+}
+
+/** Skrzydło drzwi budynku na zawiasie przy lewej krawędzi otworu; obraca je SceneManager jak drzwi z Konstrukcji. */
+function shellLeaf(g: THREE.Group, door: { x: number; z: number; w: number; h: number }, floorY: number, material: THREE.Material) {
+  const pivot = new THREE.Group();
+  pivot.position.set(door.x - door.w / 2, floorY, door.z);
+  pivot.userData.doorLeaf = true;
+  const leaf = add(pivot, box(door.w - 0.02, door.h - 0.02, 0.05), material, door.w / 2, door.h / 2, 0);
+  leaf.userData.skipCollider = true;
+  g.add(pivot);
+}
+
+/** Prostokątna powłoka: podłoga, cztery ściany z drzwiami z przodu, skrzydło. */
+function shellBox(g: THREE.Group, spec: ShellSpec, wallMat: THREE.Material, floorMat: THREE.Material, leafMat: THREE.Material) {
+  const { w, d, h } = spec.inner;
+  const x0 = spec.cx - w / 2;
+  const x1 = spec.cx + w / 2;
+  const z0 = spec.cz - d / 2;
+  const z1 = spec.cz + d / 2;
+  const y0 = spec.floorY;
+  const y1 = spec.floorY + h;
+  const t = SHELL_WALL_T / 2;
+  shellFloor(g, w, d, spec.cx, y0, spec.cz, floorMat);
+  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z0 - t, wallMat); // tylna
+  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z1 + t, wallMat, spec.door); // przednia
+  shellWallZ(g, z0, z1, y0 - 0.01, y1, x0 - t, wallMat);
+  shellWallZ(g, z0, z1, y0 - 0.01, y1, x1 + t, wallMat);
+  if (spec.door) shellLeaf(g, spec.door, y0, leafMat);
+}
+
 function buildPalace(g: THREE.Group) {
+  const spec = SHELLS.palace;
   add(g, box(4.6, 0.28, 3.6), mat(C.stone), 0, 0.14, 0);
   add(g, box(4.0, 0.16, 3.0), mat(C.cream2), 0, 0.36, 0);
-  add(g, box(3.4, 1.9, 2.4), mat(C.cream), 0, 0.44 + 0.95, -0.2);
+  shellBox(g, spec, mat(C.cream), mat(C.stone), mat(C.dark));
   // portyk
   columns(g, [[-1.15, 1.0], [-0.4, 1.0], [0.4, 1.0], [1.15, 1.0]], 1.7, 0.11, 0.44);
   add(g, box(3.2, 0.22, 0.9), mat(C.cream2), 0, 0.44 + 1.7 + 0.11, 0.75);
-  add(g, prism(3.4, 0.6, 0.95), mat(C.cream), 0, 0.44 + 1.92, 0.75);
-  // drzwi i okna
-  add(g, box(0.6, 1.1, 0.06), mat(C.dark), 0, 0.44 + 0.55, 1.0);
-  add(g, box(0.36, 0.5, 0.05), mat(C.domeDark), -1.05, 0.44 + 1.1, 1.0);
-  add(g, box(0.36, 0.5, 0.05), mat(C.domeDark), 1.05, 0.44 + 1.1, 1.0);
+  add(g, box(0.36, 0.5, 0.05), mat(C.domeDark), -1.05, 0.44 + 1.1, 1.04);
+  add(g, box(0.36, 0.5, 0.05), mat(C.domeDark), 1.05, 0.44 + 1.1, 1.04);
+  const roof = roofGroup(g);
+  add(roof, prism(3.4, 0.6, 0.95), mat(C.cream), 0, 0.44 + 1.92, 0.75);
+  add(roof, box(3.46, 0.08, 2.46), mat(C.cream2), 0, 2.34 + 0.04, -0.2); // strop nad salą
   // bęben + kopuła
-  add(g, cyl(1.05, 1.05, 0.45, 16), mat(C.cream2), 0, 0.44 + 1.9 + 0.22, -0.2);
-  add(g, cyl(1.15, 1.15, 0.1, 16), mat(C.stone), 0, 0.44 + 1.9 + 0.5, -0.2);
+  add(roof, cyl(1.05, 1.05, 0.45, 16), mat(C.cream2), 0, 0.44 + 1.9 + 0.22, -0.2);
+  add(roof, cyl(1.15, 1.15, 0.1, 16), mat(C.stone), 0, 0.44 + 1.9 + 0.5, -0.2);
   const dome = new THREE.SphereGeometry(1.05, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2);
-  add(g, dome, mat(C.dome, { flat: false }), 0, 0.44 + 1.9 + 0.55, -0.2);
-  add(g, sphere(0.12, 8), mat(C.domeDark), 0, 0.44 + 1.9 + 0.55 + 1.08, -0.2);
+  add(roof, dome, mat(C.dome, { flat: false }), 0, 0.44 + 1.9 + 0.55, -0.2);
+  add(roof, sphere(0.12, 8), mat(C.domeDark), 0, 0.44 + 1.9 + 0.55 + 1.08, -0.2);
   // schody
   add(g, box(2.2, 0.12, 0.5), mat(C.stone), 0, 0.06, 1.95);
   add(g, box(2.2, 0.12, 0.3), mat(C.stoneDark), 0, 0.18, 1.85);
 }
 
 function buildLibrary(g: THREE.Group) {
+  const spec = SHELLS.library;
   add(g, box(4.0, 0.24, 3.2), mat(C.stone), 0, 0.12, 0);
-  add(g, box(3.2, 1.7, 2.4), mat(C.cream), 0, 0.24 + 0.85, -0.2);
+  shellBox(g, spec, mat(C.cream), mat(C.stone), mat(C.dark));
   columns(g, [[-1.2, 0.95], [-0.4, 0.95], [0.4, 0.95], [1.2, 0.95]], 1.6, 0.1, 0.24);
   add(g, box(3.4, 0.18, 1.1), mat(C.cream2), 0, 0.24 + 1.6 + 0.09, 0.55);
-  add(g, prism(3.6, 0.8, 3.1), mat(C.roof), 0, 0.24 + 1.78, -0.05);
-  add(g, box(0.7, 1.15, 0.06), mat(C.dark), 0, 0.24 + 0.57, 1.0);
-  add(g, box(0.9, 0.16, 0.14), mat(C.roofDark), 0, 0.24 + 1.35, 1.03);
-  for (const x of [-1.0, 1.0]) add(g, box(0.34, 0.45, 0.05), mat(C.domeDark), x, 0.24 + 1.0, 1.0);
+  const roof = roofGroup(g);
+  add(roof, box(3.26, 0.1, 2.46), mat(C.cream2), 0, 1.94 + 0.05, -0.2); // strop
+  add(roof, prism(3.6, 0.8, 3.1), mat(C.roof), 0, 0.24 + 1.78, -0.05);
+  add(g, box(0.9, 0.16, 0.14), mat(C.roofDark), 0, 0.24 + 1.35, 1.07);
+  for (const x of [-1.0, 1.0]) add(g, box(0.34, 0.45, 0.05), mat(C.domeDark), x, 0.24 + 1.0, 1.04);
   add(g, box(1.6, 0.1, 0.6), mat(C.stone), 0, 0.05, 1.85);
 }
 
 function buildTemple(g: THREE.Group) {
+  const spec = SHELLS.temple;
   add(g, box(2.8, 0.22, 2.4), mat(C.stone), 0, 0.11, 0);
   add(g, box(2.4, 0.14, 2.0), mat(C.cream2), 0, 0.29, 0);
+  shellFloor(g, spec.inner.w, spec.inner.d, 0, spec.floorY, 0, mat(C.cream2));
   columns(g, [[-0.9, 0.7], [0.9, 0.7], [-0.9, -0.7], [0.9, -0.7]], 1.5, 0.1, 0.36);
-  add(g, box(2.4, 0.16, 2.0), mat(C.cream), 0, 0.36 + 1.5 + 0.08, 0);
-  add(g, prism(2.6, 0.7, 2.2), mat(C.roof), 0, 0.36 + 1.66, 0);
+  const roof = roofGroup(g);
+  add(roof, box(2.4, 0.16, 2.0), mat(C.cream), 0, 0.36 + 1.5 + 0.08, 0);
+  add(roof, prism(2.6, 0.7, 2.2), mat(C.roof), 0, 0.36 + 1.66, 0);
   add(g, box(0.8, 0.9, 0.8), mat(C.cream2), 0, 0.36 + 0.45, -0.3);
 }
 
 function buildTower(g: THREE.Group) {
+  const spec = SHELLS.tower;
   add(g, cyl(1.0, 1.1, 0.3, 12), mat(C.stone), 0, 0.15, 0);
-  add(g, cyl(0.72, 0.85, 3.6, 12), mat(C.cream), 0, 0.3 + 1.8, 0);
-  add(g, cyl(0.9, 0.9, 0.22, 12), mat(C.cream2), 0, 3.9 + 0.11, 0);
-  add(g, cone(0.98, 1.4, 12), mat(C.roof), 0, 4.12 + 0.7, 0);
+  const floor = add(g, cyl(0.72, 0.72, 0.04, 12), mat(C.stone), 0, spec.floorY - 0.02, 0);
+  floor.userData.floorSurface = true;
+  // mur z dwunastu segmentów — przedni to tylko nadproże nad drzwiami
+  const r = 0.8;
+  const side = 2 * r * Math.tan(Math.PI / 12);
+  const h = spec.inner.h;
+  const door = spec.door!;
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const x = Math.sin(a) * r;
+    const z = Math.cos(a) * r;
+    if (i === 0) {
+      const lh = h - door.h;
+      add(g, box(side + 0.02, lh, 0.1), mat(C.cream), x, spec.floorY + door.h + lh / 2, z, [0, a, 0]);
+      continue;
+    }
+    add(g, box(side + 0.02, h + 0.01, 0.1), mat(C.cream), x, spec.floorY + h / 2 - 0.005, z, [0, a, 0]);
+  }
+  shellLeaf(g, door, spec.floorY, mat(C.dark));
+  const roof = roofGroup(g);
+  add(roof, cyl(0.9, 0.9, 0.22, 12), mat(C.cream2), 0, 3.9 + 0.11, 0);
+  add(roof, cone(0.98, 1.4, 12), mat(C.roof), 0, 4.12 + 0.7, 0);
+  add(roof, sphere(0.1), mat(C.domeDark), 0, 5.55, 0);
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2;
-    add(g, box(0.22, 0.5, 0.06), mat(C.domeDark), Math.sin(a) * 0.78, 2.6, Math.cos(a) * 0.78, [0, a, 0]);
+    add(g, box(0.22, 0.5, 0.06), mat(C.domeDark), Math.sin(a) * 0.86, 2.6, Math.cos(a) * 0.86, [0, a, 0]);
   }
-  add(g, box(0.5, 0.9, 0.06), mat(C.dark), 0, 0.3 + 0.45, 0.84);
-  add(g, sphere(0.1), mat(C.domeDark), 0, 5.55, 0);
 }
 
 function buildHouse(g: THREE.Group) {
+  const spec = SHELLS.house;
   add(g, box(2.4, 0.16, 2.2), mat(C.stone), 0, 0.08, 0);
-  add(g, box(2.0, 1.4, 1.8), mat(C.cream), 0, 0.16 + 0.7, 0);
-  add(g, prism(2.3, 0.9, 2.1), mat(C.roof), 0, 1.56, 0);
-  add(g, box(0.3, 0.7, 0.3), mat(C.stoneDark), 0.6, 1.9, -0.4);
-  add(g, box(0.5, 0.9, 0.06), mat(C.dark), -0.4, 0.16 + 0.45, 0.91);
-  add(g, box(0.4, 0.4, 0.05), mat(C.domeDark), 0.5, 0.16 + 0.85, 0.91);
+  shellBox(g, spec, mat(C.cream), mat(C.wood), mat(C.dark));
+  const roof = roofGroup(g);
+  add(roof, prism(2.3, 0.9, 2.1), mat(C.roof), 0, 1.56, 0);
+  add(roof, box(0.3, 0.7, 0.3), mat(C.stoneDark), 0.6, 1.9, -0.4);
+  add(g, box(0.4, 0.4, 0.05), mat(C.domeDark), 0.5, 0.16 + 0.85, 0.95);
 }
 
 function buildGazebo(g: THREE.Group) {
@@ -694,6 +790,14 @@ const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
  * współrzędnych modelu — liczona wprost ze stałych w `buildDoor`.
  */
 export const DOOR_LEAF_LOCAL = { size: [0.97, 2.07, 0.05] as [number, number, number], center: [0, 1.045, 0] as [number, number, number] };
+
+/** Bryła kolizji skrzydła drzwi budynku w stanie zamkniętym (lokalne współrzędne modelu) — z `SHELLS`. */
+export function shellLeafLocal(type: string): { size: [number, number, number]; center: [number, number, number] } | null {
+  const spec = SHELLS[type];
+  if (!spec?.door) return null;
+  const d = spec.door;
+  return { size: [d.w - 0.02, d.h - 0.02, 0.05], center: [d.x, spec.floorY + d.h / 2, d.z] };
+}
 
 /**
  * Drzwi budynków w lokalnych współrzędnych modelu:

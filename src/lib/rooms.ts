@@ -206,3 +206,27 @@ export function mergedWall(chain: PalaceObject[]): { position: Vec3; rotation: V
   const [mx, mz] = wallPointAt(base, (tMin + tMax) / 2);
   return { position: [mx, base.position[1], mz], rotation: [0, base.rotation[1], 0], scale: [(tMax - tMin) / WALL_SEGMENT, base.scale[1], base.scale[2]] };
 }
+
+// ---------- powłoki budynków (wnętrze w tej samej scenie) ----------
+
+/** Wymiary wnętrza budynku w jednostkach lokalnych modelu (przed skalą obiektu). */
+export interface ShellSpec {
+  inner: { w: number; d: number; h: number };
+  /** Środek wnętrza w rzucie (modele mają korpus przesunięty względem podstawy). */
+  cx: number;
+  cz: number;
+  /** Wierzch podłogi. */
+  floorY: number;
+  /** Otwór drzwiowy w ścianie frontowej (brak = wejście bez drzwi, np. świątynia). */
+  door?: { x: number; z: number; w: number; h: number };
+  /** Najmniejsza skala, przy której gracz (1,74 m) mieści się w drzwiach i pod sufitem. */
+  minScale: number;
+}
+
+export const SHELLS: Record<string, ShellSpec> = {
+  house: { inner: { w: 1.88, d: 1.68, h: 1.4 }, cx: 0, cz: 0, floorY: 0.16, door: { x: -0.4, z: 0.9, w: 0.5, h: 0.9 }, minScale: 1.8 },
+  palace: { inner: { w: 3.28, d: 2.28, h: 1.9 }, cx: 0, cz: -0.2, floorY: 0.44, door: { x: 0, z: 1.0, w: 0.6, h: 1.1 }, minScale: 1.5 },
+  library: { inner: { w: 3.08, d: 2.28, h: 1.7 }, cx: 0, cz: -0.2, floorY: 0.24, door: { x: 0, z: 1.0, w: 0.7, h: 1.15 }, minScale: 1.6 },
+  temple: { inner: { w: 2.4, d: 2.0, h: 1.5 }, cx: 0, cz: 0, floorY: 0.36, minScale: 1.6 },
+  tower: { inner: { w: 1.4, d: 1.4, h: 3.6 }, cx: 0, cz: 0, floorY: 0.3, door: { x: 0, z: 0.8, w: 0.43, h: 0.9 }, minScale: 2.0 },
+};

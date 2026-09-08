@@ -216,12 +216,12 @@ export class Physics {
    * (nie przez siatkę trójkątów modelu — pivot już był renderowany, więc jego `matrixWorld` nie jest
    * „świeży" i licząc z niego wprost dublowałby przesunięcie), otwarte tracą kolizję całkowicie.
    */
-  setLeaf(id: string, closed: boolean, position: THREE.Vector3, quaternion: THREE.Quaternion, scale: THREE.Vector3) {
+  setLeaf(id: string, closed: boolean, position: THREE.Vector3, quaternion: THREE.Quaternion, scale: THREE.Vector3, leaf: { size: [number, number, number]; center: [number, number, number] } = DOOR_LEAF_LOCAL) {
     this.removeStatic(id + ':leaf');
     if (!closed) return;
     const body = this.fixedBody(position.x, position.y, position.z, quaternion);
     this.statics.set(id + ':leaf', body);
-    const { size, center } = DOOR_LEAF_LOCAL;
+    const { size, center } = leaf;
     const desc = this.R.ColliderDesc.cuboid((size[0] * scale.x) / 2, (size[1] * scale.y) / 2, (size[2] * scale.z) / 2).setTranslation(
       center[0] * scale.x,
       center[1] * scale.y,
