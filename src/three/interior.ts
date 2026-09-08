@@ -123,15 +123,6 @@ export function buildRoom(spec: RoomSpec, buildingType: string, opts: { floors: 
     } else {
       wall(w, h, WALL_T, 0, y0 + h / 2, d / 2, wallMat, k, [0, 1]); // wyższe piętra: pełna ściana przednia
     }
-    // lampy tej kondygnacji
-    const lampCount = w >= 12 ? 3 : 2;
-    for (let i = 0; i < lampCount; i++) {
-      const x = -w * 0.28 + (i * (w * 0.56)) / (lampCount - 1);
-      const light = new THREE.PointLight('#ffe2b0', 14, Math.max(w, d), 2);
-      light.position.set(x, y0 + h - 0.6, 0);
-      g.add(light);
-      g.add(mesh(new THREE.CylinderGeometry(0.3, 0.22, 0.18, 10), mat('#ffe7a3', { emissive: '#f6d68a' }), x, y0 + h - 0.5, 0, false));
-    }
   }
 
   // stropy między kondygnacjami: pudełka omijające otwory nad schodami z kondygnacji niżej

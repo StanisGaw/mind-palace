@@ -2,7 +2,7 @@ import type { AppData, GroundSpec, Palace, PalaceObject, PalaceSettings, RoomPre
 import { catalogItem, ROOMS } from '../catalog';
 import { uid } from './ids';
 import { hashString } from '../three/noise';
-import { FLOOR_MAX, attachLegacyDoors } from './rooms';
+import { FLOOR_MAX, attachLegacyDoors, roomLamps } from './rooms';
 
 const KEY = 'mneme.data.v1';
 
@@ -20,7 +20,8 @@ export function makeInteriorPalace(name: string, buildingType: string, spec: Roo
   const p = makePalace(name);
   p.parentId = parentId;
   p.parentObjectId = parentObjectId;
-  p.interior = { buildingType, floors: 1 };
+  p.interior = { buildingType, floors: 1, lamps: true };
+  p.objects = roomLamps(spec, 1, uid);
   p.settings = { ...p.settings, grid: false, scenery: 'none', weather: 'clear', ground: { width: spec.width, depth: spec.depth, shape: 'rect' } };
   return p;
 }
@@ -112,9 +113,13 @@ export function normalizePalace(p: Partial<Palace>): Palace {
   const base = makePalace(p.name ?? 'Pałac');
   const objects = Array.isArray(p.objects) ? p.objects : [];
   const ids = new Set(objects.map((o) => o.id));
-  const rawInterior = p.interior as Partial<{ buildingType: string; floors: number }> | undefined;
+  const rawInterior = p.interior as Partial<{ buildingType: string; floors: number; lamps?: true }> | undefined;
   // brak `floors` to znak starego zapisu — przy tej okazji dawne okna z powłoki stają się obiektami
   const needsWindowMigration = !!rawInterior && typeof rawInterior.floors !== 'number';
+  // brak `lamps`: lampy rysowała powłoka — stają się obiektami w tych samych miejscach
+  const needsLampMigration = !!rawInterior && rawInterior.lamps !== true;
+  const interior = normalizeInterior(rawInterior);
+  const lampObjects = needsLampMigration && interior ? roomLamps(ROOMS[interior.buildingType] ?? ROOMS.house, interior.floors, uid) : [];
   const migratedObjects = objects.map((raw) => {
     // stary klucz `rotationY` znika z zapisu, żeby migracja była jednorazowa
     const { rotationY, ...o } = raw as PalaceObject & { rotationY?: unknown; rotation?: unknown };
@@ -129,9 +134,9 @@ export function normalizePalace(p: Partial<Palace>): Palace {
     ...base,
     ...p,
     id: p.id ?? base.id,
-    interior: normalizeInterior(rawInterior),
+    interior,
     // dawne drzwi-segmenty dostają własną ściankę (drzwi żyją teraz w ściance przez `anchorId`)
-    objects: attachLegacyDoors(needsWindowMigration ? [...migratedObjects, ...migrateWindows(rawInterior!.buildingType ?? 'house')] : migratedObjects, uid),
+    objects: attachLegacyDoors([...(needsWindowMigration ? [...migratedObjects, ...migrateWindows(rawInterior!.buildingType ?? 'house')] : migratedObjects), ...lampObjects], uid),
     path: Array.isArray(p.path) ? p.path.filter((id) => ids.has(id)) : [],
     // ziarno starych pałaców wyliczamy z id, żeby teren nie zmieniał się przy każdym otwarciu
     settings: normalizeSettings(p.settings, p.id ?? base.id),
@@ -141,7 +146,7 @@ export function normalizePalace(p: Partial<Palace>): Palace {
 function normalizeInterior(raw: Partial<{ buildingType: string; floors: number }> | undefined): Palace['interior'] {
   if (!raw) return undefined;
   const floors = Math.min(FLOOR_MAX, Math.max(1, Math.round(raw.floors ?? 1)));
-  return { buildingType: raw.buildingType ?? 'house', floors };
+  return { buildingType: raw.buildingType ?? 'house', floors, lamps: true };
 }
 
 /** Dawne okna rysowane w `buildRoom` (parzyste po lewej, nieparzyste po prawej, tylne dla szerokich wnętrz). */

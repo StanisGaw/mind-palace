@@ -85,7 +85,7 @@ export interface Palace {
   settings: PalaceSettings;
   parentId?: string; // pałac nadrzędny (gdy to wnętrze)
   parentObjectId?: string; // budynek, w którym jest to wnętrze
-  interior?: { buildingType: string; floors: number };
+  interior?: { buildingType: string; floors: number; lamps?: true }; // `lamps`: lampy są już obiektami (migracja)
 }
 
 /** Obiekt układu pokoju we współrzędnych względnych (patrz `lib/presets.ts`). */

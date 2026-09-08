@@ -474,6 +474,16 @@ function buildDoor(g: THREE.Group) {
   g.add(pivot);
 }
 
+/** Lampa sufitowa: obiekt stoi na podłodze piętra, a klosz i światło wiszą pod jego sufitem. */
+function buildCeilingLamp(g: THREE.Group, ctx: BuildCtx) {
+  const H = ctx.floorHeight;
+  add(g, cyl(0.012, 0.012, 0.4, 6), mat(C.metal), 0, H - 0.22, 0);
+  add(g, cyl(0.3, 0.22, 0.18, 10), mat('#ffe7a3', { emissive: '#f6d68a' }), 0, H - 0.5, 0);
+  const light = new THREE.PointLight('#ffe2b0', 14, 14, 2);
+  light.position.set(0, H - 0.6, 0);
+  g.add(light);
+}
+
 function buildWindow(g: THREE.Group) {
   const winMat = mat('#eaf2ff', { emissive: '#e7f0ff', roughness: 0.4 });
   const trimMat = mat('#c7c0ae', { roughness: 0.9 });
@@ -633,6 +643,7 @@ const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   wall: buildWall,
   door: buildDoor,
   window: buildWindow,
+  ceiling_lamp: buildCeilingLamp,
   stairs: buildStairs,
   palace: buildPalace,
   library: buildLibrary,

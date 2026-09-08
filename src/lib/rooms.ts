@@ -26,6 +26,20 @@ function clamp(v: number, min: number, max: number) {
   return Math.min(max, Math.max(min, v));
 }
 
+/** Lampy sufitowe wnętrza: dwie (trzy w szerokich pokojach) na każdą kondygnację, w osi pokoju. */
+export function roomLamps(spec: { width: number; height: number }, floors: number, makeId: () => string): PalaceObject[] {
+  const n = spec.width >= 12 ? 3 : 2;
+  const name = catalogItem('ceiling_lamp').name;
+  const out: PalaceObject[] = [];
+  for (let k = 0; k < Math.max(1, floors); k++) {
+    for (let i = 0; i < n; i++) {
+      const x = -spec.width * 0.28 + (i * (spec.width * 0.56)) / (n - 1);
+      out.push({ id: makeId(), type: 'ceiling_lamp', name, position: [x, k * spec.height, 0], rotation: [0, 0, 0], scale: [1, 1, 1] });
+    }
+  }
+  return out;
+}
+
 /** Miejsce, w którym stoi obiekt na płaszczyźnie pokoju, przycięte do wnętrza z zapasem od ścian. */
 export function clampToRoom(spec: { width: number; depth: number }, x: number, z: number, margin = 0.4): [number, number] {
   const hx = Math.max(spec.width / 2 - margin, 0.3);

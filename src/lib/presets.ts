@@ -4,6 +4,13 @@ import { uid } from './ids';
 import { WALL_SEGMENT, attachLegacyDoors, floorOf } from './rooms';
 import type { Palace, PalaceObject, PresetObject, RoomPreset, RoomSpec, Vec3 } from '../types';
 
+/** Dwie lampy sufitowe na każdą kondygnację — bez nich zastosowany układ byłby ciemny. */
+function lamps(floors: number): PresetObject[] {
+  const out: PresetObject[] = [];
+  for (let k = 0; k < floors; k++) for (const u of [-0.28, 0.28]) out.push({ type: 'ceiling_lamp', u, v: 0, floor: k, rotationY: 0 });
+  return out;
+}
+
 /**
  * Układy pokoi wbudowane w aplikację. Współrzędne są względne (u, v ∈ -0.5..0.5, ściany przez `span`),
  * więc ten sam preset pasuje do budynku w dowolnej skali.
@@ -16,6 +23,7 @@ export const ROOM_PRESETS: RoomPreset[] = [
     buildingTypes: ['house'],
     floors: 1,
     objects: [
+      ...lamps(1),
       { type: 'wall', u: 0, v: 0, floor: 0, rotationY: Math.PI / 2, span: { axis: 'z', frac: 1 } },
       { type: 'door', u: 0, v: 0, floor: 0, rotationY: Math.PI / 2, anchor: 0 },
       { type: 'table', u: -0.22, v: -0.15, floor: 0, rotationY: 0 },
@@ -31,6 +39,7 @@ export const ROOM_PRESETS: RoomPreset[] = [
     buildingTypes: ['house'],
     floors: 2,
     objects: [
+      ...lamps(2),
       { type: 'stairs', u: 0.2, v: -0.25, floor: 0, rotationY: 0 },
       { type: 'chest', u: -0.25, v: 0.15, floor: 1, rotationY: 0 },
       { type: 'lantern', u: 0.3, v: 0.3, floor: 0, rotationY: 0 },
@@ -43,6 +52,7 @@ export const ROOM_PRESETS: RoomPreset[] = [
     buildingTypes: ['palace'],
     floors: 1,
     objects: [
+      ...lamps(1),
       { type: 'wall', u: -0.15, v: 0, floor: 0, rotationY: Math.PI / 2, span: { axis: 'z', frac: 1 } },
       { type: 'door', u: -0.15, v: 0.3, floor: 0, rotationY: Math.PI / 2, anchor: 0 },
       { type: 'wall', u: 0.15, v: 0, floor: 0, rotationY: Math.PI / 2, span: { axis: 'z', frac: 1 } },
@@ -60,6 +70,7 @@ export const ROOM_PRESETS: RoomPreset[] = [
     buildingTypes: ['palace'],
     floors: 1,
     objects: [
+      ...lamps(1),
       { type: 'wall', u: 0, v: -0.15, floor: 0, rotationY: 0, span: { axis: 'x', frac: 0.8 } },
       { type: 'door', u: 0, v: -0.15, floor: 0, rotationY: 0, anchor: 0 },
       { type: 'wall', u: 0, v: 0.15, floor: 0, rotationY: 0, span: { axis: 'x', frac: 0.8 } },
@@ -76,6 +87,7 @@ export const ROOM_PRESETS: RoomPreset[] = [
     buildingTypes: ['tower'],
     floors: 3,
     objects: [
+      ...lamps(3),
       { type: 'stairs', u: 0.15, v: -0.15, floor: 0, rotationY: 0 },
       { type: 'stairs', u: -0.15, v: 0.15, floor: 1, rotationY: Math.PI },
       { type: 'chair', u: -0.2, v: -0.2, floor: 2, rotationY: 0 },
@@ -89,6 +101,7 @@ export const ROOM_PRESETS: RoomPreset[] = [
     buildingTypes: ['library'],
     floors: 1,
     objects: [
+      ...lamps(1),
       { type: 'shelf', u: -0.4, v: -0.3, floor: 0, rotationY: Math.PI / 2 },
       { type: 'shelf', u: 0.4, v: -0.3, floor: 0, rotationY: -Math.PI / 2 },
       { type: 'table', u: 0, v: 0, floor: 0, rotationY: 0 },
@@ -104,6 +117,7 @@ export const ROOM_PRESETS: RoomPreset[] = [
     buildingTypes: ['library'],
     floors: 1,
     objects: [
+      ...lamps(1),
       { type: 'wall', u: 0, v: 0, floor: 0, rotationY: Math.PI / 2, span: { axis: 'z', frac: 0.9 } },
       { type: 'door', u: 0, v: 0, floor: 0, rotationY: Math.PI / 2, anchor: 0 },
       { type: 'shelf', u: -0.3, v: -0.25, floor: 0, rotationY: Math.PI / 2 },
@@ -119,6 +133,7 @@ export const ROOM_PRESETS: RoomPreset[] = [
     buildingTypes: ['temple'],
     floors: 1,
     objects: [
+      ...lamps(1),
       { type: 'candle', u: 0, v: -0.3, floor: 0, rotationY: 0 },
       { type: 'rug', u: 0, v: 0, floor: 0, rotationY: 0 },
       { type: 'painting', u: 0, v: 0.35, floor: 0, rotationY: Math.PI },
@@ -131,6 +146,7 @@ export const ROOM_PRESETS: RoomPreset[] = [
     buildingTypes: ['temple'],
     floors: 1,
     objects: [
+      ...lamps(1),
       { type: 'wall', u: 0, v: 0.25, floor: 0, rotationY: 0, span: { axis: 'x', frac: 0.65 } },
       { type: 'door', u: 0, v: 0.25, floor: 0, rotationY: 0, anchor: 0 },
       { type: 'candle', u: 0, v: -0.25, floor: 0, rotationY: 0 },
@@ -141,7 +157,8 @@ export const ROOM_PRESETS: RoomPreset[] = [
     name: 'Pusty pokój',
     description: 'Czyste wnętrze bez podziałów — dobry punkt startowy.',
     floors: 1,
-    objects: [],
+    objects: [
+      ...lamps(1),],
   },
 ];
 

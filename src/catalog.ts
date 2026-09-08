@@ -67,6 +67,7 @@ export const CATALOG: CatalogItem[] = [
   { id: 'lantern', name: 'Latarnia', category: 'lighting', emoji: '🏮', description: 'Światło prowadzące ścieżką.', footprint: 0.4 },
   { id: 'torch', name: 'Pochodnia', category: 'lighting', emoji: '🔥', description: 'Płomień na drewnianym drzewcu.', footprint: 0.3 },
   { id: 'lampion', name: 'Lampion', category: 'lighting', emoji: '🎐', description: 'Papierowa kula światła na słupku.', footprint: 0.35 },
+  { id: 'ceiling_lamp', name: 'Lampa sufitowa', category: 'lighting', emoji: '💡', description: 'Wisi pod sufitem piętra, na którym stoi.', footprint: 0.4, collider: 'none' },
   { id: 'campfire', name: 'Ognisko', category: 'lighting', emoji: '🪵', description: 'Krąg kamieni i trzaskający ogień.', footprint: 0.9, emitter: 'smoke', collider: 'cylinder' },
   { id: 'candle', name: 'Kandelabr', category: 'lighting', emoji: '🕯️', description: 'Ciepłe światło świec.', footprint: 0.3 },
   // Zwierzęta (punkty pojawiania — ożywają w trybie chodzenia)
