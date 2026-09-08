@@ -1,20 +1,25 @@
 import { ROOM_PRESETS } from '../lib/presets';
+import { buildingOf, isFacade, isInPlace } from '../lib/rooms';
 import { useCurrentPalace, useStore } from '../store';
 import { I } from './Icons';
 
 /** Wybór gotowego układu pokoju (wbudowane i własne) dla bieżącego wnętrza. */
 export function RoomPresets() {
   const palace = useCurrentPalace();
-  const buildingType = palace.interior?.buildingType;
+  const activeBuildingId = useStore((s) => s.activeBuildingId);
+  // wnętrze ładowane osobno albo odsłonięty budynek z wnętrzem w miejscu — wtedy liczą się tylko obiekty w nim
+  const building = !palace.interior ? palace.objects.find((o) => o.id === activeBuildingId && isInPlace(o)) : undefined;
+  const buildingType = palace.interior?.buildingType ?? building?.type;
   const customPresets = useStore((s) => s.customPresets);
   const applyRoomPreset = useStore((s) => s.applyRoomPreset);
   const saveCurrentAsPreset = useStore((s) => s.saveCurrentAsPreset);
   const deleteCustomPreset = useStore((s) => s.deleteCustomPreset);
-  const isEmpty = palace.objects.length === 0;
   if (!buildingType) return null;
+  const inside = building ? palace.objects.filter((o) => !isFacade(o.type) && buildingOf(palace.objects, o)?.id === building.id) : palace.objects;
+  const isEmpty = inside.length === 0;
 
   const list = [...ROOM_PRESETS, ...customPresets].filter((p) => !p.buildingTypes || p.buildingTypes.includes(buildingType));
-  const unnoted = palace.objects.filter((o) => !o.note);
+  const unnoted = inside.filter((o) => !o.note);
 
   return (
     <div className="room-presets">
@@ -53,7 +58,7 @@ export function RoomPresets() {
             </div>
           ))}
           {list.length === 0 && <div className="empty">Brak układów dla tego budynku.</div>}
-          <button
+          {!building && <button
             className="btn small"
             onClick={() => {
               const name = prompt('Nazwa układu', 'Mój układ');
@@ -62,7 +67,7 @@ export function RoomPresets() {
             }}
           >
             <I.Download width={13} height={13} /> Zapisz obecny układ
-          </button>
+          </button>}
         </div>
       )}
     </div>

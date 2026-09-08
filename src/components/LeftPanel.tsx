@@ -4,17 +4,18 @@ import type { Category } from '../types';
 import { useCurrentPalace, useStore } from '../store';
 import { usePref } from '../lib/prefs';
 import { insideGround } from '../lib/ground';
-import { isDrawn } from '../lib/rooms';
 import { I } from './Icons';
 import { RoomPresets } from './RoomPresets';
+import { isDrawn, isInPlace } from '../lib/rooms';
 
 export function LeftPanel() {
   const tab = useStore((s) => s.leftTab);
   const setTab = useStore((s) => s.setLeftTab);
   const palace = useCurrentPalace();
   const [q, setQ] = useState('');
-  // układy pokoju istnieją tylko we wnętrzu — poza nim zakładka znika, a wybór wraca do biblioteki
-  const presetsTab = !!palace.interior;
+  // układy pokoju istnieją we wnętrzu i dla odsłoniętego budynku z wnętrzem w miejscu — poza tym zakładka znika
+  const activeBuildingId = useStore((s) => s.activeBuildingId);
+  const presetsTab = !!palace.interior || (!!activeBuildingId && palace.objects.some((o) => o.id === activeBuildingId && isInPlace(o)));
   const activeTab = tab === 'presets' && !presetsTab ? 'library' : tab;
 
   return (

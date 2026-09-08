@@ -428,6 +428,7 @@ function Inspector({ id }: { id: string }) {
   const activeBuildingId = useStore((s) => s.activeBuildingId);
   const editFloor = useStore((s) => s.editFloor);
   const camera = useStore((s) => s.camera);
+  const viewMode = useStore((s) => s.viewMode);
   const inPlace = isInPlace(obj);
   const insideCount = inPlace ? palace.objects.filter((o) => o.anchorId === id).length : 0;
   const [title, setTitle] = useState(obj.note?.title ?? '');
@@ -520,13 +521,13 @@ function Inspector({ id }: { id: string }) {
             style={{ justifyContent: 'center', marginTop: 6 }}
             onClick={() => {
               setActiveBuilding(id);
-              camera('center');
+              if (viewMode === 'editor') camera('center'); // w spacerze centrowanie przeniosłoby gracza na start
             }}
           >
             <I.Door width={14} height={14} /> Pokaż wnętrze{insideCount > 0 ? ` · ${insideCount} obiektów` : ''}
           </button>
           <p className="hint" style={{ marginTop: 6 }}>
-            Klik w budynek chowa dach, klik w pustkę go przywraca. W spacerze otwierasz drzwi klawiszem F i wchodzisz. Każde piętro podwyższa bryłę (najwyżej {maxFloorsOf(obj.type)}). Skala co najmniej {SHELLS[obj.type]?.minScale ?? 1}, większa daje przestronniejsze wnętrze.
+            Klik w budynek chowa dach, klik w pustkę go przywraca. W spacerze otwierasz drzwi klawiszem F i wchodzisz. {maxFloorsOf(obj.type) > 1 ? `Każde piętro podwyższa bryłę (najwyżej ${maxFloorsOf(obj.type)}); ${obj.type === 'tower' ? 'wieża ma wbudowane kręcone schody' : 'pierwsze piętro dostaje schody, które możesz przesunąć albo usunąć'}. ` : ''}Gotowe układy są w zakładce „Układy". Skala co najmniej {SHELLS[obj.type]?.minScale ?? 1}, większa daje przestronniejsze wnętrze.
           </p>
         </div>
       )}

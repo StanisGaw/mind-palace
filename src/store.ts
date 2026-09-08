@@ -5,7 +5,7 @@ import { uid } from './lib/ids';
 import { yawRotation } from './lib/transform';
 import { getPref, setPref } from './lib/prefs';
 import { chainOf, collectSubtree, loadData, makeInteriorPalace, makePalace, rootOf, saveData } from './lib/storage';
-import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingFloorY, buildingOf, maxFloorsOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt } from './lib/rooms';
+import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingFloorY, buildingOf, maxFloorsOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt, worldXZ, isFacade } from './lib/rooms';
 import { ROOM_PRESETS, capturePreset, instantiatePreset } from './lib/presets';
 import { loadCustomPresets, saveCustomPresets } from './lib/presetStore';
 import { isDue, newSrs, reviewSrs } from './lib/srs';
@@ -393,9 +393,10 @@ export const useStore = create<State>((set, get) => ({
     const obj = parent.objects.find((o) => o.id === objectId);
     if (!obj || !hasInterior(obj.type)) return;
     if (isInPlace(obj)) {
-      // wnętrze jest w tej scenie: wystarczy odsłonić budynek i podjechać kamerą
+      // wnętrze jest w tej scenie: wystarczy odsłonić budynek i podjechać kamerą; w spacerze centrowanie
+      // przeniosłoby gracza na start, więc tam tylko odsłaniamy
       get().setActiveBuilding(objectId);
-      get().camera('center');
+      if (get().viewMode === 'editor') get().camera('center');
       return;
     }
     let interiorId = obj.interiorId;
@@ -485,6 +486,19 @@ export const useStore = create<State>((set, get) => ({
       if (o) o.floors = floors;
     });
     if (get().activeBuildingId === id && get().editFloor > floors - 1) set({ editFloor: floors - 1 });
+    // pierwsze piętro bez schodów byłoby nieosiągalne: budynek bez wbudowanych schodów (wieża ma spiralę) dostaje
+    // zwykły obiekt „Schody" przy prawej ścianie, biegiem w stronę tylnej — do przesunięcia albo usunięcia
+    if (cur === 1 && floors > 1 && b.type !== 'tower' && !p.objects.some((o) => o.type === 'stairs' && buildingOf(p.objects, o)?.id === id)) {
+      const spec = SHELLS[b.type];
+      const H = spec.inner.h * b.scale[1];
+      const lx = spec.cx + spec.inner.w / 2 - 0.75 / b.scale[0];
+      // szczyt biegu przy tylnej ścianie, żeby przed dolnym stopniem zostało miejsce na podejście od drzwi
+      const lz = spec.cz - spec.inner.d / 2 + ((1.15 * H) / 2 + 0.1) / b.scale[2];
+      const [wx, wz] = worldXZ(b, lx, lz);
+      const { selectedIds, leftTab } = get();
+      get().addObject('stairs', [wx, buildingFloorY(b, 0), wz], b.rotation[1] + Math.PI, id);
+      set({ selectedIds, leftTab });
+    }
   },
   setInteriorMode(id, mode) {
     const p = get().palace();
@@ -505,7 +519,7 @@ export const useStore = create<State>((set, get) => ({
         if (!o) return;
         o.interiorMode = 'inplace';
         o.floors = o.floors ?? SHELLS[o.type]?.defaultFloors ?? 1;
-        o.shellVersion = 3;
+        o.shellVersion = 4;
         o.finish = o.finish ?? DEFAULT_FINISH;
         o.scale = bumped;
       });
@@ -547,9 +561,33 @@ export const useStore = create<State>((set, get) => ({
 
   applyRoomPreset(id) {
     const p = get().palace();
-    if (!p.interior) return;
     const preset = [...ROOM_PRESETS, ...get().customPresets].find((r) => r.id === id);
     if (!preset) return;
+    if (!p.interior) {
+      // wnętrze w miejscu: układ w układzie pokoju o wymiarach wnętrza budynku, przeniesiony do świata i zakotwiczony w budynku
+      const b = p.objects.find((o) => o.id === get().activeBuildingId);
+      if (!b || !isInPlace(b)) return;
+      const shell = SHELLS[b.type];
+      const spec = { ...ROOMS[b.type], width: shell.inner.w * b.scale[0], depth: shell.inner.d * b.scale[2], height: buildingFloorY(b, 1) - buildingFloorY(b, 0) };
+      // obiekty z notatkami zostają — piętro, na którym stoją, nie może zniknąć
+      const kept = p.objects.filter((o) => o.note && buildingOf(p.objects, o)?.id === b.id);
+      const keptTop = kept.reduce((m, o) => Math.max(m, floorOfIn(b, o.position[1]) + 1), 1);
+      const floors = Math.min(maxFloorsOf(b.type), Math.max(keptTop, preset.floors));
+      const fresh = instantiatePreset(preset, spec).map((o) => {
+        const [wx, wz] = worldXZ(b, shell.cx + o.position[0] / b.scale[0], shell.cz + o.position[2] / b.scale[2]);
+        return { ...o, position: [wx, buildingFloorY(b, 0) + o.position[1], wz] as Vec3, rotation: yawRotation(o.rotation[1] + b.rotation[1]), anchorId: o.anchorId ?? b.id };
+      });
+      get().setPalace((pl) => {
+        // elewacja (okna, balkony, tarasy) należy do bryły, nie do układu pokoju — zostaje
+        const inside = new Set(pl.objects.filter((o) => !o.note && !isFacade(o.type) && buildingOf(pl.objects, o)?.id === b.id).map((o) => o.id));
+        pl.objects = [...pl.objects.filter((o) => !inside.has(o.id)), ...fresh];
+        pl.path = pl.path.filter((x) => !inside.has(x));
+        const bb = pl.objects.find((o) => o.id === b.id);
+        if (bb) bb.floors = floors;
+      });
+      set({ editFloor: 0 });
+      return;
+    }
     const spec = roomSpecFor(p, get().data.palaces);
     get().setPalace((pl) => {
       const keep = pl.objects.filter((o) => o.note);
@@ -644,7 +682,7 @@ export const useStore = create<State>((set, get) => ({
         rotation: yawRotation(rotationY ?? (item.unique ? Math.atan2(pos[0], pos[2]) : 0)),
         scale: finalScale,
         anchorId,
-        ...(shell ? { interiorMode: 'inplace' as const, floors: shell.defaultFloors, shellVersion: 3 as const, finish: DEFAULT_FINISH } : {}),
+        ...(shell ? { interiorMode: 'inplace' as const, floors: shell.defaultFloors, shellVersion: 4 as const, finish: DEFAULT_FINISH } : {}),
       });
     });
     set({ selectedIds: [id], ...(get().placing ? {} : { leftTab: 'scene' as const }) });
