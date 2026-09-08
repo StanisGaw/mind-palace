@@ -10,7 +10,7 @@ export default function App() {
   const [help, setHelp] = useState(false);
   const [mobile, setMobile] = useState<'left' | 'right' | null>(null);
   const toast = useStore((s) => s.toast);
-  const selectedId = useStore((s) => s.selectedId);
+  const selectedId = useStore((s) => s.selectedIds[0] ?? null);
   const vrActive = useStore((s) => s.vrActive);
 
   // na telefonie: wybór obiektu otwiera panel z notatką

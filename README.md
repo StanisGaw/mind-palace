@@ -16,8 +16,11 @@ npm run build        # produkcyjny build do dist/
 
 - **Edytor** — widok izometryczny (Three.js). Kliknięcie elementu w bibliotece włącza podgląd stawiania
   (duch obiektu z okręgiem pod kursorem; `R` lub kółko obraca, `Shift`+klik stawia kilka, `Esc` anuluje).
-  Narzędzia: `V` zaznacza, `M` daje uchwyt ze strzałkami X/Y/Z, `R` pierścień obrotu. Skalowanie osobno
-  na każdej osi. Trzy przyciski kamery: wyśrodkuj (`F`), widok z góry (`T`), pełny ekran.
+  Narzędzia: `V` zaznacza (nie rusza kamery; ramka i `Shift`+klik zaznaczają kilka obiektów, które można
+  razem przesunąć, usunąć albo rozstawić w siatce), `M` daje uchwyt ze strzałkami i pierścieniami obrotu
+  wokół osi X/Y/Z. Skalowanie i obrót osobno na każdej osi. Kamera: środkowy przycisk obraca, prawy
+  przesuwa, kółko przybliża; w rzucie z góry (`T`) przytrzymanie środkowego przycisku chwilowo pochyla widok.
+  Przyciski kamery: wyśrodkuj (`F`), rzut z góry (`T`), pełny ekran. Podpowiedzi po najechaniu na przyciski.
 - **Układanie i kotwiczenie** — obiekty można stawiać na innych; postawiony przedmiot przesuwa się
   i obraca razem z podstawą. Stawianie działa też poza planszą, na okolicznym terenie.
 - **Plansza i nawierzchnia** — kształt płyty (prostokąt, koło, sześciokąt), jej wymiary, osiem
@@ -31,6 +34,12 @@ npm run build        # produkcyjny build do dist/
   Po wejściu stajesz tuż za progiem twarzą w głąb pomieszczenia, po wyjściu — przed drzwiami, plecami
   do budynku. Element „Brama wejściowa" wyznacza miejsce startu spaceru po głównej planszy.
   Ścieżka okruszków u góry pokazuje, gdzie jesteś; usunięcie budynku kasuje jego wnętrze.
+- **Kreator wnętrz** — układ pokoju to zwykłe obiekty biblioteki z kategorii „Konstrukcja": ściana
+  działowa, drzwi, okno (przyciąga się do najbliższej ściany), schody. Panel „Piętra" ustawia liczbę
+  kondygnacji (1–4) budynku i piętro do edycji; schody robią otwór w stropie i prowadzą wyżej. Puste
+  wnętrze proponuje gotowe układy pokoju (wbudowane i własne) — „Zastosuj" zastępuje obiekty bez
+  notatek, „Zapisz obecny układ" zachowuje bieżące rozmieszczenie do ponownego użycia. Drzwi otwiera
+  i zamyka `F` albo kliknięcie.
 - **Krajobraz** — proceduralny pierścień terenu wokół planszy (łąki, góry, wybrzeże, pustynia) z losowanym
   ukształtowaniem oraz kategoria „Krajobraz" w bibliotece: góra, wulkan z dymem, głaz, wzgórze, staw, wodospad.
 - **Pogoda i pora dnia** — niezależne ustawienia: cztery klimaty i sześć rodzajów pogody (chmury, deszcz,
@@ -45,7 +54,9 @@ npm run build        # produkcyjny build do dist/
 - **VR** — zwykły spacer w goglach: lewy joystick idzie, prawy obraca skokowo, spust działa jak
   kliknięcie, chwyt to skok. Kamera nie przenosi gracza samoczynnie. Gdy przeglądarka nie ma WebXR,
   włącza się tryb stereo (Cardboard): przytrzymanie ekranu idzie do przodu, krótkie dotknięcie to interakcja.
-- **Zapis** — automatycznie w `localStorage` (wiele pałaców). **Eksport/Import** — plik JSON.
+- **Zapis** — automatycznie w `localStorage` (wiele pałaców). **Eksport/Import** — plik JSON, dołącza
+  własne układy pokoi; import pliku z układami pyta osobno o pałac (dodaj / zastąp / pomiń) i o presety
+  (importuj / pomiń).
 
 ## VR z telefonu — krok po kroku
 

@@ -5,12 +5,87 @@ import { useCurrentPalace, useStore } from '../store';
 import { usePref } from '../lib/prefs';
 import type { Vec3 } from '../types';
 import { I } from './Icons';
+import { Tip } from './Tip';
 
 export function RightPanel() {
-  const selectedId = useStore((s) => s.selectedId);
+  const ids = useStore((s) => s.selectedIds);
   const palace = useCurrentPalace();
-  const obj = palace.objects.find((o) => o.id === selectedId);
-  return <aside className="panel right">{obj ? <Inspector key={obj.id} id={obj.id} /> : <Welcome />}</aside>;
+  const obj = ids.length === 1 ? palace.objects.find((o) => o.id === ids[0]) : undefined;
+  return <aside className="panel right">{ids.length > 1 ? <MultiInspector ids={ids} /> : obj ? <Inspector key={obj.id} id={obj.id} /> : <Welcome />}</aside>;
+}
+
+function plural(n: number, one: string, few: string, many: string) {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (n === 1) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
+
+/** Panel zaznaczenia zbiorczego: usuwanie i rozstawianie w siatce. */
+function MultiInspector({ ids }: { ids: string[] }) {
+  const palace = useCurrentPalace();
+  const palaces = useStore((s) => s.data.palaces);
+  const select = useStore((s) => s.select);
+  const removeObjects = useStore((s) => s.removeObjects);
+  const arrangeSelected = useStore((s) => s.arrangeSelected);
+  const n = ids.length;
+  const [columns, setColumns] = useState(Math.ceil(Math.sqrt(n)));
+  const [gapX, setGapX] = useState(2);
+  const [gapZ, setGapZ] = useState(2);
+  const chosen = palace.objects.filter((o) => ids.includes(o.id));
+  const withInterior = chosen.filter((o) => o.interiorId && palaces.some((p) => p.id === o.interiorId && p.objects.length > 0)).length;
+  const stacked = palace.objects.filter((o) => o.anchorId && ids.includes(o.anchorId) && !ids.includes(o.id)).length;
+  const num = (value: number, set: (v: number) => void, min: number, step: number) => (
+    <input className="num" type="number" min={min} step={step} value={value} onChange={(e) => set(Math.max(min, Number(e.target.value) || min))} />
+  );
+  return (
+    <div className="scroll inspector">
+      <button className="back-link" onClick={() => select(null)}>
+        <I.Back width={12} height={12} /> Odznacz wszystko
+      </button>
+      <div>
+        <div className="eyebrow">Zaznaczenie</div>
+        <div className="headline" style={{ marginBottom: 6 }}>
+          Zaznaczono {n} {plural(n, 'obiekt', 'obiekty', 'obiektów')}
+        </div>
+        <p className="lead" style={{ marginTop: 0 }}>Narzędziem „Przesuń” ruszasz je razem. Shift + klik dodaje lub odejmuje obiekt.</p>
+      </div>
+      <div className="field">
+        <label>Rozstaw w siatce</label>
+        <div className="row scale-row" style={{ justifyContent: 'space-between' }}>
+          <span>Kolumny</span>
+          {num(columns, setColumns, 1, 1)}
+        </div>
+        <div className="row scale-row" style={{ justifyContent: 'space-between' }}>
+          <span>Odstęp X (m)</span>
+          {num(gapX, setGapX, 0.5, 0.5)}
+        </div>
+        <div className="row scale-row" style={{ justifyContent: 'space-between' }}>
+          <span>Odstęp Z (m)</span>
+          {num(gapZ, setGapZ, 0.5, 0.5)}
+        </div>
+        <button className="btn small" style={{ justifyContent: 'center' }} onClick={() => arrangeSelected({ columns, gapX, gapZ })}>
+          Rozstaw w siatce
+        </button>
+      </div>
+      <div className="actions">
+        <button
+          className="btn small danger"
+          onClick={() => {
+            if (withInterior > 0 && !confirm(`${withInterior} ${plural(withInterior, 'budynek ma', 'budynki mają', 'budynków ma')} urządzone wnętrze. Usunąć razem z wnętrzami?`)) return;
+            if (stacked > 0 && !confirm(`Na zaznaczonych obiektach stoi ${stacked} ${plural(stacked, 'obiekt', 'obiekty', 'obiektów')} — opadną na ziemię. Usunąć?`)) return;
+            removeObjects(ids);
+          }}
+        >
+          <I.Trash width={14} height={14} /> Usuń zaznaczone
+        </button>
+        <button className="btn small" onClick={() => select(null)}>
+          Odznacz
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function Welcome() {
@@ -31,7 +106,11 @@ function Welcome() {
       </div>
       <div className="eyebrow">Witaj w swoim pałacu</div>
       <div className="headline big">Każde miejsce opowiada historię.</div>
-      <p className="lead">Stwórz świat, w którym Twoje myśli poczują się jak w domu.</p>
+      <p className="lead">
+        {palace.interior && palace.objects.length === 0
+          ? 'Wybierz układ po lewej albo zbuduj pokój sam z Konstrukcji i Wyposażenia.'
+          : 'Stwórz świat, w którym Twoje myśli poczują się jak w domu.'}
+      </p>
       <div className="steps">
         <Step n="01" t="Zbuduj przestrzeń" d="Wybierz element z biblioteki i postaw go na mapie." />
         <Step n="02" t="Dodaj znaczenie" d="Kliknij obiekt i przypisz mu wspomnienie." />
@@ -50,15 +129,21 @@ function Welcome() {
               {o.name}
             </button>
             {isDue(o.note?.srs) && <span className="due">do powtórki</span>}
-            <button className="mv" title="W górę" onClick={() => movePath(o.id, -1)} disabled={i === 0}>
-              <I.Up width={12} height={12} />
-            </button>
-            <button className="mv" title="W dół" onClick={() => movePath(o.id, 1)} disabled={i === path.length - 1}>
-              <I.Down width={12} height={12} />
-            </button>
-            <button className="mv" style={{ opacity: 1 }} title="Przejdź do obiektu" onClick={() => flyTo(o.id)}>
-              <I.Chevron width={12} height={12} />
-            </button>
+            <Tip label="Wyżej na ścieżce" side="left">
+              <button className="mv" onClick={() => movePath(o.id, -1)} disabled={i === 0}>
+                <I.Up width={12} height={12} />
+              </button>
+            </Tip>
+            <Tip label="Niżej na ścieżce" side="left">
+              <button className="mv" onClick={() => movePath(o.id, 1)} disabled={i === path.length - 1}>
+                <I.Down width={12} height={12} />
+              </button>
+            </Tip>
+            <Tip label="Pokaż obiekt w scenie" side="left">
+              <button className="mv" style={{ opacity: 1 }} onClick={() => flyTo(o.id)}>
+                <I.Chevron width={12} height={12} />
+              </button>
+            </Tip>
           </div>
         ))}
       </div>
@@ -100,9 +185,11 @@ function ScaleField({ id, scale, max }: { id: string; scale: Vec3; max: number }
     <div className="field">
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <label style={{ margin: 0 }}>Wielkość</label>
-        <button className={'chipy' + (lock ? ' on' : '')} onClick={() => setLock(!lock)} title="Zmieniaj wszystkie osie razem">
-          {lock ? '🔒 proporcje' : '🔓 osobno'}
-        </button>
+        <Tip label={lock ? 'Osie zmieniają się razem' : 'Każda oś osobno'} side="left">
+          <button className={'chipy' + (lock ? ' on' : '')} onClick={() => setLock(!lock)}>
+            {lock ? '🔒 proporcje' : '🔓 osobno'}
+          </button>
+        </Tip>
       </div>
       {AXES.map(({ i, label }) => (
         <div className="row scale-row" key={i}>
@@ -126,8 +213,42 @@ function ScaleField({ id, scale, max }: { id: string; scale: Vec3; max: number }
             value={Number(scale[i].toFixed(2))}
             onChange={(e) => apply(i, Number(e.target.value))}
           />
-          <button className="step" onClick={() => { pushUndo(); apply(i, scale[i] - 0.1); }} title="Zmniejsz">−</button>
-          <button className="step" onClick={() => { pushUndo(); apply(i, scale[i] + 0.1); }} title="Powiększ">+</button>
+          <Tip label="Zmniejsz o 0,1" side="left">
+            <button className="step" onClick={() => { pushUndo(); apply(i, scale[i] - 0.1); }}>−</button>
+          </Tip>
+          <Tip label="Powiększ o 0,1" side="left">
+            <button className="step" onClick={() => { pushUndo(); apply(i, scale[i] + 0.1); }}>+</button>
+          </Tip>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Obrót osobno wokół każdej osi, w stopniach. */
+function RotationField({ id, rotation }: { id: string; rotation: Vec3 }) {
+  const updateObject = useStore((s) => s.updateObject);
+  const pushUndo = useStore((s) => s.pushUndo);
+  const AXES: { i: 0 | 1 | 2; label: string }[] = [
+    { i: 0, label: 'X — przechył w przód i w tył' },
+    { i: 1, label: 'Y — obrót w poziomie' },
+    { i: 2, label: 'Z — przechył na boki' },
+  ];
+  const deg = (r: number) => Math.round((r * 180) / Math.PI);
+  const apply = (axis: 0 | 1 | 2, degrees: number) => {
+    const next: Vec3 = [...rotation] as Vec3;
+    next[axis] = (Math.max(-180, Math.min(180, Number.isFinite(degrees) ? degrees : 0)) * Math.PI) / 180;
+    updateObject(id, { rotation: next }, { undo: false });
+  };
+  return (
+    <div className="field">
+      <label>Obrót</label>
+      {AXES.map(({ i, label }) => (
+        <div className="row scale-row" key={i}>
+          <span className="ax">{label[0]}</span>
+          <input type="range" min={-180} max={180} step={5} value={deg(rotation[i])} title={label} onPointerDown={() => pushUndo()} onChange={(e) => apply(i, Number(e.target.value))} />
+          <input className="num" type="number" min={-180} max={180} step={5} value={deg(rotation[i])} onChange={(e) => apply(i, Number(e.target.value))} />
+          <span className="val" style={{ width: 14 }}>°</span>
         </div>
       ))}
     </div>
@@ -273,13 +394,7 @@ function Inspector({ id }: { id: string }) {
         </div>
       </div>
       <ScaleField id={id} scale={obj.scale} max={item.maxScale ?? 10} />
-      <div className="field">
-        <label>Obrót</label>
-        <div className="row">
-          <input type="range" min={-180} max={180} step={5} value={Math.round((obj.rotationY * 180) / Math.PI)} onChange={(e) => updateObject(id, { rotationY: (Number(e.target.value) * Math.PI) / 180 }, { undo: false })} />
-          <span className="val">{Math.round((obj.rotationY * 180) / Math.PI)}°</span>
-        </div>
-      </div>
+      <RotationField id={id} rotation={obj.rotation} />
       <div className="actions">
         <button className="btn small" onClick={() => flyTo(id)}>
           <I.Eye width={14} height={14} /> Pokaż

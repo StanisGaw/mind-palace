@@ -1,9 +1,13 @@
 import { create } from 'zustand';
-import type { AppData, CameraKind, Palace, PalaceObject, Rating, SoundLevels, Tool, Vec3, ViewMode } from './types';
+import type { AppData, CameraKind, Palace, PalaceObject, Rating, RoomPreset, SoundLevels, Tool, Vec3, ViewMode } from './types';
 import { ROOMS, catalogItem, hasInterior } from './catalog';
 import { uid } from './lib/ids';
+import { yawRotation } from './lib/transform';
 import { getPref, setPref } from './lib/prefs';
 import { chainOf, collectSubtree, loadData, makeInteriorPalace, makePalace, rootOf, saveData } from './lib/storage';
+import { FLOOR_MAX, clampToRoom, floorOf, roomSpecFor } from './lib/rooms';
+import { ROOM_PRESETS, capturePreset, instantiatePreset } from './lib/presets';
+import { loadCustomPresets, saveCustomPresets } from './lib/presetStore';
 import { isDue, newSrs, reviewSrs } from './lib/srs';
 import { flattenStops, dueInTree, type ReviewStop } from './lib/review';
 
@@ -28,7 +32,7 @@ export interface FlyRequest {
 
 interface State {
   data: AppData;
-  selectedId: string | null;
+  selectedIds: string[]; // zaznaczone obiekty; pierwszy jest „głównym” (inspektor, kotwica gizma)
   hoverId: string | null;
   tool: Tool;
   viewMode: ViewMode;
@@ -44,9 +48,11 @@ interface State {
   cameraCmd: { kind: CameraKind; seq: number } | null;
   topView: boolean; // aktywny rzut z góry na całą planszę
   sceneEntry: { kind: 'enter' | 'exit'; objectId: string; seq: number } | null;
-  doorPrompt: { kind: 'enter' | 'exit'; objectId?: string; label: string } | null;
+  doorPrompt: { kind: 'enter' | 'exit' | 'door'; objectId?: string; label: string } | null;
   placing: { type: string } | null; // element wybrany z biblioteki, czeka na kliknięcie w scenie
   sound: SoundLevels; // głośność dźwięków otoczenia; trzymana w preferencjach, nie w danych pałacu
+  editFloor: number; // piętro edytowane w edytorze (nieutrwalane — zerowane przy zmianie sceny)
+  customPresets: RoomPreset[]; // własne układy pokoi, poza danymi pałacu (jak własne tekstury)
 
   palace(): Palace;
   setPalace(mut: (p: Palace) => void, opts?: { undo?: boolean }): void;
@@ -57,6 +63,13 @@ interface State {
   enterInterior(objectId: string): void;
   exitInterior(): void;
   setDoorPrompt(p: State['doorPrompt']): void;
+  setEditFloor(n: number): void;
+  setFloors(n: number): void;
+  // presety pokoi
+  applyRoomPreset(id: string): void;
+  saveCurrentAsPreset(name: string): void;
+  deleteCustomPreset(id: string): void;
+  importPresets(list: RoomPreset[]): void;
   // obiekty
   addObject(type: string, position?: Vec3, rotationY?: number, anchorId?: string): string;
   dropToGround(id: string): void;
@@ -65,6 +78,12 @@ interface State {
   updateObject(id: string, patch: Partial<PalaceObject>, opts?: { undo?: boolean }): void;
   duplicateObject(id: string): void;
   select(id: string | null): void;
+  setSelection(ids: string[]): void;
+  toggleSelected(id: string): void;
+  updateObjects(list: { id: string; patch: Partial<PalaceObject> }[], opts?: { undo?: boolean }): void;
+  removeObjects(ids: string[]): void;
+  duplicateSelected(): void;
+  arrangeSelected(opts: { columns: number; gapX: number; gapZ: number }): void;
   setHover(id: string | null): void;
   setTool(t: Tool): void;
   setViewMode(v: ViewMode): void;
@@ -134,10 +153,85 @@ export function descendants(objects: PalaceObject[], id: string): PalaceObject[]
   return out;
 }
 
+/** Zaznaczone obiekty bez tych, które stoją na innym zaznaczonym — te i tak jadą razem ze swoją podstawą. */
+export function selectionRoots(objects: PalaceObject[], ids: string[]): PalaceObject[] {
+  const chosen = new Set(ids);
+  const byId = new Map(objects.map((o) => [o.id, o]));
+  const out: PalaceObject[] = [];
+  for (const id of ids) {
+    const o = byId.get(id);
+    if (!o) continue;
+    let cur = o.anchorId ? byId.get(o.anchorId) : undefined;
+    const seen = new Set<string>();
+    let underSelected = false;
+    while (cur && !seen.has(cur.id)) {
+      if (chosen.has(cur.id)) {
+        underSelected = true;
+        break;
+      }
+      seen.add(cur.id);
+      cur = cur.anchorId ? byId.get(cur.anchorId) : undefined;
+    }
+    if (!underSelected) out.push(o);
+  }
+  return out;
+}
+
+/** Wysokość podłogi, na którą opada obiekt zdjęty z kotwicy: piętro we wnętrzu, 0 na planszy. */
+function groundYOf(pl: Palace, y: number): number {
+  if (!pl.interior) return 0;
+  const h = (ROOMS[pl.interior.buildingType] ?? ROOMS.house).height;
+  return floorOf(y, h) * h;
+}
+
+/** Nakłada zmianę na obiekt; to, co na nim stoi, przesuwa się i obraca razem z nim. */
+function applyObjectPatch(pl: Palace, id: string, patch: Partial<PalaceObject>) {
+  const o = pl.objects.find((x) => x.id === id);
+  if (!o) return;
+  const oldPos: Vec3 = [...o.position];
+  const oldYaw = o.rotation[1];
+  Object.assign(o, patch);
+  const movedPos = patch.position !== undefined;
+  // dzieci podążają tylko za obrotem wokół osi pionowej — przechył podstawy ich nie przechyla
+  const movedRot = patch.rotation !== undefined && patch.rotation[1] !== oldYaw;
+  if (!movedPos && !movedRot) return;
+  const kids = descendants(pl.objects, id);
+  if (kids.length === 0) return;
+  const d: Vec3 = [o.position[0] - oldPos[0], o.position[1] - oldPos[1], o.position[2] - oldPos[2]];
+  const dRot = o.rotation[1] - oldYaw;
+  const cos = Math.cos(dRot);
+  const sin = Math.sin(dRot);
+  for (const k of kids) {
+    if (movedRot) {
+      // obrót wokół osi kotwicy zachowuje wzajemne ustawienie
+      const rx = k.position[0] - oldPos[0];
+      const rz = k.position[2] - oldPos[2];
+      k.position[0] = oldPos[0] + rx * cos + rz * sin;
+      k.position[2] = oldPos[2] - rx * sin + rz * cos;
+      k.rotation[1] += dRot;
+    }
+    k.position[0] += d[0];
+    k.position[1] += d[1];
+    k.position[2] += d[2];
+  }
+}
+
+/** To, co stało na usuwanym obiekcie, opada na podłogę swojego piętra. */
+function dropChildrenOf(pl: Palace, id: string) {
+  for (const k of pl.objects) {
+    if (k.anchorId !== id) continue;
+    const groundY = groundYOf(pl, k.position[1]);
+    const drop = k.position[1] - groundY;
+    k.anchorId = undefined;
+    k.position[1] = groundY;
+    for (const deep of descendants(pl.objects, k.id)) deep.position[1] -= drop;
+  }
+}
+
 function seedPalace(): Palace {
   const p = makePalace('Ogród dobrych myśli');
   const add = (type: string, name: string, position: Vec3, rotationY = 0) => {
-    const o: PalaceObject = { id: uid(), type, name, position, rotationY, scale: [1, 1, 1] };
+    const o: PalaceObject = { id: uid(), type, name, position, rotation: yawRotation(rotationY), scale: [1, 1, 1] };
     p.objects.push(o);
     return o;
   };
@@ -169,6 +263,12 @@ function initialData(): AppData {
   return { version: 2, currentId: p.id, palaces: [p] };
 }
 
+/** Po cofnięciu albo ponowieniu zaznaczenie nie może wskazywać obiektów, których już nie ma. */
+function pruneSelection(get: () => State, set: (s: Partial<State>) => void, snap: Snapshot) {
+  const left = get().selectedIds.filter((id) => snap.objects.some((o) => o.id === id));
+  if (left.length !== get().selectedIds.length) set({ selectedIds: left });
+}
+
 let saveTimer: number | undefined;
 function scheduleSave(get: () => State, set: (s: Partial<State>) => void) {
   set({ saved: false });
@@ -190,7 +290,7 @@ let entrySeq = 0;
 
 export const useStore = create<State>((set, get) => ({
   data: initialData(),
-  selectedId: null,
+  selectedIds: [],
   hoverId: null,
   tool: 'select',
   viewMode: 'editor',
@@ -209,6 +309,8 @@ export const useStore = create<State>((set, get) => ({
   doorPrompt: null,
   placing: null,
   sound: initialSound(),
+  editFloor: 0,
+  customPresets: loadCustomPresets(),
 
   palace() {
     const d = get().data;
@@ -263,13 +365,28 @@ export const useStore = create<State>((set, get) => ({
       });
       palaces = [...palaces, created];
     }
+    // wymiary pokoju mogły się zmienić (skala budynku) — dociągamy obiekty do nowego wnętrza
+    const interior = palaces.find((pp) => pp.id === interiorId)!;
+    const spec = roomSpecFor(interior, palaces);
+    palaces = palaces.map((pp) => {
+      if (pp.id !== interiorId) return pp;
+      const copy: Palace = JSON.parse(JSON.stringify(pp));
+      copy.settings.ground = { width: spec.width, depth: spec.depth, shape: 'rect' };
+      for (const o of copy.objects) {
+        const [x, z] = clampToRoom(spec, o.position[0], o.position[2]);
+        o.position[0] = x;
+        o.position[2] = z;
+      }
+      return copy;
+    });
     set({
       data: { ...d, palaces, currentId: interiorId },
-      selectedId: null,
+      selectedIds: [],
       hoverId: null,
       undoStack: [],
       redoStack: [],
       doorPrompt: null,
+      editFloor: 0,
       sceneEntry: { kind: 'enter', objectId, seq: ++entrySeq },
     });
     scheduleSave(get, set);
@@ -281,14 +398,78 @@ export const useStore = create<State>((set, get) => ({
     if (!cur.parentId || !d.palaces.some((p) => p.id === cur.parentId)) return;
     set({
       data: { ...d, currentId: cur.parentId },
-      selectedId: null,
+      selectedIds: [],
       hoverId: null,
       undoStack: [],
       redoStack: [],
       doorPrompt: null,
+      editFloor: 0,
       sceneEntry: { kind: 'exit', objectId: cur.parentObjectId ?? '', seq: ++entrySeq },
     });
     scheduleSave(get, set);
+  },
+
+  setEditFloor(n) {
+    const floors = get().palace().interior?.floors ?? 1;
+    const clamped = Math.min(floors - 1, Math.max(0, Math.round(n)));
+    if (get().editFloor !== clamped) set({ editFloor: clamped });
+  },
+
+  setFloors(n) {
+    const p = get().palace();
+    if (!p.interior) return;
+    const floors = Math.min(FLOOR_MAX, Math.max(1, Math.round(n)));
+    if (floors === p.interior.floors) return;
+    if (floors < p.interior.floors) {
+      const H = (ROOMS[p.interior.buildingType] ?? ROOMS.house).height;
+      const doomed = p.objects.some((o) => floorOf(o.position[1], H) >= floors);
+      if (doomed) {
+        get().showToast('Na usuwanym piętrze stoją obiekty — najpierw je przenieś albo usuń.');
+        return;
+      }
+    }
+    get().setPalace((pl) => {
+      if (pl.interior) pl.interior.floors = floors;
+    }, { undo: false });
+    if (get().editFloor > floors - 1) set({ editFloor: floors - 1 });
+  },
+
+  applyRoomPreset(id) {
+    const p = get().palace();
+    if (!p.interior) return;
+    const preset = [...ROOM_PRESETS, ...get().customPresets].find((r) => r.id === id);
+    if (!preset) return;
+    const spec = roomSpecFor(p, get().data.palaces);
+    get().setPalace((pl) => {
+      const keep = pl.objects.filter((o) => o.note);
+      pl.objects = [...keep, ...instantiatePreset(preset, spec)];
+      const keptIds = new Set(keep.map((o) => o.id));
+      pl.path = pl.path.filter((x) => keptIds.has(x));
+      if (pl.interior) pl.interior.floors = Math.min(FLOOR_MAX, Math.max(1, preset.floors));
+    });
+    set({ editFloor: 0 });
+  },
+
+  saveCurrentAsPreset(name) {
+    const p = get().palace();
+    if (!p.interior) return;
+    const spec = roomSpecFor(p, get().data.palaces);
+    const preset = capturePreset(name, p, spec);
+    const list = [...get().customPresets, preset];
+    saveCustomPresets(list);
+    set({ customPresets: list });
+  },
+
+  deleteCustomPreset(id) {
+    const list = get().customPresets.filter((p) => p.id !== id);
+    saveCustomPresets(list);
+    set({ customPresets: list });
+  },
+
+  importPresets(list) {
+    const merged = [...get().customPresets, ...list];
+    saveCustomPresets(merged);
+    set({ customPresets: merged });
   },
 
   setPlacing(p) {
@@ -299,7 +480,8 @@ export const useStore = create<State>((set, get) => ({
 
   setDoorPrompt(p) {
     const cur = get().doorPrompt;
-    const same = (!cur && !p) || (cur && p && cur.kind === p.kind && cur.objectId === p.objectId);
+    // etykieta drzwi obiektowych zmienia się z otwarciem/zamknięciem przy tym samym id — musi też wejść w porównanie
+    const same = (!cur && !p) || (cur && p && cur.kind === p.kind && cur.objectId === p.objectId && cur.label === p.label);
     if (!same) set({ doorPrompt: p });
   },
 
@@ -312,8 +494,8 @@ export const useStore = create<State>((set, get) => ({
       const existing = p.objects.find((o) => o.type === type);
       if (existing) {
         const pos = position ?? existing.position;
-        get().updateObject(existing.id, { position: pos, rotationY: rotationY ?? (position ? Math.atan2(pos[0], pos[2]) : existing.rotationY) });
-        set({ selectedId: existing.id, ...(get().placing ? {} : { leftTab: 'scene' as const }) });
+        get().updateObject(existing.id, { position: pos, rotation: yawRotation(rotationY ?? (position ? Math.atan2(pos[0], pos[2]) : existing.rotation[1])) });
+        set({ selectedIds: [existing.id], ...(get().placing ? {} : { leftTab: 'scene' as const }) });
         get().showToast(`${item.name}: przeniesiono istniejącą.`);
         return existing.id;
       }
@@ -340,83 +522,63 @@ export const useStore = create<State>((set, get) => ({
       }
     }
     get().setPalace((pl) => {
-      pl.objects.push({ id, type, name: item.name, position: pos, rotationY: rotationY ?? (item.unique ? Math.atan2(pos[0], pos[2]) : 0), scale: [1, 1, 1], anchorId });
+      pl.objects.push({ id, type, name: item.name, position: pos, rotation: yawRotation(rotationY ?? (item.unique ? Math.atan2(pos[0], pos[2]) : 0)), scale: [1, 1, 1], anchorId });
     });
-    set({ selectedId: id, ...(get().placing ? {} : { leftTab: 'scene' as const }) });
+    set({ selectedIds: [id], ...(get().placing ? {} : { leftTab: 'scene' as const }) });
     return id;
   },
 
   removeObject(id) {
-    const obj = get().palace().objects.find((o) => o.id === id);
-    const interiorId = obj?.interiorId;
+    get().removeObjects([id]);
+  },
+
+  removeObjects(ids) {
+    const doomed = new Set(ids);
+    const p = get().palace();
+    const victims = p.objects.filter((o) => doomed.has(o.id));
+    if (victims.length === 0) return;
     get().setPalace((pl) => {
-      // to, co stało na usuwanym obiekcie, opada na ziemię
-      for (const k of pl.objects) {
-        if (k.anchorId !== id) continue;
-        const drop = k.position[1];
-        k.anchorId = undefined;
-        k.position[1] = 0;
-        for (const deep of descendants(pl.objects, k.id)) deep.position[1] -= drop;
-      }
-      pl.objects = pl.objects.filter((o) => o.id !== id);
-      pl.path = pl.path.filter((x) => x !== id);
+      for (const id of ids) dropChildrenOf(pl, id);
+      pl.objects = pl.objects.filter((o) => !doomed.has(o.id));
+      pl.path = pl.path.filter((x) => !doomed.has(x));
     });
-    if (interiorId) {
+    const interiorIds = victims.map((o) => o.interiorId).filter((x): x is string => !!x);
+    if (interiorIds.length > 0) {
       // budynek znika razem ze swoim wnętrzem i wnętrzami w nim zagnieżdżonymi
       const d = get().data;
-      const doomed = new Set([interiorId, ...collectSubtree(interiorId, d.palaces).map((p) => p.id)]);
-      const palaces = d.palaces.filter((p) => !doomed.has(p.id));
-      const currentId = doomed.has(d.currentId) ? palaces[0].id : d.currentId;
+      const gone = new Set(interiorIds.flatMap((iid) => [iid, ...collectSubtree(iid, d.palaces).map((x) => x.id)]));
+      const palaces = d.palaces.filter((x) => !gone.has(x.id));
+      const currentId = gone.has(d.currentId) ? palaces[0].id : d.currentId;
       set({ data: { ...d, palaces, currentId } });
       scheduleSave(get, set);
     }
-    if (get().selectedId === id) set({ selectedId: null });
+    const left = get().selectedIds.filter((x) => !doomed.has(x));
+    if (left.length !== get().selectedIds.length) set({ selectedIds: left });
   },
 
   updateObject(id, patch, opts) {
+    get().updateObjects([{ id, patch }], opts);
+  },
+
+  updateObjects(list, opts) {
     get().setPalace(
       (pl) => {
-        const o = pl.objects.find((x) => x.id === id);
-        if (!o) return;
-        const oldPos: Vec3 = [...o.position];
-        const oldRot = o.rotationY;
-        Object.assign(o, patch);
-        const movedPos = patch.position !== undefined;
-        const movedRot = patch.rotationY !== undefined && patch.rotationY !== oldRot;
-        if (!movedPos && !movedRot) return;
-        // obiekty stojące na tym obiekcie jadą razem z nim
-        const kids = descendants(pl.objects, id);
-        if (kids.length === 0) return;
-        const d: Vec3 = [o.position[0] - oldPos[0], o.position[1] - oldPos[1], o.position[2] - oldPos[2]];
-        const dRot = o.rotationY - oldRot;
-        const cos = Math.cos(dRot);
-        const sin = Math.sin(dRot);
-        for (const k of kids) {
-          if (movedRot) {
-            // obrót wokół osi kotwicy zachowuje wzajemne ustawienie
-            const rx = k.position[0] - oldPos[0];
-            const rz = k.position[2] - oldPos[2];
-            k.position[0] = oldPos[0] + rx * cos + rz * sin;
-            k.position[2] = oldPos[2] - rx * sin + rz * cos;
-            k.rotationY += dRot;
-          }
-          k.position[0] += d[0];
-          k.position[1] += d[1];
-          k.position[2] += d[2];
-        }
+        for (const { id, patch } of list) applyObjectPatch(pl, id, patch);
       },
       { undo: opts?.undo },
     );
   },
 
-  /** Zdejmuje obiekt z kotwicy i opuszcza go na ziemię. */
+  /** Zdejmuje obiekt z kotwicy i opuszcza go na podłogę piętra, na którym stoi. */
   dropToGround(id) {
     get().setPalace((pl) => {
       const o = pl.objects.find((x) => x.id === id);
       if (!o) return;
-      const drop = o.position[1];
+      const floorH = pl.interior ? (ROOMS[pl.interior.buildingType] ?? ROOMS.house).height : 0;
+      const groundY = pl.interior ? floorOf(o.position[1], floorH) * floorH : 0;
+      const drop = o.position[1] - groundY;
       o.anchorId = undefined;
-      o.position[1] = 0;
+      o.position[1] = groundY;
       for (const k of descendants(pl.objects, id)) k.position[1] -= drop;
     });
   },
@@ -428,11 +590,53 @@ export const useStore = create<State>((set, get) => ({
     get().setPalace((pl) => {
       pl.objects.push({ ...JSON.parse(JSON.stringify(src)), id: nid, note: undefined, interiorId: undefined, anchorId: undefined, position: [src.position[0] + 1.5, 0, src.position[2] + 1.5] });
     });
-    set({ selectedId: nid });
+    set({ selectedIds: [nid] });
+  },
+
+  duplicateSelected() {
+    const ids = get().selectedIds;
+    const p = get().palace();
+    const srcs = p.objects.filter((o) => ids.includes(o.id));
+    if (srcs.length === 0) return;
+    const copies: PalaceObject[] = srcs.map((src) => ({
+      ...(JSON.parse(JSON.stringify(src)) as PalaceObject),
+      id: uid(),
+      note: undefined,
+      interiorId: undefined,
+      anchorId: undefined,
+      position: [src.position[0] + 1.5, groundYOf(p, src.position[1]), src.position[2] + 1.5],
+    }));
+    get().setPalace((pl) => {
+      pl.objects.push(...copies);
+    });
+    set({ selectedIds: copies.map((c) => c.id) });
+  },
+
+  /** Rozstawia zaznaczone obiekty wierszami od lewego-górnego rogu zaznaczenia. */
+  arrangeSelected({ columns, gapX, gapZ }) {
+    const p = get().palace();
+    const roots = selectionRoots(p.objects, get().selectedIds);
+    if (roots.length < 2) return;
+    const cols = Math.max(1, Math.floor(columns));
+    const gx = Math.max(0.5, gapX);
+    const gz = Math.max(0.5, gapZ);
+    const sorted = [...roots].sort((a, b) => a.position[2] - b.position[2] || a.position[0] - b.position[0]);
+    const minX = Math.min(...sorted.map((o) => o.position[0]));
+    const minZ = Math.min(...sorted.map((o) => o.position[2]));
+    get().updateObjects(
+      sorted.map((o, i) => ({ id: o.id, patch: { position: [minX + (i % cols) * gx, o.position[1], minZ + Math.floor(i / cols) * gz] as Vec3 } })),
+    );
   },
 
   select(id) {
-    set({ selectedId: id });
+    set({ selectedIds: id ? [id] : [] });
+  },
+  setSelection(ids) {
+    set({ selectedIds: Array.from(new Set(ids)) });
+  },
+  toggleSelected(id) {
+    const cur = get().selectedIds;
+    set({ selectedIds: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] });
   },
   setHover(id) {
     if (get().hoverId !== id) set({ hoverId: id });
@@ -488,13 +692,13 @@ export const useStore = create<State>((set, get) => ({
   createPalace(name) {
     const p = makePalace(name ?? `Nowy pałac ${get().data.palaces.length + 1}`);
     const d = get().data;
-    set({ data: { ...d, palaces: [...d.palaces, p], currentId: p.id }, selectedId: null, undoStack: [], redoStack: [], review: null });
+    set({ data: { ...d, palaces: [...d.palaces, p], currentId: p.id }, selectedIds: [], undoStack: [], redoStack: [], review: null });
     scheduleSave(get, set);
   },
   switchPalace(id) {
     const d = get().data;
     if (!d.palaces.some((p) => p.id === id)) return;
-    set({ data: { ...d, currentId: id }, selectedId: null, undoStack: [], redoStack: [], review: null, focusRequest: get().focusRequest + 1 });
+    set({ data: { ...d, currentId: id }, selectedIds: [], undoStack: [], redoStack: [], review: null, editFloor: 0, focusRequest: get().focusRequest + 1 });
     scheduleSave(get, set);
   },
   renamePalace(name) {
@@ -508,13 +712,13 @@ export const useStore = create<State>((set, get) => ({
     let palaces = d.palaces.filter((p) => !doomed.has(p.id));
     if (palaces.length === 0) palaces = [makePalace()];
     const currentId = doomed.has(d.currentId) ? (palaces.find((p) => !p.parentId) ?? palaces[0]).id : d.currentId;
-    set({ data: { ...d, palaces, currentId }, selectedId: null, undoStack: [], redoStack: [], review: null });
+    set({ data: { ...d, palaces, currentId }, selectedIds: [], undoStack: [], redoStack: [], review: null });
     scheduleSave(get, set);
   },
   importPalaces(imported) {
     const d = get().data;
     const firstRoot = imported.find((p) => !p.parentId) ?? imported[0];
-    set({ data: { ...d, palaces: [...d.palaces, ...imported], currentId: firstRoot?.id ?? d.currentId }, selectedId: null, undoStack: [], redoStack: [], focusRequest: get().focusRequest + 1 });
+    set({ data: { ...d, palaces: [...d.palaces, ...imported], currentId: firstRoot?.id ?? d.currentId }, selectedIds: [], undoStack: [], redoStack: [], focusRequest: get().focusRequest + 1 });
     scheduleSave(get, set);
   },
   setSettings(patch) {
@@ -540,8 +744,7 @@ export const useStore = create<State>((set, get) => ({
       pl.objects = snap.objects;
       pl.path = snap.path;
     }, { undo: false });
-    const sel = get().selectedId;
-    if (sel && !snap.objects.some((o) => o.id === sel)) set({ selectedId: null });
+    pruneSelection(get, set, snap);
   },
   redo() {
     const { redoStack } = get();
@@ -554,6 +757,7 @@ export const useStore = create<State>((set, get) => ({
       pl.objects = snap.objects;
       pl.path = snap.path;
     }, { undo: false });
+    pruneSelection(get, set, snap);
   },
 
   startReview(onlyDue = false) {
@@ -564,7 +768,7 @@ export const useStore = create<State>((set, get) => ({
       get().showToast(onlyDue ? 'Nic nie czeka na powtórkę. Wróć jutro.' : 'Najpierw dodaj notatkę do jakiegoś obiektu.');
       return;
     }
-    set({ review: { stops, index: 0, revealed: false, results: {}, finished: false, rootId: root.id }, selectedId: null, tool: 'select' });
+    set({ review: { stops, index: 0, revealed: false, results: {}, finished: false, rootId: root.id }, selectedIds: [], tool: 'select' });
     get().goToStop(stops[0]);
   },
   reveal() {
@@ -612,7 +816,7 @@ export const useStore = create<State>((set, get) => ({
       const target = d.palaces.find((p) => p.id === stop.palaceId);
       set({
         data: { ...d, currentId: stop.palaceId },
-        selectedId: null,
+        selectedIds: [],
         hoverId: null,
         undoStack: [],
         redoStack: [],

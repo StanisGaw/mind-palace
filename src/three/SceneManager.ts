@@ -3,8 +3,9 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { StereoEffect } from 'three/examples/jsm/effects/StereoEffect.js';
-import { useStore, descendants } from '../store';
-import type { CameraKind, Palace, PalaceObject, ViewMode } from '../types';
+import { useStore, descendants, selectionRoots } from '../store';
+import { yawOfObject } from '../lib/transform';
+import type { CameraKind, Palace, PalaceObject, RoomSpec, Vec3, ViewMode } from '../types';
 import { AMBIENCES, catalogItem, hasInterior } from '../catalog';
 import { buildModel, disposeObject, modelHeight, EMITTER_ANCHORS, DOORS, GATE_SPAWN } from './builders';
 import { makeTextPanel, disposeTextPanel } from './text';
@@ -15,6 +16,7 @@ import { buildRoom, type Room } from './interior';
 import { Physics, FOOT_OFFSET, type StaticShape } from './physics';
 import { ROOMS, colliderKind, spawnKind } from '../catalog';
 import { clampToGround, clipSegment, groundExtent, groundPolygon, insideGround } from '../lib/ground';
+import { floorOf, roomSpecFor, stairOpenings, type Opening } from '../lib/rooms';
 import { getTexture } from './textures';
 import { Wildlife, type SpawnInfo, type WorldInfo } from './wildlife';
 import { Soundscape } from './soundscape';
@@ -35,6 +37,10 @@ interface Entry {
   panelKey: string;
   transformKey: string;
   emitter: Updatable | null;
+  /** `typ|wysokośćKondygnacji` — model konstrukcji trzeba przebudować, gdy zmieni się wysokość pokoju. */
+  buildKey: string;
+  /** Pivot skrzydła drzwi (obiekty typu `door`) — obraca go `toggleDoor`. */
+  doorPivot?: THREE.Group;
 }
 
 interface Tween {
@@ -58,6 +64,12 @@ const UP = new THREE.Vector3(0, 1, 0);
 // yawOf ma własny wektor — wołający trzymają w tmpV wektor ruchu, który nie może zostać nadpisany
 const tmpYaw = new THREE.Vector3();
 
+/** Wysokość jednej kondygnacji wnętrza (na zewnątrz nieużywana, ale zawsze zdefiniowana). */
+function floorHeightFor(p: Palace | null): number {
+  if (!p?.interior) return 3.2;
+  return (ROOMS[p.interior.buildingType] ?? ROOMS.house).height;
+}
+
 /** Największa skala pozioma — do pierścieni, odległości i kolizji kołowych. */
 function hs(e: { group: THREE.Group }): number {
   return Math.max(e.group.scale.x, e.group.scale.z);
@@ -77,6 +89,10 @@ export class SceneManager {
   readonly rig = new THREE.Group();
   readonly orbit: OrbitControls;
   readonly gizmo: TransformControls;
+  /** Drugi uchwyt z pierścieniami obrotu, doczepiony do tego samego celu co strzałki. */
+  readonly rotateGizmo: TransformControls;
+  /** Trwa naciśnięcie na jednym z uchwytów — drugi jest na ten czas wyłączony. */
+  private gizmoArmed = false;
   private gizmoDragging = false;
   private stereo: StereoEffect | null = null;
   private entries = new Map<string, Entry>();
@@ -99,6 +115,10 @@ export class SceneManager {
   private terrainKey = '';
   private room: Room | null = null;
   private roomKey = '';
+  private lastEditFloor = 0;
+  /** Id otwartych drzwi obiektowych — stan chwilowy, kasowany przy zmianie sceny. */
+  private openDoors = new Set<string>();
+  private doorAnims: { id: string; from: number; to: number; t: number; dur: number }[] = [];
   private bounds = { hx: 11.6, hz: 11.6 };
   private walkArea: GroundSpec | null = null;
   private lastEntrySeq = 0;
@@ -131,6 +151,8 @@ export class SceneManager {
   private envKey = '';
   private tween: Tween | null = null;
   private topView = false;
+  /** Rzut z góry chwilowo uwolniony środkowym przyciskiem — po puszczeniu kamera wraca nad planszę. */
+  private freeLook = false;
   private savedCam: { pos: THREE.Vector3; target: THREE.Vector3; fov: number } | null = null;
   private clock = new THREE.Clock();
   private unsub: () => void;
@@ -147,8 +169,15 @@ export class SceneManager {
   private disposed = false;
 
   // interakcja edytora
-  private drag: { id: string; offset: THREE.Vector3; startX: number; startY: number; moved: boolean; mode: 'move' | 'rotate'; startRot: number } | null = null;
-  private downInfo: { x: number; y: number; hit: string | null } | null = null;
+  private drag: { id: string; offset: THREE.Vector3; startX: number; startY: number; moved: boolean; ids?: string[]; starts?: Map<string, Vec3> } | null = null;
+  private downInfo: { x: number; y: number; hit: string | null; shift: boolean } | null = null;
+  /** Ramka zaznaczenia rysowana narzędziem „Zaznacz” na pustym miejscu. */
+  private marquee: { x0: number; y0: number; shift: boolean; el: HTMLDivElement | null } | null = null;
+  /** Wspólny uchwyt dla kilku zaznaczonych obiektów — stoi w ich środku ciężkości. */
+  private pivot = new THREE.Group();
+  private multiStart: { pos: THREE.Vector3; items: { id: string; pos: Vec3; rotation: Vec3 }[] } | null = null;
+  /** Pula pierścieni zaznaczenia; pierwszy to `selRing`, reszta dzieli z nim geometrię i materiał. */
+  private selRings: THREE.Mesh[] = [];
 
   // pierwsza osoba
   private keys = new Set<string>();
@@ -212,21 +241,35 @@ export class SceneManager {
     this.orbit.maxDistance = 70;
     this.orbit.screenSpacePanning = false;
     this.orbit.target.set(0, 0.5, 0);
+    // środkowy przycisk obraca widok (kółko nadal przybliża); lewy jest zarezerwowany dla narzędzi
+    this.orbit.mouseButtons.MIDDLE = THREE.MOUSE.ROTATE;
 
-    // uchwyt transformacji (strzałki / pierścień) — tylko w edytorze przy narzędziu Przesuń/Obróć
+    // uchwyt transformacji — tylko w edytorze przy narzędziu Przesuń; strzałki i pierścienie to dwie
+    // instancje TransformControls na tym samym celu, bo biblioteka umie pokazać naraz jeden tryb
     this.gizmo = new TransformControls(this.camera, renderer.domElement);
     this.gizmo.size = 0.85;
-    this.gizmo.enabled = false;
-    this.gizmo.rotationSnap = Math.PI / 24;
-    this.scene.add(this.gizmo.getHelper());
-    this.gizmo.addEventListener('dragging-changed', (ev) => {
-      const dragging = !!(ev as unknown as { value: boolean }).value;
-      this.gizmoDragging = dragging;
-      this.orbit.enabled = !dragging && this.mode === 'editor';
-      if (dragging) useStore.getState().pushUndo();
-    });
-    this.gizmo.addEventListener('objectChange', () => this.onGizmoChange());
-    this.gizmo.addEventListener('mouseUp', () => this.snapAnchorUnder());
+    this.rotateGizmo = new TransformControls(this.camera, renderer.domElement);
+    this.rotateGizmo.mode = 'rotate';
+    this.rotateGizmo.size = 1.15; // pierścienie poza końcówkami strzałek
+    for (const g of [this.gizmo, this.rotateGizmo]) {
+      g.enabled = false;
+      g.rotationSnap = Math.PI / 24;
+      this.scene.add(g.getHelper());
+      g.addEventListener('dragging-changed', (ev) => {
+        const dragging = !!(ev as unknown as { value: boolean }).value;
+        this.gizmoDragging = dragging;
+        this.orbit.enabled = !dragging && this.mode === 'editor';
+        if (dragging) useStore.getState().pushUndo();
+        // po przeciągnięciu kilku obiektów pivot wraca do nowego środka ciężkości
+        else if (g.object === this.pivot) this.syncGizmo();
+      });
+      g.addEventListener('objectChange', () => this.onGizmoChange());
+      g.addEventListener('mouseDown', () => this.onGizmoMouseDown());
+      g.addEventListener('mouseUp', () => {
+        this.multiStart = null;
+        this.snapAnchorUnder();
+      });
+    }
 
     // światła
     this.hemi = new THREE.HemisphereLight('#ffffff', '#b9c2ad', 1.1);
@@ -253,6 +296,8 @@ export class SceneManager {
     this.hoverRing.position.y = 0.015;
     this.hoverRing.visible = false;
     this.scene.add(this.hoverRing);
+    this.selRings = [this.selRing];
+    this.scene.add(this.pivot);
     this.scene.add(this.pathDots);
 
     this.buildGround({ width: 24, depth: 24, shape: 'rect' });
@@ -267,7 +312,7 @@ export class SceneManager {
     window.addEventListener('keyup', this.onKeyUp);
     el.addEventListener('mousemove', this.onMouseMoveLocked);
     document.addEventListener('pointerlockchange', this.onLockChange);
-    window.addEventListener('blur', () => this.keys.clear());
+    window.addEventListener('blur', this.onWindowBlur);
     container.addEventListener('contextmenu', this.onContextMenu);
     container.addEventListener('wheel', this.onWheel, { capture: true, passive: false });
 
@@ -287,7 +332,7 @@ export class SceneManager {
     const st = useStore.getState();
     this.sounds.setLevels(st.sound);
     this.applyPalace(st.palace(), true);
-    this.applySelection(st.selectedId, st.hoverId);
+    this.applySelection(st.selectedIds, st.hoverId);
     this.unsub = useStore.subscribe((s, prev) => this.onState(s, prev));
 
     renderer.setAnimationLoop((_, frame) => this.frame(frame));
@@ -419,7 +464,7 @@ export class SceneManager {
   private onState(s: ReturnType<typeof useStore.getState>, prev: ReturnType<typeof useStore.getState>) {
     const p = s.palace();
     if (p !== this.lastPalace) this.applyPalace(p, false);
-    if (s.selectedId !== prev.selectedId || s.hoverId !== prev.hoverId) this.applySelection(s.selectedId, s.hoverId);
+    if (s.selectedIds !== prev.selectedIds || s.hoverId !== prev.hoverId) this.applySelection(s.selectedIds, s.hoverId);
     if (s.tool !== prev.tool || s.review !== prev.review) this.syncGizmo();
     if (s.placing?.type !== prev.placing?.type) this.setGhost(s.placing?.type ?? null);
     if (s.viewMode !== prev.viewMode) this.setMode(s.viewMode);
@@ -440,6 +485,11 @@ export class SceneManager {
       this.lastEntrySeq = s.sceneEntry.seq;
       this.applySceneEntry(s.sceneEntry.kind, s.sceneEntry.objectId);
     }
+    if (s.editFloor !== this.lastEditFloor) {
+      this.lastEditFloor = s.editFloor;
+      this.applyFloorVisibility();
+      this.updateGroundPlane();
+    }
     const rk = s.review ? `${s.review.index}|${s.review.revealed}|${s.review.finished}` : '';
     if (rk !== this.lastReviewKey) {
       this.lastReviewKey = rk;
@@ -453,8 +503,14 @@ export class SceneManager {
     const sceneChanged = p.id !== this.lastPalaceId;
     this.lastPalaceId = p.id;
     this.applyEnvironment(p, sceneChanged);
-    if (sceneChanged) this.physicsDirty = true;
+    if (sceneChanged) {
+      this.physicsDirty = true;
+      this.openDoors.clear();
+      this.doorAnims = [];
+    }
     this.syncObjects(p);
+    this.placeRings(useStore.getState().selectedIds, useStore.getState().hoverId);
+    this.applyFloorVisibility();
     if (this.physics && this.physicsDirty && this.mode !== 'editor') this.rebuildPhysics();
     this.syncPath(p);
     this.refreshLabels(p);
@@ -463,10 +519,43 @@ export class SceneManager {
     if (first) this.cameraCommand('fit', true);
   }
 
+  /** Czy wpis (obiekt albo marker zwierzęcia) powinien być teraz widoczny. Jedno miejsce dla `syncWildlife` i pięter. */
+  private entryVisible(e: Entry): boolean {
+    if (spawnKind(e.type) && this.mode !== 'editor') return false; // żywe zwierzę zastępuje marker
+    if (this.mode === 'editor' && this.lastPalace?.interior) {
+      const H = floorHeightFor(this.lastPalace);
+      if (floorOf(e.group.position.y, H) > useStore.getState().editFloor) return false;
+    }
+    return true;
+  }
+
+  /** Odświeża widoczność obiektów i stropów zależnie od edytowanego piętra (ściany rozstrzyga `frame()` co klatkę). */
+  private applyFloorVisibility() {
+    for (const e of this.entries.values()) e.group.visible = this.entryVisible(e);
+    if (!this.room) return;
+    const inEditor = this.mode === 'editor';
+    const editFloor = useStore.getState().editFloor;
+    this.room.slabs.forEach((s, k) => (s.visible = !inEditor || k <= editFloor));
+    this.room.ceiling.visible = !inEditor;
+  }
+
+  /** Płaszczyzna pomocnicza do stawiania obiektów — na wysokości edytowanego piętra we wnętrzu. */
+  private updateGroundPlane() {
+    const p = this.lastPalace;
+    const y = p?.interior ? useStore.getState().editFloor * floorHeightFor(p) : 0;
+    this.groundPlane.constant = -y;
+  }
+
   /** Buduje otoczenie sceny: wnętrze budynku albo plansza z terenem i pogodą. */
   private applyEnvironment(p: Palace, sceneChanged: boolean) {
     const isInterior = !!p.interior;
-    const roomKey = isInterior ? `${p.id}|${p.interior!.buildingType}` : '';
+    let spec: (RoomSpec & { floors: number }) | null = null;
+    let openings: Opening[][] = [];
+    if (isInterior) {
+      spec = roomSpecFor(p, useStore.getState().data.palaces);
+      openings = stairOpenings(p.objects, spec.height);
+    }
+    const roomKey = isInterior && spec ? `${p.id}|${p.interior!.buildingType}|${spec.width}|${spec.depth}|${spec.floors}|${JSON.stringify(openings)}` : '';
     if (roomKey !== this.roomKey) {
       this.roomKey = roomKey;
       if (this.room) {
@@ -474,12 +563,13 @@ export class SceneManager {
         this.room.dispose();
         this.room = null;
       }
-      if (isInterior) {
+      if (isInterior && spec) {
         const type = p.interior!.buildingType;
-        this.room = buildRoom(ROOMS[type] ?? ROOMS.house, type);
-        this.room.ceiling.visible = this.mode !== 'editor';
+        this.room = buildRoom(spec, type, { floors: spec.floors, openings });
         this.scene.add(this.room.group);
+        this.physicsDirty = true; // powłoka się przebudowała
       }
+      this.applyFloorVisibility();
     }
 
     if (isInterior) {
@@ -505,8 +595,10 @@ export class SceneManager {
       }
       this.bounds = { hx: this.room?.bounds.hx ?? 5, hz: this.room?.bounds.hz ?? 5 };
       this.walkArea = { width: this.bounds.hx * 2 + 0.8, depth: this.bounds.hz * 2 + 0.8, shape: 'rect' };
+      this.updateGroundPlane();
       return;
     }
+    this.updateGroundPlane();
 
     // scena zewnętrzna
     this.ground.visible = true;
@@ -588,7 +680,7 @@ export class SceneManager {
       return;
     }
     // drzwi są w lokalnym +Z modelu, więc na zewnątrz patrzymy w kierunku +Z budynku
-    this.placeRig({ x: this.clampX(world.x), z: this.clampZ(world.z), yaw: o.rotationY + Math.PI });
+    this.placeRig({ x: this.clampX(world.x), z: this.clampZ(world.z), yaw: yawOfObject(o) + Math.PI });
   }
 
   /** Kadr edytora ustawiony jak spojrzenie od drzwi w głąb pokoju. */
@@ -596,7 +688,8 @@ export class SceneManager {
     const p = this.lastPalace;
     if (!p) return;
     const size = groundExtent(p.settings.ground);
-    const center = new THREE.Vector3(0, 0.5, 0);
+    const editFloor = useStore.getState().editFloor;
+    const center = new THREE.Vector3(0, editFloor * floorHeightFor(p) + 0.5, 0);
     const dist = Math.max(size * 0.78, 6) * 2.1;
     const dir = new THREE.Vector3(0.45, 1.5, 1).normalize();
     this.tween = {
@@ -611,22 +704,25 @@ export class SceneManager {
 
   private syncObjects(p: Palace) {
     const seen = new Set<string>();
+    const buildKey = (type: string) => `${type}|${floorHeightFor(p)}`;
     for (const o of p.objects) {
       seen.add(o.id);
       let e = this.entries.get(o.id);
-      if (e && e.type !== o.type) {
+      if (e && e.buildKey !== buildKey(o.type)) {
         this.removeEntry(e);
         e = undefined;
       }
       if (!e) {
-        const model = buildModel(o.type);
+        const key = buildKey(o.type);
+        const model = buildModel(o.type, { floorHeight: floorHeightFor(p) });
         const group = new THREE.Group();
         group.add(model);
         group.userData.objectId = o.id;
         group.traverse((c) => (c.userData.objectId = o.id));
         this.scene.add(group);
         const item = catalogItem(o.type);
-        e = { id: o.id, type: o.type, group, model, height: modelHeight(model), footprint: item.footprint, label: null, labelEl: null, labelKey: '', panel: null, panelKey: '', transformKey: '', emitter: null };
+        e = { id: o.id, type: o.type, group, model, height: modelHeight(model), footprint: item.footprint, label: null, labelEl: null, labelKey: '', panel: null, panelKey: '', transformKey: '', emitter: null, buildKey: key };
+        if (o.type === 'door') model.traverse((c) => { if (c.userData.doorLeaf) e!.doorPivot = c as THREE.Group; });
         if (item.emitter) {
           const anchor = EMITTER_ANCHORS[o.type] ?? [0, e.height, 0];
           e.emitter =
@@ -639,19 +735,22 @@ export class SceneManager {
         this.entries.set(o.id, e);
       }
       const scaleKey = o.scale.join(':');
-      const tk = `${o.position.join(',')}|${o.rotationY}|${scaleKey}`;
+      const tk = `${o.position.join(',')}|${o.rotation.join(',')}|${scaleKey}`;
       if (tk !== e.transformKey) {
         const prevScaleKey = e.transformKey.split('|')[2] ?? '';
         const isNew = e.transformKey === '';
         e.transformKey = tk;
         e.group.position.set(o.position[0], o.position[1], o.position[2]);
-        e.group.rotation.y = o.rotationY;
+        e.group.rotation.set(o.rotation[0], o.rotation[1], o.rotation[2]);
         e.group.scale.set(o.scale[0], o.scale[1], o.scale[2]);
         if (this.physics) {
           // sama zmiana położenia nie wymaga przeliczania siatki kolizji
-          if (!isNew && prevScaleKey === scaleKey && this.physics.moveStatic(o.id, e.group.position, o.rotationY)) {
-            // gotowe
-          } else this.physics.setStatic(o.id, this.shapeFor(e), e.group.position, o.rotationY, e.group.scale);
+          if (!isNew && prevScaleKey === scaleKey && this.physics.moveStatic(o.id, e.group.position, e.group.quaternion)) {
+            if (o.type === 'door') this.physics.moveStatic(o.id + ':leaf', e.group.position, e.group.quaternion);
+          } else {
+            this.physics.setStatic(o.id, this.shapeFor(e), e.group.position, e.group.quaternion, e.group.scale);
+            if (o.type === 'door') this.physics.setLeaf(o.id, !this.openDoors.has(o.id), e.group.position, e.group.quaternion, e.group.scale);
+          }
         } else this.physicsDirty = true;
       }
     }
@@ -670,6 +769,8 @@ export class SceneManager {
       e.emitter = null;
     }
     this.physics?.removeStatic(e.id);
+    if (e.doorPivot) this.physics?.removeStatic(e.id + ':leaf');
+    this.openDoors.delete(e.id);
     this.scene.remove(e.group);
     disposeObject(e.group);
     if (e.panel) {
@@ -735,7 +836,8 @@ export class SceneManager {
       (el.querySelector('.txt') as HTMLSpanElement).textContent = o.name;
       el.addEventListener('pointerdown', (ev) => {
         ev.stopPropagation();
-        useStore.getState().select(o.id);
+        if (ev.shiftKey) useStore.getState().toggleSelected(o.id);
+        else useStore.getState().select(o.id);
       });
       const lbl = new CSS2DObject(el);
       lbl.position.set(0, e.height + 0.5 / Math.max(o.scale[1], 0.01), 0);
@@ -783,26 +885,13 @@ export class SceneManager {
     }
   }
 
-  private applySelection(sel: string | null, hover: string | null) {
-    const place = (ring: THREE.Mesh, id: string | null) => {
-      const e = id ? this.entries.get(id) : undefined;
-      if (!e) {
-        ring.visible = false;
-        return;
-      }
-      ring.visible = this.mode === 'editor';
-      ring.position.x = e.group.position.x;
-      ring.position.z = e.group.position.z;
-      ring.position.y = e.group.position.y + (ring === this.selRing ? 0.02 : 0.015);
-      const r = (e.footprint + 0.5) * hs(e);
-      ring.scale.setScalar(r);
-    };
-    place(this.selRing, sel);
-    place(this.hoverRing, hover && hover !== sel ? hover : null);
+  private applySelection(ids: string[], hover: string | null) {
+    this.placeRings(ids, hover);
     this.syncGizmo();
     // podświetlenie
+    const chosen = new Set(ids);
     for (const [id, e] of this.entries) {
-      const on = id === sel;
+      const on = chosen.has(id);
       e.model.traverse((c) => {
         const m = c as THREE.Mesh;
         if (!m.isMesh) return;
@@ -821,6 +910,32 @@ export class SceneManager {
         }
       });
     }
+  }
+
+  /** Pierścienie pod zaznaczonymi i najechanym obiektem; wołane też po każdej zmianie pałacu, żeby szły za uchwytem. */
+  private placeRings(ids: string[], hover: string | null) {
+    const place = (ring: THREE.Mesh, id: string | null) => {
+      const e = id ? this.entries.get(id) : undefined;
+      if (!e) {
+        ring.visible = false;
+        return;
+      }
+      ring.visible = this.mode === 'editor';
+      ring.position.x = e.group.position.x;
+      ring.position.z = e.group.position.z;
+      ring.position.y = e.group.position.y + (ring === this.hoverRing ? 0.015 : 0.02);
+      const r = (e.footprint + 0.5) * hs(e);
+      ring.scale.setScalar(r);
+    };
+    while (this.selRings.length < ids.length) {
+      const ring = new THREE.Mesh(this.selRing.geometry, this.selRing.material);
+      ring.rotation.x = -Math.PI / 2;
+      ring.visible = false;
+      this.scene.add(ring);
+      this.selRings.push(ring);
+    }
+    this.selRings.forEach((ring, i) => place(ring, ids[i] ?? null));
+    place(this.hoverRing, hover && !ids.includes(hover) ? hover : null);
   }
 
   // ---------- tryby ----------
@@ -880,7 +995,8 @@ export class SceneManager {
     for (const [id, e] of this.entries) {
       const o = p.objects.find((x) => x.id === id);
       if (!o) continue;
-      ph.setStatic(id, this.shapeFor(e), e.group.position, o.rotationY, e.group.scale);
+      ph.setStatic(id, this.shapeFor(e), e.group.position, e.group.quaternion, e.group.scale);
+      if (o.type === 'door') ph.setLeaf(id, !this.openDoors.has(id), e.group.position, e.group.quaternion, e.group.scale);
     }
     ph.createCharacter(this.rig.position);
     this.physicsDirty = false;
@@ -895,11 +1011,35 @@ export class SceneManager {
   /** Zapisuje do stanu pozycję i obrót ustawione uchwytem. */
   private onGizmoChange() {
     const obj = this.gizmo.object as THREE.Group | undefined;
-    const id = obj?.userData.objectId as string | undefined;
+    if (!obj) return;
+    const y = Math.max(0, obj.position.y);
+    obj.position.y = y;
+    if (obj === this.pivot) {
+      const ms = this.multiStart;
+      if (!ms) return;
+      // każdy obiekt zachowuje swoje położenie względem pivota, obracanego wokół osi pionowej
+      const dRot = obj.rotation.y;
+      const cos = Math.cos(dRot);
+      const sin = Math.sin(dRot);
+      const list = ms.items.map((it) => {
+        const rx = it.pos[0] - ms.pos.x;
+        const rz = it.pos[2] - ms.pos.z;
+        const position: Vec3 = [obj.position.x + rx * cos + rz * sin, it.pos[1] + (y - ms.pos.y), obj.position.z - rx * sin + rz * cos];
+        return { id: it.id, patch: { position, rotation: [it.rotation[0], it.rotation[1] + dRot, it.rotation[2]] as Vec3 } };
+      });
+      useStore.getState().updateObjects(list, { undo: false });
+      return;
+    }
+    const id = obj.userData.objectId as string | undefined;
     if (!id) return;
-    const y = Math.max(0, obj!.position.y);
-    obj!.position.y = y;
-    useStore.getState().updateObject(id, { position: [obj!.position.x, y, obj!.position.z], rotationY: obj!.rotation.y }, { undo: false });
+    useStore.getState().updateObject(id, { position: [obj.position.x, y, obj.position.z], rotation: [obj.rotation.x, obj.rotation.y, obj.rotation.z] }, { undo: false });
+  }
+
+  /** Początek przeciągania pivota: zapamiętujemy, skąd startują zaznaczone obiekty. */
+  private onGizmoMouseDown() {
+    if (this.gizmo.object !== this.pivot || !this.lastPalace) return;
+    const roots = selectionRoots(this.lastPalace.objects, useStore.getState().selectedIds);
+    this.multiStart = { pos: this.pivot.position.clone(), items: roots.map((o) => ({ id: o.id, pos: [...o.position] as Vec3, rotation: [...o.rotation] as Vec3 })) };
   }
 
   /** Półprzezroczysty podgląd elementu wybranego z biblioteki. */
@@ -925,7 +1065,7 @@ export class SceneManager {
     this.renderer.domElement.style.cursor = type ? 'crosshair' : '';
     if (!type) return;
 
-    const model = buildModel(type);
+    const model = buildModel(type, { floorHeight: floorHeightFor(this.lastPalace) });
     model.traverse((c) => {
       const light = c as THREE.PointLight;
       if (light.isPointLight) light.intensity = 0;
@@ -967,15 +1107,17 @@ export class SceneManager {
     const st = useStore.getState();
     const snap = st.palace().settings.grid ? 0.5 : 0.05;
     // na obiekcie stawiamy dokładnie tam, gdzie wskazuje kursor — bez przyciągania do siatki
+    const floorY = this.lastPalace?.interior ? useStore.getState().editFloor * floorHeightFor(this.lastPalace) : 0;
     if (!found.anchorId) {
       const onPlate = !this.walkArea || insideGround(this.walkArea, p.x, p.z);
       if (onPlate) {
         p.x = Math.round(p.x / snap) * snap;
         p.z = Math.round(p.z / snap) * snap;
-        p.y = 0;
+        p.y = floorY;
       }
       // poza płytą zostaje wysokość terenu z punktu trafienia
     }
+    if (this.ghostType === 'window' && this.room) this.snapWindowToWall(p);
     this.ghostPos.copy(p);
     this.ghost.position.copy(p);
     this.ghost.rotation.y = this.ghostRot;
@@ -992,6 +1134,33 @@ export class SceneManager {
       }
     }
     (this.ghostRing.material as THREE.MeshBasicMaterial).color.set(this.ghostAnchor ? '#2b6ea8' : blocked ? '#b4483d' : '#3f7550');
+  }
+
+  /** Okno zawsze stoi w najbliższej ścianie obwodowej edytowanego piętra, twarzą do środka pokoju. */
+  private snapWindowToWall(p: THREE.Vector3) {
+    const editFloor = useStore.getState().editFloor;
+    const walls = (this.room?.walls ?? []).filter((wm) => wm.userData.floorIndex === editFloor);
+    let best: { normal: [number, number]; pos: THREE.Vector3 } | null = null;
+    let bestDist = Infinity;
+    for (const wmesh of walls) {
+      const n = wmesh.userData.wallNormal as [number, number] | undefined;
+      if (!n) continue;
+      const d = Math.abs((p.x - wmesh.position.x) * n[0] + (p.z - wmesh.position.z) * n[1]);
+      if (d < bestDist) {
+        bestDist = d;
+        best = { normal: n, pos: wmesh.position };
+      }
+    }
+    if (!best) return;
+    const [nx, nz] = best.normal;
+    if (Math.abs(nx) > Math.abs(nz)) {
+      p.x = best.pos.x - nx * 0.06;
+      this.ghostRot = Math.PI / 2;
+    } else {
+      p.z = best.pos.z - nz * 0.06;
+      this.ghostRot = 0;
+    }
+    p.y = editFloor * floorHeightFor(this.lastPalace);
   }
 
   /** Stawia obiekt w miejscu podglądu. */
@@ -1021,32 +1190,45 @@ export class SceneManager {
     if (anchorId !== o.anchorId) st.updateObject(id, { anchorId }, { undo: false });
   }
 
-  /** Dopina albo odpina uchwyt zależnie od trybu, narzędzia i zaznaczenia. */
+  /** Dopina albo odpina uchwyt zależnie od trybu, narzędzia i zaznaczenia; przy kilku obiektach celem jest pivot. */
   private syncGizmo() {
+    if (this.gizmoDragging) return;
     const st = useStore.getState();
-    const sel = st.selectedId;
-    const e = sel ? this.entries.get(sel) : undefined;
-    const wanted = this.mode === 'editor' && !!e && !st.review && !st.placing && st.tool !== 'select';
+    const ids = st.selectedIds;
+    const roots = this.lastPalace ? selectionRoots(this.lastPalace.objects, ids).filter((o) => this.entries.has(o.id)) : [];
+    const single = roots.length === 1 ? this.entries.get(roots[0].id) : undefined;
+    const multi = roots.length > 1;
+    const wanted = this.mode === 'editor' && (!!single || multi) && !st.review && !st.placing && st.tool !== 'select';
     if (!wanted) {
-      if (this.gizmo.object) this.gizmo.detach();
-      this.gizmo.enabled = false;
-      this.gizmo.getHelper().visible = false;
+      for (const g of [this.gizmo, this.rotateGizmo]) {
+        if (g.object) g.detach();
+        g.enabled = false;
+        g.getHelper().visible = false;
+      }
       return;
     }
-    this.gizmo.enabled = true;
-    this.gizmo.getHelper().visible = true;
-    if (this.gizmo.object !== e!.group) this.gizmo.attach(e!.group);
-    if (st.tool === 'rotate') {
-      this.gizmo.mode = 'rotate';
-      this.gizmo.showX = false;
-      this.gizmo.showZ = false;
-      this.gizmo.showY = true;
-    } else {
-      this.gizmo.mode = 'translate';
-      this.gizmo.showX = true;
-      this.gizmo.showY = true;
-      this.gizmo.showZ = true;
+    let target: THREE.Object3D;
+    if (multi) {
+      let minY = Infinity;
+      const c = new THREE.Vector3();
+      for (const o of roots) {
+        c.x += o.position[0];
+        c.z += o.position[2];
+        minY = Math.min(minY, o.position[1]);
+      }
+      this.pivot.position.set(c.x / roots.length, minY, c.z / roots.length);
+      this.pivot.rotation.set(0, 0, 0);
+      target = this.pivot;
+    } else target = single!.group;
+    for (const g of [this.gizmo, this.rotateGizmo]) {
+      g.enabled = true;
+      g.getHelper().visible = true;
+      if (g.object !== target) g.attach(target);
     }
+    // kilka obiektów obraca się tylko wokół osi pionowej — przechył grupy nie ma sensownego środka
+    this.rotateGizmo.showX = !multi;
+    this.rotateGizmo.showZ = !multi;
+    this.rotateGizmo.showY = true;
     this.gizmo.translationSnap = this.lastPalace?.settings.grid ? 0.5 : null;
   }
 
@@ -1065,9 +1247,10 @@ export class SceneManager {
         useStore.getState().setViewMode('fp');
       });
       if (prevMode === 'editor') this.editorToFp();
+      this.applyFloorVisibility();
       this.refreshLabels(this.lastPalace!);
       this.refreshPanels(this.lastPalace!);
-      this.applySelection(useStore.getState().selectedId, null);
+      this.applySelection(useStore.getState().selectedIds, null);
       return;
     }
     if (prevMode === 'vr') this.exitVR();
@@ -1085,10 +1268,11 @@ export class SceneManager {
     this.mode = mode;
     this.syncGizmo();
     this.syncWildlife();
+    this.applyFloorVisibility();
     if (this.room) this.room.ceiling.visible = mode !== 'editor';
     this.refreshLabels(this.lastPalace!);
     this.refreshPanels(this.lastPalace!);
-    this.applySelection(useStore.getState().selectedId, null);
+    this.applySelection(useStore.getState().selectedIds, null);
   }
 
   /**
@@ -1104,7 +1288,7 @@ export class SceneManager {
     const e = gate ? this.entries.get(gate.id) : undefined;
     if (gate && e) {
       const w = e.group.localToWorld(tmpV.set(GATE_SPAWN[0], GATE_SPAWN[1], GATE_SPAWN[2]));
-      return { x: this.clampX(w.x), z: this.clampZ(w.z), yaw: gate.rotationY };
+      return { x: this.clampX(w.x), z: this.clampZ(w.z), yaw: yawOfObject(gate) };
     }
     const [ex, ez] = this.walkArea ? clampToGround(this.walkArea, 0, 1e4, 0.8) : [0, this.bounds.hz - 0.8];
     return { x: ex, z: ez, yaw: 0 };
@@ -1299,9 +1483,12 @@ export class SceneManager {
     pos.z = fz;
     const look = objPos.clone().sub(pos);
     const desiredYaw = Math.atan2(-look.x, -look.z);
+    // obiekt może stać na innym piętrze — gracz musi wylądować na tej samej podłodze, nie tylko obok w XZ
+    const footY = this.lastPalace?.interior ? floorOf(o.position[1], floorHeightFor(this.lastPalace)) * floorHeightFor(this.lastPalace) : 0;
     this.rig.position.x = pos.x;
     this.rig.position.z = pos.z;
-    this.physics?.teleport(new THREE.Vector3(pos.x, this.rig.position.y - this.headOffset, pos.z));
+    this.rig.position.y = footY + this.headOffset;
+    this.physics?.teleport(new THREE.Vector3(pos.x, footY, pos.z));
     if (this.renderer.xr.isPresenting || this.stereo) {
       // kompensacja obrotu głowy
       const headQ = this.renderer.xr.isPresenting ? this.renderer.xr.getCamera().getWorldQuaternion(tmpQ) : this.camera.getWorldQuaternion(tmpQ);
@@ -1346,16 +1533,49 @@ export class SceneManager {
       toTarget: new THREE.Vector3(0, 0, 0),
       // blokada kąta dopiero po dolocie, inaczej kamera skoczyłaby w pion natychmiast
       onDone: () => {
-        if (!this.topView) return;
+        // gracz mógł w trakcie dolotu przytrzymać środkowy przycisk — wtedy blokady nie zakładamy
+        if (!this.topView || this.freeLook) return;
         this.orbit.minPolarAngle = 0;
         this.orbit.maxPolarAngle = 0;
       },
     };
   }
 
+  /** Koniec chwilowego obrotu w rzucie z góry: kamera płynnie wraca nad planszę i kąt znów jest zablokowany. */
+  private endFreeLook() {
+    if (!this.freeLook) return;
+    this.freeLook = false;
+    // bez tłumienia update() zużywa resztę prędkości od razu, więc tween startuje z miejsca, w którym stanęła kamera
+    this.orbit.enableDamping = false;
+    this.orbit.update();
+    this.orbit.enableRotate = false;
+    if (!this.topView) return;
+    const target = this.orbit.target.clone();
+    const dist = this.camera.position.distanceTo(target);
+    this.tween = {
+      t: 0,
+      dur: 0.45,
+      fromPos: this.camera.position.clone(),
+      toPos: new THREE.Vector3(target.x, target.y + dist, target.z + 0.001),
+      fromTarget: target.clone(),
+      toTarget: target,
+      onDone: () => {
+        if (!this.topView || this.freeLook) return;
+        this.orbit.minPolarAngle = 0;
+        this.orbit.maxPolarAngle = 0;
+      },
+    };
+  }
+
+  private onWindowBlur = () => {
+    this.keys.clear();
+    this.endFreeLook();
+  };
+
   private leaveTopView(instant = false) {
     if (!this.topView) return;
     this.topView = false;
+    this.freeLook = false;
     this.orbit.maxPolarAngle = 1.45;
     this.orbit.minPolarAngle = 0;
     this.orbit.enableRotate = true;
@@ -1416,8 +1636,11 @@ export class SceneManager {
       radius = Math.max(box.getSize(tmpV).length() / 2, 6);
     }
     const isInteriorScene = !!p?.interior;
-    // we wnętrzu kadrujemy cały pokój, nie tylko postawione w nim przedmioty
-    if (isInteriorScene) radius = Math.max(radius, (p ? groundExtent(p.settings.ground) : 12) * 0.78);
+    // we wnętrzu kadrujemy cały pokój, nie tylko postawione w nim przedmioty, na wysokości edytowanego piętra
+    if (isInteriorScene) {
+      radius = Math.max(radius, (p ? groundExtent(p.settings.ground) : 12) * 0.78);
+      center.y = useStore.getState().editFloor * floorHeightFor(p) + 0.5;
+    }
     const dist = radius * 2.1;
     // 'center' i 'reset' wracają do domyślnego rzutu izometrycznego, 'fit' zachowuje bieżący kierunek
     const isInterior = !!p?.interior;
@@ -1549,22 +1772,49 @@ export class SceneManager {
       this.placeDown = { x: ev.clientX, y: ev.clientY };
       return;
     }
+    if (ev.button === 1 && ev.pointerType === 'mouse') {
+      // bez preventDefault Windows włączyłby autoprzewijanie; propagacja zostaje, bo obraca OrbitControls
+      ev.preventDefault();
+      if (this.topView && !st.review && !this.freeLook) {
+        this.freeLook = true;
+        this.tween = null;
+        this.orbit.minPolarAngle = 0;
+        this.orbit.maxPolarAngle = 1.45;
+        this.orbit.enableRotate = true;
+        this.orbit.enableDamping = true;
+      }
+      return;
+    }
     if (ev.button !== 0 && ev.pointerType === 'mouse') return;
     this.setPointer(ev);
     // kliknięcie w uchwyt obsługuje TransformControls (nasz listener jest w fazie przechwytywania)
-    if (this.gizmo.enabled) {
+    if (this.gizmo.enabled || this.rotateGizmo.enabled) {
       // pointerHover oczekuje współrzędnych znormalizowanych; deklaracja w @types/three mówi PointerEvent
-      this.gizmo.pointerHover({ x: this.pointer.x, y: this.pointer.y, button: ev.button } as unknown as PointerEvent);
-      if (this.gizmo.axis) {
+      const pointer = { x: this.pointer.x, y: this.pointer.y, button: ev.button } as unknown as PointerEvent;
+      this.gizmo.pointerHover(pointer);
+      this.rotateGizmo.pointerHover(pointer);
+      // trafiony uchwyt przejmuje naciśnięcie, drugi milczy do puszczenia (strzałki mają pierwszeństwo)
+      const winner = this.gizmo.axis ? this.gizmo : this.rotateGizmo.axis ? this.rotateGizmo : null;
+      if (winner) {
+        (winner === this.gizmo ? this.rotateGizmo : this.gizmo).enabled = false;
+        this.gizmoArmed = true;
         this.downInfo = null;
         return;
       }
     }
     const hit = this.pick();
-    this.downInfo = { x: ev.clientX, y: ev.clientY, hit };
+    this.downInfo = { x: ev.clientX, y: ev.clientY, hit, shift: ev.shiftKey };
     const tool = st.tool;
-    // narzędzie „Zaznacz" tylko zaznacza — przesuwanie jest w narzędziach Przesuń/Obróć
-    const targetId = tool === 'select' ? null : hit ?? st.selectedId;
+    if (tool === 'select') {
+      // narzędzie „Zaznacz” nigdy nie rusza kamery myszą: puste miejsce zaczyna ramkę zaznaczenia
+      // (na dotyku przeciągnięcie nadal obraca widok, bo ramka jest tylko dla myszy)
+      if (ev.pointerType !== 'mouse') return;
+      ev.stopPropagation();
+      ev.preventDefault();
+      if (!hit && !st.review) this.marquee = { x0: ev.clientX, y0: ev.clientY, shift: ev.shiftKey, el: null };
+      return;
+    }
+    const targetId = hit ?? st.selectedIds[0] ?? null;
     if (targetId && !st.review) {
       const e = this.entries.get(targetId);
       if (!e) return;
@@ -1573,8 +1823,18 @@ export class SceneManager {
       const gp = new THREE.Vector3();
       this.groundPoint(gp);
       const offset = e.group.position.clone().sub(gp);
-      this.drag = { id: targetId, offset, startX: ev.clientX, startY: ev.clientY, moved: false, mode: tool === 'rotate' ? 'rotate' : 'move', startRot: e.group.rotation.y };
-      if (hit) st.select(hit);
+      // chwycony obiekt należący do zaznaczenia zbiorczego ciągnie za sobą całe zaznaczenie
+      const group = hit && st.selectedIds.length > 1 && st.selectedIds.includes(hit) ? selectionRoots(st.palace().objects, st.selectedIds) : null;
+      this.drag = {
+        id: targetId,
+        offset,
+        startX: ev.clientX,
+        startY: ev.clientY,
+        moved: false,
+        ids: group ? group.map((o) => o.id) : undefined,
+        starts: group ? new Map(group.map((o) => [o.id, [...o.position] as Vec3])) : undefined,
+      };
+      if (hit && !group) st.select(hit);
       this.renderer.domElement.style.cursor = 'grabbing';
     }
   };
@@ -1616,6 +1876,22 @@ export class SceneManager {
       }
       return;
     }
+    if (this.marquee) {
+      const m = this.marquee;
+      if (!m.el && Math.hypot(ev.clientX - m.x0, ev.clientY - m.y0) <= 5) return;
+      if (!m.el) {
+        m.el = document.createElement('div');
+        m.el.className = 'marquee';
+        this.container.appendChild(m.el);
+      }
+      ev.preventDefault();
+      const r = this.container.getBoundingClientRect();
+      m.el.style.left = `${Math.min(m.x0, ev.clientX) - r.left}px`;
+      m.el.style.top = `${Math.min(m.y0, ev.clientY) - r.top}px`;
+      m.el.style.width = `${Math.abs(ev.clientX - m.x0)}px`;
+      m.el.style.height = `${Math.abs(ev.clientY - m.y0)}px`;
+      return;
+    }
     if (this.drag) {
       const st = useStore.getState();
       const e = this.entries.get(this.drag.id);
@@ -1627,22 +1903,32 @@ export class SceneManager {
       }
       if (!this.drag.moved) return;
       ev.preventDefault();
-      if (this.drag.mode === 'rotate') {
-        const rot = this.drag.startRot - (ev.clientX - this.drag.startX) * 0.01;
-        st.updateObject(this.drag.id, { rotationY: Math.round(rot / (Math.PI / 24)) * (Math.PI / 24) }, { undo: false });
-        return;
-      }
       this.setPointer(ev);
-      // przeciągany obiekt (i to, co na nim stoi) nie może być własną podstawą
-      const exclude = new Set<string>([this.drag.id, ...descendants(st.palace().objects, this.drag.id).map((o) => o.id)]);
+      // przeciągane obiekty (i to, co na nich stoi) nie mogą być własną podstawą
+      const dragged = this.drag.ids ?? [this.drag.id];
+      const exclude = new Set<string>(dragged.flatMap((id) => [id, ...descendants(st.palace().objects, id).map((o) => o.id)]));
       const found = this.placementPoint(exclude);
       if (!found) return;
       const snap = st.palace().settings.grid ? 0.5 : 0.05;
       const onPlate = !this.walkArea || insideGround(this.walkArea, found.pos.x, found.pos.z);
       const x = found.anchorId || !onPlate ? found.pos.x : Math.round(found.pos.x / snap) * snap;
       const z = found.anchorId || !onPlate ? found.pos.z : Math.round(found.pos.z / snap) * snap;
+      if (this.drag.ids && this.drag.starts) {
+        // reszta zaznaczenia jedzie o tę samą różnicę w poziomie co chwycony obiekt
+        const dragId = this.drag.id;
+        const starts = this.drag.starts;
+        const start = starts.get(dragId) ?? [x, found.pos.y, z];
+        const dx = x - start[0];
+        const dz = z - start[2];
+        const list = this.drag.ids.map((id) => {
+          if (id === dragId) return { id, patch: { position: [x, found.pos.y, z] as Vec3, anchorId: found.anchorId } };
+          const s0 = starts.get(id)!;
+          return { id, patch: { position: [s0[0] + dx, s0[1], s0[2] + dz] as Vec3 } };
+        });
+        st.updateObjects(list, { undo: false });
+        return;
+      }
       st.updateObject(this.drag.id, { position: [x, found.pos.y, z], anchorId: found.anchorId }, { undo: false });
-      this.selRing.position.set(x, found.pos.y + 0.02, z);
       return;
     }
     if (ev.pointerType === 'mouse' && !this.isUiTarget(ev)) {
@@ -1655,6 +1941,12 @@ export class SceneManager {
   };
 
   private onPointerUp = (ev: PointerEvent) => {
+    if (ev.button === 1 || ev.type === 'pointercancel') this.endFreeLook();
+    if (this.gizmoArmed) {
+      // uchwyty już zakończyły przeciąganie (słuchają na płótnie, my na oknie) — włączamy oba z powrotem
+      this.gizmoArmed = false;
+      this.syncGizmo();
+    }
     if (this.mode === 'vr') {
       if (this.stereo && this.touchHold) {
         this.touchHold = false;
@@ -1688,6 +1980,18 @@ export class SceneManager {
       this.downInfo = null;
       return;
     }
+    if (this.marquee) {
+      const m = this.marquee;
+      this.marquee = null;
+      if (m.el) {
+        m.el.remove();
+        const ids = this.idsInRect(Math.min(m.x0, ev.clientX), Math.min(m.y0, ev.clientY), Math.max(m.x0, ev.clientX), Math.max(m.y0, ev.clientY));
+        st.setSelection(m.shift ? [...st.selectedIds, ...ids] : ids);
+        this.downInfo = null;
+        return;
+      }
+      // bez ruchu to zwykłe kliknięcie w puste miejsce — obsługa niżej
+    }
     if (this.downInfo) {
       const moved = Math.hypot(ev.clientX - this.downInfo.x, ev.clientY - this.downInfo.y) > 5;
       if (!moved && !this.isUiTarget(ev)) {
@@ -1700,17 +2004,42 @@ export class SceneManager {
           if (dbl && type && hasInterior(type)) {
             this.lastClick = null;
             st.enterInterior(hit);
-          } else st.select(hit);
-        } else if (!st.review) st.select(null);
+          } else if (this.downInfo.shift) st.toggleSelected(hit);
+          else st.select(hit);
+        } else if (!st.review && !this.downInfo.shift) st.select(null);
       }
       this.downInfo = null;
     }
   };
 
+  /** Obiekty, których punkt zaczepienia wypada w prostokącie ekranu (współrzędne strony). */
+  private idsInRect(x1: number, y1: number, x2: number, y2: number): string[] {
+    this.camera.updateMatrixWorld();
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const out: string[] = [];
+    for (const [id, e] of this.entries) {
+      if (!e.group.visible) continue;
+      const v = tmpV.copy(e.group.position).project(this.camera);
+      if (v.z > 1) continue;
+      const sx = r.left + ((v.x + 1) / 2) * r.width;
+      const sy = r.top + ((1 - v.y) / 2) * r.height;
+      if (sx >= x1 && sx <= x2 && sy >= y1 && sy <= y2) out.push(id);
+    }
+    return out;
+  }
+
   private fpInteract(id: string | null) {
     const st = useStore.getState();
     // zaczepienie zwierzęcia: reaguje, a jeśli punkt ma notatkę, obsługujemy ją dalej jak zwykle
     if (id) this.wildlife.poke(id);
+    // klik wprost w skrzydło drzwi obiektowych w zasięgu — niezależnie od aktualnej podpowiedzi
+    if (id) {
+      const e = this.entries.get(id);
+      if (e?.doorPivot && Math.hypot(e.group.position.x - this.rig.position.x, e.group.position.z - this.rig.position.z) < 2.6) {
+        this.toggleDoor(id);
+        return;
+      }
+    }
     // najpierw drzwi: kliknięcie w budynek lub w skrzydło drzwi wnętrza
     const dp = st.doorPrompt;
     if (dp && (id === null || id === dp.objectId || this.pickedExitDoor)) {
@@ -1785,9 +2114,9 @@ export class SceneManager {
       st.redo();
       return;
     }
-    if (meta && ev.code === 'KeyD' && st.selectedId) {
+    if (meta && ev.code === 'KeyD' && st.selectedIds.length > 0) {
       ev.preventDefault();
-      st.duplicateObject(st.selectedId);
+      st.duplicateSelected();
       return;
     }
     if (this.ghost) {
@@ -1803,13 +2132,12 @@ export class SceneManager {
       }
     }
     if (this.mode === 'editor') {
-      if ((ev.code === 'Delete' || ev.code === 'Backspace') && st.selectedId && !st.review) {
+      if ((ev.code === 'Delete' || ev.code === 'Backspace') && st.selectedIds.length > 0 && !st.review) {
         ev.preventDefault();
-        st.removeObject(st.selectedId);
+        st.removeObjects(st.selectedIds);
       }
       if (ev.code === 'KeyV') st.setTool('select');
       if (ev.code === 'KeyM') st.setTool('move');
-      if (ev.code === 'KeyR' && !meta) st.setTool('rotate');
       if (ev.code === 'KeyF') st.camera('center');
       if (ev.code === 'KeyT') st.camera('topView');
     }
@@ -1845,6 +2173,15 @@ export class SceneManager {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const presenting = this.renderer.xr.isPresenting;
 
+    if (this.doorAnims.length > 0) {
+      for (const a of this.doorAnims) {
+        a.t = Math.min(a.t + dt, a.dur);
+        const e = this.entries.get(a.id);
+        if (e?.doorPivot) e.doorPivot.rotation.y = a.from + (a.to - a.from) * (a.t / a.dur);
+      }
+      this.doorAnims = this.doorAnims.filter((a) => a.t < a.dur);
+    }
+
     if (this.mode === 'editor') {
       if (this.tween) {
         const tw = this.tween;
@@ -1869,12 +2206,17 @@ export class SceneManager {
 
     if (this.mode !== 'editor' && ++this.doorCheck % 6 === 0) this.updateDoorPrompt();
 
-    // we wnętrzu w edytorze chowamy ściany od strony kamery (widok jak do domku dla lalek)
+    // we wnętrzu w edytorze chowamy ściany od strony kamery (widok jak do domku dla lalek) i wyższe piętra
     if (this.room) {
       const inEditor = this.mode === 'editor';
+      const editFloor = useStore.getState().editFloor;
       for (const wmesh of this.room.walls) {
         if (!inEditor) {
           wmesh.visible = true;
+          continue;
+        }
+        if ((wmesh.userData.floorIndex as number) > editFloor) {
+          wmesh.visible = false;
           continue;
         }
         const n = wmesh.userData.wallNormal as [number, number];
@@ -1960,7 +2302,7 @@ export class SceneManager {
       const kind = spawnKind(o.type);
       if (!kind) continue;
       const e = this.entries.get(o.id);
-      if (e) e.group.visible = !live;
+      if (e) e.group.visible = this.entryVisible(e);
       if (live) spawns.push({ id: o.id, kind, pos: new THREE.Vector3(o.position[0], o.position[1], o.position[2]) });
     }
     this.wildlife.sync(spawns, this.worldInfo());
@@ -1974,11 +2316,21 @@ export class SceneManager {
     const pos = this.rig.position;
     const fwd = tmpV2.set(0, 0, -1).applyAxisAngle(UP, this.renderer.xr.isPresenting || this.stereo ? yawOf(this.camera.getWorldQuaternion(tmpQ)) : this.rig.rotation.y);
     if (p.interior) {
+      // drzwi wyjściowe mają pierwszeństwo, gdy są bliżej niż najbliższe drzwi obiektowe
+      let best: { kind: 'exit' | 'door'; objectId?: string; label: string; d: number } | null = null;
       const door = this.room?.exitDoor;
-      if (!door) return st.setDoorPrompt(null);
-      const dw = door.getWorldPosition(tmpV);
-      const dist = Math.hypot(dw.x - pos.x, dw.z - pos.z);
-      st.setDoorPrompt(dist < 2.6 ? { kind: 'exit', label: 'Wyjdź na zewnątrz' } : null);
+      if (door) {
+        const dw = door.getWorldPosition(tmpV);
+        const d = Math.hypot(dw.x - pos.x, dw.z - pos.z);
+        if (d < 2.6) best = { kind: 'exit', label: 'Wyjdź na zewnątrz', d };
+      }
+      for (const [id, e] of this.entries) {
+        if (!e.doorPivot) continue;
+        const d = Math.hypot(e.group.position.x - pos.x, e.group.position.z - pos.z);
+        if (d > 2.2 || (best && d >= best.d)) continue;
+        best = { kind: 'door', objectId: id, label: this.openDoors.has(id) ? 'Zamknij drzwi' : 'Otwórz drzwi', d };
+      }
+      st.setDoorPrompt(best ? { kind: best.kind, objectId: best.objectId, label: best.label } : null);
       return;
     }
     let best: { id: string; name: string; d: number } | null = null;
@@ -1999,14 +2351,28 @@ export class SceneManager {
     st.setDoorPrompt(best ? { kind: 'enter', objectId: best.id, label: `Wejdź do: ${best.name}` } : null);
   }
 
-  /** Wchodzi lub wychodzi drzwiami, na których stoi podpowiedź. */
+  /** Wchodzi, wychodzi albo otwiera/zamyka drzwi, na których stoi podpowiedź. */
   useDoor(): boolean {
     const st = useStore.getState();
     const dp = st.doorPrompt;
     if (!dp) return false;
     if (dp.kind === 'exit') st.exitInterior();
+    else if (dp.kind === 'door' && dp.objectId) this.toggleDoor(dp.objectId);
     else if (dp.objectId) st.enterInterior(dp.objectId);
     return true;
+  }
+
+  /** Otwiera albo zamyka skrzydło drzwi obiektowych: krótki obrót pivotu i (od)tworzenie kolizji skrzydła. */
+  private toggleDoor(id: string) {
+    const e = this.entries.get(id);
+    if (!e?.doorPivot) return;
+    const opening = !this.openDoors.has(id);
+    if (opening) this.openDoors.add(id);
+    else this.openDoors.delete(id);
+    this.doorAnims = this.doorAnims.filter((a) => a.id !== id);
+    this.doorAnims.push({ id, from: e.doorPivot.rotation.y, to: opening ? -(Math.PI * 100) / 180 : 0, t: 0, dur: 0.35 });
+    const o = this.lastPalace?.objects.find((x) => x.id === id);
+    if (this.physics && o) this.physics.setLeaf(id, !opening, e.group.position, e.group.quaternion, e.group.scale);
   }
 
   /** Joystick lewego kontrolera przesuwa, prawy obraca skokowo o 30°. */
@@ -2153,10 +2519,15 @@ export class SceneManager {
     window.removeEventListener('pointercancel', this.onPointerUp);
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
+    window.removeEventListener('blur', this.onWindowBlur);
     document.removeEventListener('pointerlockchange', this.onLockChange);
     this.container.removeEventListener('contextmenu', this.onContextMenu);
     this.container.removeEventListener('wheel', this.onWheel, { capture: true } as EventListenerOptions);
     this.setGhost(null);
+    this.marquee?.el?.remove();
+    this.marquee = null;
+    for (const ring of this.selRings) this.scene.remove(ring);
+    this.scene.remove(this.pivot);
     for (const e of [...this.entries.values()]) this.removeEntry(e);
     this.weather.dispose();
     this.wildlife.dispose();
@@ -2173,19 +2544,21 @@ export class SceneManager {
     }
     this.physics?.dispose();
     this.physics = null;
-    this.gizmo.detach();
     // TransformControls.dispose() w three 0.169 woła this.traverse(), którego ta klasa nie ma —
-    // odłączamy zdarzenia i sprzątamy geometrie uchwytu samodzielnie
-    this.gizmo.disconnect();
-    const helper = this.gizmo.getHelper();
-    helper.traverse((c) => {
-      const m = c as THREE.Mesh;
-      if (m.geometry) m.geometry.dispose();
-      const mat = m.material as THREE.Material | THREE.Material[] | undefined;
-      if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
-      else mat?.dispose();
-    });
-    this.scene.remove(helper);
+    // odłączamy zdarzenia i sprzątamy geometrie uchwytów samodzielnie
+    for (const g of [this.gizmo, this.rotateGizmo]) {
+      g.detach();
+      g.disconnect();
+      const helper = g.getHelper();
+      helper.traverse((c) => {
+        const m = c as THREE.Mesh;
+        if (m.geometry) m.geometry.dispose();
+        const mat = m.material as THREE.Material | THREE.Material[] | undefined;
+        if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
+        else mat?.dispose();
+      });
+      this.scene.remove(helper);
+    }
     this.orbit.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

@@ -77,9 +77,14 @@ export const CATALOG: CatalogItem[] = [
   { id: 'spawn_dragon', name: 'Smok', category: 'animal', emoji: '🐉', description: 'Krąży wysoko, przelatuje nad głową i zionie ogniem.', footprint: 0.8, collider: 'none', spawn: 'dragon' },
   // Specjalne
   { id: 'gate', name: 'Brama wejściowa', category: 'special', emoji: '🚪', description: 'Tu zaczyna się spacer po pałacu. Może być tylko jedna.', footprint: 1.6, collider: 'trimesh', unique: true },
+  // Konstrukcja (tylko we wnętrzach — układ pokoju z elementów biblioteki)
+  { id: 'wall', name: 'Ściana działowa', category: 'structure', emoji: '🧱', description: 'Dzieli pokój na mniejsze przestrzenie.', footprint: 1.0, collider: 'box', maxScale: 12 },
+  { id: 'door', name: 'Drzwi', category: 'structure', emoji: '🚪', description: 'Otwierane skrzydło — kliknij albo naciśnij F.', footprint: 1.0, collider: 'trimesh' },
+  { id: 'window', name: 'Okno', category: 'structure', emoji: '🪟', description: 'Przyciąga się do najbliższej ściany obwodowej.', footprint: 0.6, collider: 'none' },
+  { id: 'stairs', name: 'Schody', category: 'structure', emoji: '🪜', description: 'Prowadzą na wyższe piętro.', footprint: 0.8, collider: 'trimesh', maxScale: 2 },
 ];
 
-export const CATEGORY_ORDER: Category[] = ['building', 'lighting', 'furniture', 'plant', 'landscape', 'object', 'animal', 'special'];
+export const CATEGORY_ORDER: Category[] = ['structure', 'building', 'lighting', 'furniture', 'plant', 'landscape', 'object', 'animal', 'special'];
 
 /** Wnętrza budynków: wymiary pokoju wchodzimy do środka. Altana jest otwarta — nie ma wnętrza. */
 export const ROOMS: Record<string, RoomSpec> = {
@@ -108,6 +113,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   object: 'Przedmioty',
   animal: 'Zwierzęta',
   special: 'Specjalne',
+  structure: 'Konstrukcja',
 };
 
 export interface SceneryPreset {

@@ -1,6 +1,8 @@
-import type { AppData, GroundSpec, Palace, PalaceSettings, RoomSpec, Vec3 } from '../types';
+import type { AppData, GroundSpec, Palace, PalaceObject, PalaceSettings, RoomPreset, RoomSpec, Vec3 } from '../types';
+import { catalogItem, ROOMS } from '../catalog';
 import { uid } from './ids';
 import { hashString } from '../three/noise';
+import { FLOOR_MAX } from './rooms';
 
 const KEY = 'mneme.data.v1';
 
@@ -18,7 +20,7 @@ export function makeInteriorPalace(name: string, buildingType: string, spec: Roo
   const p = makePalace(name);
   p.parentId = parentId;
   p.parentObjectId = parentObjectId;
-  p.interior = { buildingType };
+  p.interior = { buildingType, floors: 1 };
   p.settings = { ...p.settings, grid: false, scenery: 'none', weather: 'clear', ground: { width: spec.width, depth: spec.depth, shape: 'rect' } };
   return p;
 }
@@ -99,24 +101,64 @@ function toScale(s: unknown): Vec3 {
   return [1, 1, 1];
 }
 
+/** Obrót mógł być zapisany jako sam kąt wokół osi pionowej (starsze wersje) albo jako wektor. */
+function toRotation(r: unknown, legacyYaw: unknown): Vec3 {
+  if (Array.isArray(r) && r.length === 3 && r.every((n) => Number.isFinite(Number(n)))) return [Number(r[0]), Number(r[1]), Number(r[2])];
+  if (typeof legacyYaw === 'number' && Number.isFinite(legacyYaw)) return [0, legacyYaw, 0];
+  return [0, 0, 0];
+}
+
 export function normalizePalace(p: Partial<Palace>): Palace {
   const base = makePalace(p.name ?? 'Pałac');
   const objects = Array.isArray(p.objects) ? p.objects : [];
   const ids = new Set(objects.map((o) => o.id));
+  const rawInterior = p.interior as Partial<{ buildingType: string; floors: number }> | undefined;
+  // brak `floors` to znak starego zapisu — przy tej okazji dawne okna z powłoki stają się obiektami
+  const needsWindowMigration = !!rawInterior && typeof rawInterior.floors !== 'number';
+  const migratedObjects = objects.map((raw) => {
+    // stary klucz `rotationY` znika z zapisu, żeby migracja była jednorazowa
+    const { rotationY, ...o } = raw as PalaceObject & { rotationY?: unknown; rotation?: unknown };
+    return {
+      ...o,
+      position: (o.position ?? [0, 0, 0]) as Vec3,
+      rotation: toRotation(o.rotation, rotationY),
+      scale: toScale((o as { scale?: unknown }).scale),
+    };
+  });
   return {
     ...base,
     ...p,
     id: p.id ?? base.id,
-    objects: objects.map((o) => ({
-      ...o,
-      position: (o.position ?? [0, 0, 0]) as Palace['objects'][number]['position'],
-      rotationY: o.rotationY ?? 0,
-      scale: toScale((o as { scale?: unknown }).scale),
-    })),
+    interior: normalizeInterior(rawInterior),
+    objects: needsWindowMigration ? [...migratedObjects, ...migrateWindows(rawInterior!.buildingType ?? 'house')] : migratedObjects,
     path: Array.isArray(p.path) ? p.path.filter((id) => ids.has(id)) : [],
     // ziarno starych pałaców wyliczamy z id, żeby teren nie zmieniał się przy każdym otwarciu
     settings: normalizeSettings(p.settings, p.id ?? base.id),
   };
+}
+
+function normalizeInterior(raw: Partial<{ buildingType: string; floors: number }> | undefined): Palace['interior'] {
+  if (!raw) return undefined;
+  const floors = Math.min(FLOOR_MAX, Math.max(1, Math.round(raw.floors ?? 1)));
+  return { buildingType: raw.buildingType ?? 'house', floors };
+}
+
+/** Dawne okna rysowane w `buildRoom` (parzyste po lewej, nieparzyste po prawej, tylne dla szerokich wnętrz). */
+function migrateWindows(buildingType: string): PalaceObject[] {
+  const spec = ROOMS[buildingType] ?? ROOMS.house;
+  const w = spec.width;
+  const d = spec.depth;
+  const n = Math.max(0, spec.windows);
+  const out: PalaceObject[] = [];
+  const name = catalogItem('window').name;
+  for (let i = 0; i < n; i++) {
+    const side = i % 2 === 0 ? -1 : 1;
+    const k = Math.floor(i / 2);
+    const z = d * (k === 0 ? -0.18 : 0.2);
+    out.push({ id: uid(), type: 'window', name, position: [(side * w) / 2, 0, z], rotation: [0, Math.PI / 2, 0], scale: [1, 1, 1] });
+  }
+  if (w >= 10) out.push({ id: uid(), type: 'window', name, position: [0, 0, -d / 2], rotation: [0, 0, 0], scale: [1, 1, 1] });
+  return out;
 }
 
 /** Uzupełnia ustawienia i przenosi stary `groundSize` na opis kształtu planszy. */
@@ -183,9 +225,9 @@ export function collectSubtree(rootId: string, palaces: Palace[]): Palace[] {
   return out;
 }
 
-/** Eksport całego drzewa: pałac + wszystkie jego wnętrza. */
-export function exportPalaceJson(root: Palace, all: Palace[]): string {
-  return JSON.stringify({ app: 'mneme', version: 2, palace: root, interiors: collectSubtree(root.id, all) }, null, 2);
+/** Eksport całego drzewa: pałac + wszystkie jego wnętrza + własne układy pokoi. */
+export function exportPalaceJson(root: Palace, all: Palace[], presets: RoomPreset[] = []): string {
+  return JSON.stringify({ app: 'mneme', version: 2, palace: root, interiors: collectSubtree(root.id, all), presets }, null, 2);
 }
 
 /** Nadaje nowe identyfikatory pałacom i przepina odsyłacze, żeby import nigdy nie nadpisał istniejących danych. */
@@ -200,11 +242,21 @@ export function remapIds(palaces: Palace[]): Palace[] {
   }));
 }
 
-export function parseImport(text: string): Palace[] {
+/** Nadaje nowe identyfikatory zaimportowanym presetom i oznacza je jako własne. */
+function remapPresets(list: unknown): RoomPreset[] {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((p): p is RoomPreset => !!p && typeof p === 'object' && Array.isArray((p as RoomPreset).objects))
+    .map((p) => ({ ...p, id: uid('rp'), custom: true }));
+}
+
+export function parseImport(text: string): { palaces: Palace[]; presets: RoomPreset[] } {
   const parsed = JSON.parse(text);
   let list: Palace[] | null = null;
+  let presets: RoomPreset[] = [];
   if (parsed && parsed.app === 'mneme' && parsed.palace) {
     list = [normalizePalace(parsed.palace), ...(Array.isArray(parsed.interiors) ? parsed.interiors.map(normalizePalace) : [])];
+    presets = remapPresets(parsed.presets);
   } else if (parsed && Array.isArray(parsed.palaces)) {
     list = parsed.palaces.map(normalizePalace);
   } else if (parsed && Array.isArray(parsed.objects)) {
@@ -212,7 +264,7 @@ export function parseImport(text: string): Palace[] {
   }
   if (!list || list.length === 0) throw new Error('Nieznany format pliku');
   const fixed = normalizeData({ version: 2, currentId: list[0].id, palaces: remapIds(list) });
-  return fixed.palaces;
+  return { palaces: fixed.palaces, presets };
 }
 
 export function downloadText(filename: string, text: string) {

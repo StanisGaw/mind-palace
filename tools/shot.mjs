@@ -6,6 +6,7 @@
 // Akcje rozdziela '@@' (nie średnik, bo kod JS zawiera średniki):
 //   click:<selektor>  clickText:<tekst>  canvas:x,y  move:x,y  drag:x1,y1,x2,y2
 //   rightclick:x,y    shiftclick:x,y     wheel:<delta>
+//   mdown:x,y  mup  mdrag:x1,y1,x2,y2  (środkowy przycisk myszy)
 //   key|down|up:<KodKlawisza>            wait:<ms>
 //   upload:<selektor>,<plik>             eval:<javascript>
 //
@@ -47,6 +48,14 @@ for (const a of actions.split('@@').filter(Boolean)) {
     await page.mouse.move(x1, y1); await page.mouse.down();
     for (let i = 1; i <= 8; i++) { await page.mouse.move(x1 + ((x2 - x1) * i) / 8, y1 + ((y2 - y1) * i) / 8); await new Promise((r) => setTimeout(r, 30)); }
     await page.mouse.up();
+  }
+  if (kind === 'mdown') { const [x, y] = arg.split(',').map(Number); await page.mouse.move(x, y); await page.mouse.down({ button: 'middle' }); }
+  if (kind === 'mup') await page.mouse.up({ button: 'middle' });
+  if (kind === 'mdrag') {
+    const [x1, y1, x2, y2] = arg.split(',').map(Number);
+    await page.mouse.move(x1, y1); await page.mouse.down({ button: 'middle' });
+    for (let i = 1; i <= 8; i++) { await page.mouse.move(x1 + ((x2 - x1) * i) / 8, y1 + ((y2 - y1) * i) / 8); await new Promise((r) => setTimeout(r, 30)); }
+    await page.mouse.up({ button: 'middle' });
   }
   if (kind === 'rightclick') { const [x, y] = arg.split(',').map(Number); await page.mouse.click(x, y, { button: 'right' }); }
   if (kind === 'shiftclick') { const [x, y] = arg.split(',').map(Number); await page.keyboard.down('Shift'); await page.mouse.click(x, y); await page.keyboard.up('Shift'); }

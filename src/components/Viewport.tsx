@@ -9,6 +9,7 @@ import { useCurrentPalace, useStore } from '../store';
 import { SceneManager } from '../three/SceneManager';
 import { I } from './Icons';
 import { ReviewOverlay } from './ReviewOverlay';
+import { Tip } from './Tip';
 
 export function Viewport() {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -80,26 +81,31 @@ export function Viewport() {
           <span className="dot" /> {review ? 'Spacer pamięci' : modeChip}
         </span>
         <div className="segmented">
-          <button className={viewMode === 'editor' ? 'active' : ''} onClick={() => setViewMode('editor')} title="Edytor (widok z góry)">
-            <I.Cube width={13} height={13} style={{ verticalAlign: -2, marginRight: 5 }} />
-            Edytor
-          </button>
-          <button className={viewMode === 'fp' ? 'active' : ''} onClick={() => setViewMode('fp')} title="Spacer w pierwszej osobie">
-            <I.Eye width={13} height={13} style={{ verticalAlign: -2, marginRight: 5 }} />Z oczu
-          </button>
-          <button
-            className={viewMode === 'vr' ? 'active' : ''}
-            onClick={() => {
-              // pełny ekran trzeba poprosić w samym dotknięciu — po pierwszym await
-              // (sprawdzenie WebXR, zgoda na czujniki) przeglądarka już odmawia
-              enterFullscreen();
-              setViewMode('vr');
-            }}
-            title="VR (gogle lub telefon w Cardboard)"
-          >
-            <I.Vr width={13} height={13} style={{ verticalAlign: -2, marginRight: 5 }} />
-            VR
-          </button>
+          <Tip label="Edytor: budowanie pałacu" side="bottom">
+            <button className={viewMode === 'editor' ? 'active' : ''} onClick={() => setViewMode('editor')}>
+              <I.Cube width={13} height={13} style={{ verticalAlign: -2, marginRight: 5 }} />
+              Edytor
+            </button>
+          </Tip>
+          <Tip label="Spacer w pierwszej osobie" side="bottom">
+            <button className={viewMode === 'fp' ? 'active' : ''} onClick={() => setViewMode('fp')}>
+              <I.Eye width={13} height={13} style={{ verticalAlign: -2, marginRight: 5 }} />Z oczu
+            </button>
+          </Tip>
+          <Tip label="VR: gogle lub telefon w Cardboard" side="bottom">
+            <button
+              className={viewMode === 'vr' ? 'active' : ''}
+              onClick={() => {
+                // pełny ekran trzeba poprosić w samym dotknięciu — po pierwszym await
+                // (sprawdzenie WebXR, zgoda na czujniki) przeglądarka już odmawia
+                enterFullscreen();
+                setViewMode('vr');
+              }}
+            >
+              <I.Vr width={13} height={13} style={{ verticalAlign: -2, marginRight: 5 }} />
+              VR
+            </button>
+          </Tip>
         </div>
       </div>
 
@@ -112,27 +118,32 @@ export function Viewport() {
       {/* narzędzia */}
       {viewMode === 'editor' && (
         <div className="hud tools" style={{ top: 70, left: 16 }}>
-          <button className={tool === 'select' ? 'active' : ''} onClick={() => setTool('select')} title="Zaznacz obiekt (V)">
-            <I.Cursor />
-          </button>
-          <button className={tool === 'move' ? 'active' : ''} onClick={() => setTool('move')} title="Przesuń — uchwyt ze strzałkami (M)">
-            <I.Move />
-          </button>
-          <button className={tool === 'rotate' ? 'active' : ''} onClick={() => setTool('rotate')} title="Obróć — pierścień (R)">
-            <I.Rotate />
-          </button>
+          <Tip label="Zaznacz" keys="V">
+            <button className={tool === 'select' ? 'active' : ''} onClick={() => setTool('select')}>
+              <I.Cursor />
+            </button>
+          </Tip>
+          <Tip label="Przesuń i obróć" keys="M">
+            <button className={tool === 'move' ? 'active' : ''} onClick={() => setTool('move')}>
+              <I.Move />
+            </button>
+          </Tip>
           <div className="sep" />
-          <button onClick={undo} disabled={!canUndo} title="Cofnij (Ctrl+Z)">
-            <I.Undo />
-          </button>
-          <button onClick={redo} disabled={!canRedo} title="Ponów (Ctrl+Shift+Z)">
-            <I.Redo />
-          </button>
+          <Tip label="Cofnij" keys="Ctrl+Z">
+            <button onClick={undo} disabled={!canUndo}>
+              <I.Undo />
+            </button>
+          </Tip>
+          <Tip label="Ponów" keys="Ctrl+Shift+Z">
+            <button onClick={redo} disabled={!canRedo}>
+              <I.Redo />
+            </button>
+          </Tip>
         </div>
       )}
 
       {viewMode === 'editor' && (
-        <div className="hud compass" style={{ top: 64, right: 16 }} title="Północ">
+        <div className="hud compass" style={{ top: 64, right: 16 }}>
           <svg width="26" height="26" viewBox="0 0 24 24">
             <path d="M12 3l4 9h-8z" fill="var(--accent)" />
             <path d="M12 21l-4-9h8z" fill="var(--border-2)" />
@@ -143,22 +154,32 @@ export function Viewport() {
 
       {/* dół-prawo: kamera */}
       <div className="hud tools" style={{ bottom: 64, right: 16 }}>
-        <button onClick={() => camera('zoomIn')} title="Przybliż" disabled={viewMode !== 'editor'}>
-          <I.Plus />
-        </button>
-        <button onClick={() => camera('zoomOut')} title="Oddal" disabled={viewMode !== 'editor'}>
-          <I.Minus />
-        </button>
+        <Tip label="Przybliż" side="left">
+          <button onClick={() => camera('zoomIn')} disabled={viewMode !== 'editor'}>
+            <I.Plus />
+          </button>
+        </Tip>
+        <Tip label="Oddal" side="left">
+          <button onClick={() => camera('zoomOut')} disabled={viewMode !== 'editor'}>
+            <I.Minus />
+          </button>
+        </Tip>
         <div className="sep" />
-        <button onClick={() => camera('center')} title="Wyśrodkuj — domyślny rzut (F)">
-          <I.Center />
-        </button>
-        <button className={topView ? 'active' : ''} onClick={() => camera('topView')} title="Widok z góry na całą planszę (T)" disabled={viewMode !== 'editor'}>
-          <I.TopView />
-        </button>
-        <button onClick={toggleFullscreen} title="Pełny ekran">
-          <I.Fullscreen />
-        </button>
+        <Tip label="Wyśrodkuj widok" keys="F" side="left">
+          <button onClick={() => camera('center')}>
+            <I.Center />
+          </button>
+        </Tip>
+        <Tip label="Rzut z góry" keys="T" side="left">
+          <button className={topView ? 'active' : ''} onClick={() => camera('topView')} disabled={viewMode !== 'editor'}>
+            <I.TopView />
+          </button>
+        </Tip>
+        <Tip label="Pełny ekran" side="left">
+          <button onClick={toggleFullscreen}>
+            <I.Fullscreen />
+          </button>
+        </Tip>
       </div>
 
       {/* dół: podpowiedzi i przełączniki */}
@@ -166,10 +187,11 @@ export function Viewport() {
         {viewMode === 'editor' ? (
           <>
             <span>
-              <I.Cursor width={12} height={12} /> Przeciągnij, aby obracać
+              <I.Cursor width={12} height={12} /> Środkowy przycisk: obróć widok
             </span>
-            <span>Scroll, aby przybliżać</span>
             <span>Prawy przycisk: przesuń widok</span>
+            <span>Kółko: przybliż</span>
+            <span>M: strzałki przesuwają, pierścienie obracają</span>
             <span>Del: usuń obiekt</span>
           </>
         ) : viewMode === 'fp' ? (
@@ -179,12 +201,16 @@ export function Viewport() {
         ) : null}
       </div>
       <div className="hud toggles" style={{ bottom: 16, right: 16 }}>
-        <button className={'toggle' + (palace.settings.grid ? ' on' : '')} onClick={() => setSettings({ grid: !palace.settings.grid })}>
-          <I.Grid width={13} height={13} /> Siatka
-        </button>
-        <button className={'toggle' + (palace.settings.showPath ? ' on' : '')} onClick={() => setSettings({ showPath: !palace.settings.showPath })}>
-          <I.Path width={13} height={13} /> Ścieżka
-        </button>
+        <Tip label="Siatka i przyciąganie co pół metra" side="top-end">
+          <button className={'toggle' + (palace.settings.grid ? ' on' : '')} onClick={() => setSettings({ grid: !palace.settings.grid })}>
+            <I.Grid width={13} height={13} /> Siatka
+          </button>
+        </Tip>
+        <Tip label="Linia ścieżki pamięci" side="top-end">
+          <button className={'toggle' + (palace.settings.showPath ? ' on' : '')} onClick={() => setSettings({ showPath: !palace.settings.showPath })}>
+            <I.Path width={13} height={13} /> Ścieżka
+          </button>
+        </Tip>
       </div>
 
       {viewMode !== 'editor' && !vrActive && doorPrompt && (
@@ -251,10 +277,12 @@ function EnvironmentMenu() {
   const ambName = AMBIENCES.find((a) => a.id === s.ambience)?.name ?? s.ambience;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button className="toggle" onClick={() => setOpen((o) => !o)} title="Otoczenie: klimat, pogoda, krajobraz">
-        <I.Leaf width={13} height={13} /> {ambName}
-        <I.ChevronDown width={12} height={12} />
-      </button>
+      <Tip label="Otoczenie: pora dnia, pogoda, krajobraz" side="bottom">
+        <button className="toggle" onClick={() => setOpen((o) => !o)}>
+          <I.Leaf width={13} height={13} /> {ambName}
+          <I.ChevronDown width={12} height={12} />
+        </button>
+      </Tip>
       {open && (
         <div className="env-menu">
           <label>
@@ -290,7 +318,7 @@ function EnvironmentMenu() {
           <button className="btn small" onClick={() => setSettings({ seed: (Math.random() * 1e9) | 0 })} disabled={s.scenery === 'none'}>
             <I.Spark width={13} height={13} /> Losuj ukształtowanie terenu
           </button>
-          {!palace.interior && <GroundSection />}
+          {palace.interior ? <FloorsSection /> : <GroundSection />}
           <TextureSection />
           {!palace.interior && <LandscapeSection />}
         </div>
@@ -326,10 +354,12 @@ function SoundMenu() {
   const pct = (v: number) => `${Math.round(v * 100)}%`;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button className={'toggle' + (playing ? ' on' : '')} onClick={() => setOpen((o) => !o)} title="Dźwięki otoczenia">
-        <I.Sound width={13} height={13} /> Dźwięki
-        <I.ChevronDown width={12} height={12} />
-      </button>
+      <Tip label="Dźwięki otoczenia" side="bottom">
+        <button className={'toggle' + (playing ? ' on' : '')} onClick={() => setOpen((o) => !o)}>
+          <I.Sound width={13} height={13} /> Dźwięki
+          <I.ChevronDown width={12} height={12} />
+        </button>
+      </Tip>
       {open && (
         <div className="env-menu sound-menu">
           <label>
@@ -363,6 +393,38 @@ function SoundMenu() {
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Liczba pięter budynku i wybór piętra do edycji (zamiast planszy — wnętrze nie ma terenu). */
+function FloorsSection() {
+  const palace = useCurrentPalace();
+  const setFloors = useStore((s) => s.setFloors);
+  const editFloor = useStore((s) => s.editFloor);
+  const setEditFloor = useStore((s) => s.setEditFloor);
+  const floors = palace.interior?.floors ?? 1;
+  return (
+    <div className="env-section">
+      <span className="env-title">Piętra</span>
+      <label>
+        <span>Liczba pięter: {floors}</span>
+        <div className="shape-row">
+          <button className="shape-btn" onClick={() => setFloors(floors - 1)} disabled={floors <= 1}>
+            − Mniej
+          </button>
+          <button className="shape-btn" onClick={() => setFloors(floors + 1)} disabled={floors >= 4}>
+            + Więcej
+          </button>
+        </div>
+      </label>
+      <div className="shape-row">
+        {Array.from({ length: floors }, (_, i) => (
+          <button key={i} className={'shape-btn' + (editFloor === i ? ' on' : '')} onClick={() => setEditFloor(i)}>
+            {i === 0 ? 'Parter' : `Piętro ${i}`}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

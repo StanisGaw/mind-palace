@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCurrentPalace, useStore, dueCount } from '../store';
 import { chainOf, downloadText, exportPalaceJson, parseImport, rootOf } from '../lib/storage';
+import type { Palace, RoomPreset } from '../types';
 import { I } from './Icons';
+import { Tip } from './Tip';
 
 export function TopBar({ onHelp }: { onHelp: () => void }) {
   const allPalaces = useStore((s) => s.data.palaces);
@@ -35,11 +37,13 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
       <span className="tagline">miejsce dla myśli</span>
       <div className="center">
         <div ref={ref} style={{ position: 'relative' }}>
-          <button className="palace-switch" onClick={() => setOpen((o) => !o)} title="Przełącz pałac">
-            <span className="dot" />
-            {current?.name ?? 'Twoja prywatna przestrzeń'}
-            <I.ChevronDown width={14} height={14} />
-          </button>
+          <Tip label="Przełącz albo utwórz pałac" side="bottom">
+            <button className="palace-switch" onClick={() => setOpen((o) => !o)}>
+              <span className="dot" />
+              {current?.name ?? 'Twoja prywatna przestrzeń'}
+              <I.ChevronDown width={14} height={14} />
+            </button>
+          </Tip>
           {open && (
             <div className="menu">
               {palaces.map((p) => (
@@ -82,9 +86,11 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
           )}
         </div>
       </div>
-      <button className="icon-btn" onClick={onHelp} title="Pomoc i skróty">
-        <I.Help />
-      </button>
+      <Tip label="Pomoc i skróty klawiszowe" side="bottom">
+        <button className="icon-btn" onClick={onHelp}>
+          <I.Help />
+        </button>
+      </Tip>
       <div className="avatar">JA</div>
     </header>
   );
@@ -100,6 +106,7 @@ export function SubBar() {
   const saved = useStore((s) => s.saved);
   const renamePalace = useStore((s) => s.renamePalace);
   const importPalaces = useStore((s) => s.importPalaces);
+  const customPresets = useStore((s) => s.customPresets);
   const startReview = useStore((s) => s.startReview);
   const review = useStore((s) => s.review);
   const endReview = useStore((s) => s.endReview);
@@ -107,13 +114,19 @@ export function SubBar() {
   const camera = useStore((s) => s.camera);
   const fileRef = useRef<HTMLInputElement>(null);
   const due = dueCount(palace, palaces);
+  const [pendingImport, setPendingImport] = useState<{ palaces: Palace[]; presets: RoomPreset[] } | null>(null);
 
   const onImport = async (file: File) => {
     try {
       const text = await file.text();
-      const palaces = parseImport(text);
-      importPalaces(palaces);
-      showToast(`Zaimportowano: ${palaces.map((p) => p.name).join(', ')}`);
+      const parsed = parseImport(text);
+      // plik ze starym formatem (bez presetów) importujemy od razu — dialog widzą tylko pliki, które mają wybór do zrobienia
+      if (parsed.presets.length > 0) {
+        setPendingImport(parsed);
+        return;
+      }
+      importPalaces(parsed.palaces);
+      showToast(`Zaimportowano: ${parsed.palaces.map((p) => p.name).join(', ')}`);
     } catch (e) {
       showToast('Nie udało się zaimportować pliku: ' + (e as Error).message);
     }
@@ -121,9 +134,11 @@ export function SubBar() {
 
   return (
     <div className="subbar">
-      <button className="home-btn" title="Wyśrodkuj widok na scenie" onClick={() => camera('center')}>
-        <I.Home />
-      </button>
+      <Tip label="Wyśrodkuj widok na scenie" keys="F" side="bottom">
+        <button className="home-btn" onClick={() => camera('center')}>
+          <I.Home />
+        </button>
+      </Tip>
       <div>
         <div className="crumbs">
           <span>Moje pałace</span>
@@ -159,34 +174,104 @@ export function SubBar() {
           e.target.value = '';
         }}
       />
-      <button className="btn ghost" onClick={() => fileRef.current?.click()}>
-        <I.Upload /> <span className="label-text">Importuj</span>
-      </button>
-      <button
-        className="btn"
-        title="Zapisz pałac razem z wnętrzami do pliku"
-        onClick={() => {
-          const root = rootOf(palace.id, palaces);
-          const safe = root.name.replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 40) || 'palac';
-          downloadText(`mneme-${safe}.json`, exportPalaceJson(root, palaces));
-        }}
-      >
-        <I.Download /> <span className="label-text">Eksportuj</span>
-      </button>
-      {palace.interior && (
-        <button className="btn" onClick={exitInterior} title="Wyjdź z budynku">
-          <I.Back /> <span className="label-text">Wyjdź na zewnątrz</span>
+      {!pendingImport && (
+        <Tip label="Wczytaj pałac z pliku JSON" side="bottom">
+          <button className="btn ghost" onClick={() => fileRef.current?.click()}>
+            <I.Upload /> <span className="label-text">Importuj</span>
+          </button>
+        </Tip>
+      )}
+      <Tip label="Zapisz pałac razem z wnętrzami do pliku" side="bottom">
+        <button
+          className="btn"
+          onClick={() => {
+            const root = rootOf(palace.id, palaces);
+            const safe = root.name.replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 40) || 'palac';
+            downloadText(`mneme-${safe}.json`, exportPalaceJson(root, palaces, customPresets));
+          }}
+        >
+          <I.Download /> <span className="label-text">Eksportuj</span>
         </button>
+      </Tip>
+      {palace.interior && (
+        <Tip label="Wyjdź z budynku na planszę" side="bottom">
+          <button className="btn" onClick={exitInterior}>
+            <I.Back /> <span className="label-text">Wyjdź na zewnątrz</span>
+          </button>
+        </Tip>
       )}
       {review ? (
-        <button className="btn danger" onClick={endReview}>
-          <I.X /> <span className="label-text">Zakończ spacer</span>
-        </button>
+        <Tip label="Zakończ spacer pamięci" side="bottom">
+          <button className="btn danger" onClick={endReview}>
+            <I.X /> <span className="label-text">Zakończ spacer</span>
+          </button>
+        </Tip>
       ) : (
-        <button className="btn primary" onClick={() => startReview(false)}>
-          <I.Walk /> <span className="label-text">Spacer pamięci</span> {due > 0 && <span className="badge">{due}</span>} <I.Arrow />
-        </button>
+        <Tip label="Powtórka: kamera prowadzi po przystankach ścieżki" side="bottom">
+          <button className="btn primary" onClick={() => startReview(false)}>
+            <I.Walk /> <span className="label-text">Spacer pamięci</span> {due > 0 && <span className="badge">{due}</span>} <I.Arrow />
+          </button>
+        </Tip>
       )}
+      {pendingImport && <ImportDialog data={pendingImport} onClose={() => setPendingImport(null)} />}
+    </div>
+  );
+}
+
+/** Plik zawiera własne presety — pyta osobno o pałac (dodaj / zastąp / pomiń) i o presety (importuj / pomiń). */
+function ImportDialog({ data, onClose }: { data: { palaces: Palace[]; presets: RoomPreset[] }; onClose: () => void }) {
+  const palace = useCurrentPalace();
+  const allPalaces = useStore((s) => s.data.palaces);
+  const importPalaces = useStore((s) => s.importPalaces);
+  const importPresets = useStore((s) => s.importPresets);
+  const deletePalace = useStore((s) => s.deletePalace);
+  const showToast = useStore((s) => s.showToast);
+  const [palaceChoice, setPalaceChoice] = useState<'new' | 'replace' | 'skip'>('new');
+  const [presetChoice, setPresetChoice] = useState<'import' | 'skip'>('import');
+  const root = data.palaces.find((p) => !p.parentId) ?? data.palaces[0];
+
+  const onConfirm = () => {
+    if (palaceChoice !== 'skip') {
+      if (palaceChoice === 'replace') deletePalace(rootOf(palace.id, allPalaces).id);
+      importPalaces(data.palaces);
+    }
+    if (presetChoice === 'import' && data.presets.length > 0) importPresets(data.presets);
+    showToast('Zaimportowano plik.');
+    onClose();
+  };
+
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <button className="icon-btn close" onClick={onClose} title="Zamknij">
+          <I.X />
+        </button>
+        <h2>Import pliku</h2>
+        <h3>Pałac: {root?.name ?? '—'}</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <label>
+            <input type="radio" checked={palaceChoice === 'new'} onChange={() => setPalaceChoice('new')} /> Dodaj jako nowy
+          </label>
+          <label>
+            <input type="radio" checked={palaceChoice === 'replace'} onChange={() => setPalaceChoice('replace')} /> Zastąp bieżący
+          </label>
+          <label>
+            <input type="radio" checked={palaceChoice === 'skip'} onChange={() => setPalaceChoice('skip')} /> Pomiń
+          </label>
+        </div>
+        <h3>Presety ({data.presets.length})</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <label>
+            <input type="radio" checked={presetChoice === 'import'} onChange={() => setPresetChoice('import')} /> Dołącz
+          </label>
+          <label>
+            <input type="radio" checked={presetChoice === 'skip'} onChange={() => setPresetChoice('skip')} /> Pomiń
+          </label>
+        </div>
+        <button className="btn primary" onClick={onConfirm}>
+          Importuj
+        </button>
+      </div>
     </div>
   );
 }

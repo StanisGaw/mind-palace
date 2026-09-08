@@ -9,8 +9,9 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         <p>Pałac pamięci to miejsce, w którym wiedzę przypinasz do obiektów w przestrzeni. Potem „spacerujesz” po nim i przypominasz sobie treści w kolejności.</p>
         <h3>Edytor</h3>
         <ul>
-          <li>Kliknij element w <b>Bibliotece</b>, aby dodać go na scenę. Przeciągnij obiekt, by go przesunąć.</li>
-          <li>Narzędzia: <kbd>V</kbd> zaznacz, <kbd>M</kbd> przesuń, <kbd>R</kbd> obróć (przeciągnij w poziomie), <kbd>Del</kbd> usuń, <kbd>Ctrl</kbd>+<kbd>D</kbd> duplikuj, <kbd>Ctrl</kbd>+<kbd>Z</kbd> cofnij, <kbd>F</kbd> wyśrodkuj widok, <kbd>T</kbd> widok z góry.</li>
+          <li>Kliknij element w <b>Bibliotece</b>, aby dodać go na scenę. W trybie Przesuń przeciągnij obiekt, by go przestawić.</li>
+          <li>Narzędzia: <kbd>V</kbd> zaznacz, <kbd>M</kbd> przesuń i obróć, <kbd>Del</kbd> usuń, <kbd>Ctrl</kbd>+<kbd>D</kbd> duplikuj, <kbd>Ctrl</kbd>+<kbd>Z</kbd> cofnij, <kbd>F</kbd> wyśrodkuj widok, <kbd>T</kbd> rzut z góry. Podpowiedź do każdego przycisku pojawia się po najechaniu.</li>
+          <li>Kamera: <b>środkowy przycisk</b> obraca widok, prawy przesuwa, kółko przybliża. W rzucie z góry przytrzymanie środkowego przycisku chwilowo pochyla kamerę — po puszczeniu wraca nad planszę.</li>
           <li>Kliknij obiekt i wpisz w prawym panelu tytuł oraz treść wspomnienia. Obiekt z notatką trafia automatycznie na ścieżkę pamięci — kolejność zmienisz strzałkami.</li>
         </ul>
         <h3>Widok z oczu</h3>
@@ -27,7 +28,8 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         </ul>
         <h3>Narzędzia edytora</h3>
         <ul>
-          <li><kbd>V</kbd> zaznacza (nie przesuwa), <kbd>M</kbd> pokazuje uchwyt ze strzałkami X/Y/Z, <kbd>R</kbd> pierścień obrotu. Przeciąganie obiektu myszą działa w trybie Przesuń.</li>
+          <li><kbd>V</kbd> zaznacza i nigdy nie rusza kamery: przeciągnięcie po pustym miejscu rysuje <b>ramkę</b>, <kbd>Shift</kbd>+klik dodaje lub odejmuje obiekt. Kilka zaznaczonych obiektów przesuwasz razem, usuwasz <kbd>Del</kbd> albo rozstawiasz w siatce (kolumny i odstępy w prawym panelu).</li>
+          <li><kbd>M</kbd> pokazuje uchwyt: <b>strzałki</b> przesuwają, <b>pierścienie</b> obracają wokół osi X, Y i Z (kilka obiektów naraz tylko w poziomie). Kąty można też wpisać w prawym panelu.</li>
           <li>W prawym panelu skalujesz osobno szerokość, wysokość i głębokość; kłódka trzyma proporcje.</li>
         </ul>
         <h3>Plansza, nawierzchnia i krajobrazy</h3>
@@ -45,6 +47,14 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
           <li>Każdy budynek ma własne wnętrze — osobną scenę z własnymi przedmiotami i notatkami. W edytorze kliknij budynek i wybierz <b>Wejdź do środka</b> albo kliknij go dwukrotnie.</li>
           <li>W widoku z oczu podejdź do drzwi i naciśnij <kbd>F</kbd> lub kliknij drzwi. Po wejściu stajesz tuż za progiem twarzą w głąb pomieszczenia, a po wyjściu — przed drzwiami, plecami do budynku.</li>
           <li>Ścieżka okruszków u góry pokazuje, gdzie jesteś. Usunięcie budynku kasuje też jego wnętrze.</li>
+        </ul>
+        <h3>Kreator wnętrz</h3>
+        <ul>
+          <li>We wnętrzu biblioteka ma dodatkową kategorię <b>Konstrukcja</b>: ściana działowa, drzwi, okno i schody. To zwykłe obiekty — stawiasz, skalujesz i obracasz je jak wszystko inne.</li>
+          <li>Puste wnętrze proponuje gotowe <b>układy pokoju</b> po lewej stronie — wybierz jeden i kliknij „Zastosuj". Układ zastąpi obiekty bez notatek; te z notatkami zawsze zostają. Przycisk „Zapisz obecny układ" zachowuje bieżące rozmieszczenie do ponownego użycia w innym budynku.</li>
+          <li>Drzwi (obiekt z Konstrukcji) otwierasz i zamykasz klawiszem <kbd>F</kbd> albo kliknięciem — zamknięte blokują przejście, otwarte przepuszczają.</li>
+          <li>Panel „Piętra" (zamiast planszy w Otoczeniu) ustawia liczbę kondygnacji budynku (1–4) i piętro do edycji. Schody postawione na danym piętrze robią w stropie otwór i prowadzą wyżej — w widoku z oczu wystarczy nimi wejść.</li>
+          <li>Eksport pałacu dołącza Twoje własne układy pokoi; przy imporcie pliku z układami możesz osobno wybrać, co zrobić z pałacem, a co z presetami.</li>
         </ul>
         <h3>Krajobraz i pogoda</h3>
         <ul>

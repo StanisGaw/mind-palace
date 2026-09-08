@@ -5,6 +5,7 @@ import { useCurrentPalace, useStore } from '../store';
 import { usePref } from '../lib/prefs';
 import { insideGround } from '../lib/ground';
 import { I } from './Icons';
+import { RoomPresets } from './RoomPresets';
 
 export function LeftPanel() {
   const tab = useStore((s) => s.leftTab);
@@ -58,8 +59,8 @@ function Library({ q }: { q: string }) {
   const [hidden, setHidden] = usePref<string[]>('libHidden', []);
   // we wnętrzu nie stawiamy budynków, gór ani bramy; wyposażenie idzie na wierzch
   const cats: Category[] = isInterior
-    ? (['furniture', ...CATEGORY_ORDER.filter((c) => !['building', 'landscape', 'special', 'furniture'].includes(c))] as Category[])
-    : CATEGORY_ORDER;
+    ? (['structure', 'furniture', ...CATEGORY_ORDER.filter((c) => !['building', 'landscape', 'special', 'furniture', 'structure'].includes(c))] as Category[])
+    : CATEGORY_ORDER.filter((c) => c !== 'structure');
   const searching = q.trim().length > 0;
   const filtered = useMemo(
     () => CATALOG.filter((c) => !q || c.name.toLowerCase().includes(q.toLowerCase()) || c.description.toLowerCase().includes(q.toLowerCase())),
@@ -71,6 +72,7 @@ function Library({ q }: { q: string }) {
 
   return (
     <div>
+      {isInterior && <RoomPresets />}
       <div className="cat-chips">
         {cats.map((cat) => (
           <button
@@ -135,8 +137,9 @@ function Library({ q }: { q: string }) {
 
 function SceneList({ q }: { q: string }) {
   const palace = useCurrentPalace();
-  const selectedId = useStore((s) => s.selectedId);
+  const selectedIds = useStore((s) => s.selectedIds);
   const select = useStore((s) => s.select);
+  const toggleSelected = useStore((s) => s.toggleSelected);
   const flyTo = useStore((s) => s.flyTo);
   const list = palace.objects.filter((o) => !q || o.name.toLowerCase().includes(q.toLowerCase()));
   if (palace.objects.length === 0) return <div className="empty">Scena jest pusta. Dodaj coś z biblioteki.</div>;
@@ -147,8 +150,8 @@ function SceneList({ q }: { q: string }) {
         return (
           <button
             key={o.id}
-            className={'item-row' + (o.id === selectedId ? ' selected' : '')}
-            onClick={() => select(o.id)}
+            className={'item-row' + (selectedIds.includes(o.id) ? ' selected' : '')}
+            onClick={(e) => (e.shiftKey ? toggleSelected(o.id) : select(o.id))}
             onDoubleClick={() => flyTo(o.id)}
           >
             <span className="ico">{item.emoji}</span>

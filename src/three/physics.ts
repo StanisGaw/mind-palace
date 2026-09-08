@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
+import { DOOR_LEAF_LOCAL } from './builders';
 
 export type ColliderKind = 'trimesh' | 'box' | 'cylinder' | 'none';
 
@@ -36,6 +37,7 @@ function buildTrimesh(root: THREE.Object3D, scale: THREE.Vector3): { vertices: F
   root.traverse((child) => {
     const mesh = child as THREE.Mesh;
     if (!mesh.isMesh || (mesh as unknown as THREE.InstancedMesh).isInstancedMesh) return;
+    if (mesh.userData.skipCollider) return; // skrzydło drzwi i widoczne stopnie schodów mają własną/inną bryłę
     const geo = mesh.geometry;
     if (!geo?.attributes?.position) return;
     if (!geo.boundingSphere) geo.computeBoundingSphere();
@@ -114,12 +116,9 @@ export class Physics {
     this.roomBody = null;
   }
 
-  private fixedBody(x = 0, y = 0, z = 0, rotY = 0) {
+  private fixedBody(x = 0, y = 0, z = 0, q?: THREE.Quaternion) {
     const desc = this.R.RigidBodyDesc.fixed().setTranslation(x, y, z);
-    if (rotY) {
-      const half = rotY / 2;
-      desc.setRotation({ x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) });
-    }
+    if (q) desc.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
     return this.world.createRigidBody(desc);
   }
 
@@ -179,10 +178,10 @@ export class Physics {
     }
   }
 
-  setStatic(id: string, shape: StaticShape, position: THREE.Vector3, rotationY: number, scale: THREE.Vector3) {
+  setStatic(id: string, shape: StaticShape, position: THREE.Vector3, quaternion: THREE.Quaternion, scale: THREE.Vector3) {
     this.removeStatic(id);
     if (shape.kind === 'none') return;
-    const body = this.fixedBody(position.x, position.y, position.z, rotationY);
+    const body = this.fixedBody(position.x, position.y, position.z, quaternion);
     this.statics.set(id, body);
     if (shape.kind === 'cylinder' && shape.cylinder) {
       const r = shape.cylinder.r * Math.max(scale.x, scale.z);
@@ -204,13 +203,31 @@ export class Physics {
   }
 
   /** Tania aktualizacja pozycji bez przebudowy siatki. */
-  moveStatic(id: string, position: THREE.Vector3, rotationY: number) {
+  moveStatic(id: string, position: THREE.Vector3, quaternion: THREE.Quaternion) {
     const body = this.statics.get(id);
     if (!body) return false;
     body.setTranslation({ x: position.x, y: position.y, z: position.z }, true);
-    const half = rotationY / 2;
-    body.setRotation({ x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) }, true);
+    body.setRotation({ x: quaternion.x, y: quaternion.y, z: quaternion.z, w: quaternion.w }, true);
     return true;
+  }
+
+  /**
+   * Kolizja skrzydła drzwi obiektowych: zamknięte dostają bryłę na stałych współrzędnych z `builders.ts`
+   * (nie przez siatkę trójkątów modelu — pivot już był renderowany, więc jego `matrixWorld` nie jest
+   * „świeży" i licząc z niego wprost dublowałby przesunięcie), otwarte tracą kolizję całkowicie.
+   */
+  setLeaf(id: string, closed: boolean, position: THREE.Vector3, quaternion: THREE.Quaternion, scale: THREE.Vector3) {
+    this.removeStatic(id + ':leaf');
+    if (!closed) return;
+    const body = this.fixedBody(position.x, position.y, position.z, quaternion);
+    this.statics.set(id + ':leaf', body);
+    const { size, center } = DOOR_LEAF_LOCAL;
+    const desc = this.R.ColliderDesc.cuboid((size[0] * scale.x) / 2, (size[1] * scale.y) / 2, (size[2] * scale.z) / 2).setTranslation(
+      center[0] * scale.x,
+      center[1] * scale.y,
+      center[2] * scale.z,
+    );
+    this.world.createCollider(desc, body);
   }
 
   removeStatic(id: string) {
@@ -227,6 +244,10 @@ export class Physics {
     this.charCollider = this.world.createCollider(this.R.ColliderDesc.capsule(CAPSULE_HALF, CAPSULE_R), this.charBody);
     this.vy = 0;
     this.grounded = false;
+    // rozgrzewa potok zapytań (broad-phase) świata fizyki, żeby pierwsze computeColliderMovement
+    // po odbudowie sceny (świeży World, np. wejście do wnętrza zanim ktokolwiek ruszył postacią)
+    // widziało już wszystkie bryły, a nie zwracało zerowy ruch
+    this.world.step();
   }
 
   teleport(footPos: THREE.Vector3) {

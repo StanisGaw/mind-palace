@@ -373,6 +373,65 @@ function buildCampfire(g: THREE.Group) {
   g.add(light);
 }
 
+// ---------- konstrukcja (wnętrza budynków) ----------
+
+/** Bazowa długość segmentu ściany/drzwi — skala X wydłuża go wzdłuż tej osi. */
+const WALL_LEN = 2.0;
+const WALL_T = 0.24;
+
+function buildWall(g: THREE.Group, ctx: { floorHeight: number }) {
+  add(g, box(WALL_LEN, ctx.floorHeight, WALL_T), mat(C.cream2), 0, ctx.floorHeight / 2, 0);
+}
+
+function buildDoor(g: THREE.Group, ctx: { floorHeight: number }) {
+  const H = ctx.floorHeight;
+  const openW = 1.0;
+  const openH = 2.1;
+  const postW = (WALL_LEN - openW) / 2;
+  add(g, box(postW, H, WALL_T), mat(C.cream2), -(openW / 2 + postW / 2), H / 2, 0);
+  add(g, box(postW, H, WALL_T), mat(C.cream2), openW / 2 + postW / 2, H / 2, 0);
+  add(g, box(openW, H - openH, WALL_T), mat(C.cream2), 0, openH + (H - openH) / 2, 0); // nadproże
+  // framuga: cienka ramka WOKÓŁ otworu (nie wolno jej wypełniać — inaczej blokowałaby przejście na stałe)
+  const frameT = 0.08;
+  add(g, box(frameT, openH + frameT, WALL_T + 0.04), mat(C.woodDark), -openW / 2 - frameT / 2, openH / 2, 0);
+  add(g, box(frameT, openH + frameT, WALL_T + 0.04), mat(C.woodDark), openW / 2 + frameT / 2, openH / 2, 0);
+  add(g, box(openW + frameT * 2, frameT, WALL_T + 0.04), mat(C.woodDark), 0, openH + frameT / 2, 0);
+  // skrzydło na zawiasie: pivot na krawędzi otworu, obraca go SceneManager (etap 4)
+  const pivot = new THREE.Group();
+  pivot.position.set(-openW / 2, 0, 0);
+  pivot.userData.doorLeaf = true;
+  const leaf = add(pivot, box(openW - 0.1, openH - 0.1, 0.06), mat(C.woodDark), (openW - 0.1) / 2, (openH - 0.1) / 2, 0.02);
+  leaf.userData.skipCollider = true;
+  g.add(pivot);
+}
+
+function buildWindow(g: THREE.Group) {
+  const winMat = mat('#eaf2ff', { emissive: '#e7f0ff', roughness: 0.4 });
+  const trimMat = mat('#c7c0ae', { roughness: 0.9 });
+  add(g, box(1.2, 1.5, 0.1), winMat, 0, 1.4, 0);
+  add(g, box(1.4, 1.7, 0.14), trimMat, 0, 1.4, -0.02);
+}
+
+function buildStairs(g: THREE.Group, ctx: { floorHeight: number }) {
+  const H = ctx.floorHeight;
+  const len = 1.15 * H;
+  const width = 1.2;
+  const rise = 0.2;
+  const steps = Math.max(1, Math.round(H / rise));
+  const run = len / steps;
+  for (let i = 0; i < steps; i++) {
+    const y = rise * (i + 1) - rise / 2;
+    // najniższy stopień przy -Z lokalnie: bez obrotu wejście jest od strony +Z (jak drzwi budynków)
+    const z = -len / 2 + run * (i + 0.5);
+    const step = add(g, box(width, rise, run + 0.02), mat(C.stone), 0, y, z);
+    step.userData.skipCollider = true;
+  }
+  // niewidoczna pochylnia: jedyna bryła kolizji, płynniejsza niż schodkowanie stopni
+  const rampLen = Math.hypot(len, H);
+  const ramp = add(g, box(width, 0.15, rampLen), mat(C.stone), 0, H / 2, 0, [-Math.atan2(H, len), 0, 0]);
+  ramp.visible = false;
+}
+
 // ---------- wyposażenie wnętrz ----------
 
 function buildTable(g: THREE.Group) {
@@ -501,7 +560,11 @@ function buildWaterfall(g: THREE.Group) {
   add(g, dodeca(0.4, 0), mat(C.rock), 1.5, 0.3, 0.6);
 }
 
-const BUILDERS: Record<string, (g: THREE.Group) => void> = {
+const BUILDERS: Record<string, (g: THREE.Group, ctx: { floorHeight: number }) => void> = {
+  wall: buildWall,
+  door: buildDoor,
+  window: buildWindow,
+  stairs: buildStairs,
   palace: buildPalace,
   library: buildLibrary,
   temple: buildTemple,
@@ -550,6 +613,12 @@ const BUILDERS: Record<string, (g: THREE.Group) => void> = {
  * Drzwi budynków w lokalnych współrzędnych modelu:
  * `local` to sama framuga, `outside` to miejsce, w którym staje gracz po wyjściu.
  */
+/**
+ * Bryła kolizji skrzydła drzwi obiektowych (typ `door`) w stanie zamkniętym, w lokalnych
+ * współrzędnych modelu — liczona wprost ze stałych w `buildDoor` (niezależna od wysokości pokoju).
+ */
+export const DOOR_LEAF_LOCAL = { size: [0.9, 2.0, 0.06] as [number, number, number], center: [-0.05, 1.0, 0.02] as [number, number, number] };
+
 export const DOORS: Record<string, { local: [number, number, number]; outside: [number, number, number] }> = {
   palace: { local: [0, 0.44, 1.0], outside: [0, 0, 3.1] },
   library: { local: [0, 0.24, 1.0], outside: [0, 0, 3.0] },
@@ -568,9 +637,9 @@ export const EMITTER_ANCHORS: Record<string, [number, number, number]> = {
   campfire: [0, 0.7, 0],
 };
 
-export function buildModel(type: string): THREE.Group {
+export function buildModel(type: string, ctx?: { floorHeight: number }): THREE.Group {
   const g = new THREE.Group();
-  (BUILDERS[type] ?? buildObelisk)(g);
+  (BUILDERS[type] ?? buildObelisk)(g, { floorHeight: ctx?.floorHeight ?? 3.2 });
   return g;
 }
 

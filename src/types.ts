@@ -1,6 +1,6 @@
 export type Vec3 = [number, number, number];
 
-export type Category = 'building' | 'lighting' | 'furniture' | 'plant' | 'landscape' | 'object' | 'animal' | 'special';
+export type Category = 'building' | 'lighting' | 'furniture' | 'plant' | 'landscape' | 'object' | 'animal' | 'special' | 'structure';
 
 export interface SrsState {
   interval: number; // dni
@@ -24,7 +24,7 @@ export interface PalaceObject {
   type: string; // id z katalogu
   name: string;
   position: Vec3;
-  rotationY: number;
+  rotation: Vec3; // kąty Eulera XYZ w radianach (dawniej samo `rotationY`)
   scale: Vec3; // osobno na osiach X/Y/Z
   note?: Note;
   interiorId?: string; // id pałacu-wnętrza (tylko budynki)
@@ -36,7 +36,7 @@ export interface RoomSpec {
   width: number;
   depth: number;
   height: number;
-  windows: number;
+  windows: number; // okna są teraz obiektami biblioteki — pole służy tylko migracji starych pałaców
   floor: string;
   wall: string;
 }
@@ -85,7 +85,31 @@ export interface Palace {
   settings: PalaceSettings;
   parentId?: string; // pałac nadrzędny (gdy to wnętrze)
   parentObjectId?: string; // budynek, w którym jest to wnętrze
-  interior?: { buildingType: string };
+  interior?: { buildingType: string; floors: number };
+}
+
+/** Obiekt układu pokoju we współrzędnych względnych (patrz `lib/presets.ts`). */
+export interface PresetObject {
+  type: string;
+  name?: string;
+  u: number; // -0.5..0.5 względem szerokości pokoju
+  v: number; // -0.5..0.5 względem głębokości pokoju
+  floor: number;
+  dy?: number; // wysokość nad podłogą piętra
+  rotationY: number;
+  scale?: Vec3;
+  span?: { axis: 'x' | 'z'; frac: number }; // ściany: długość jako ułamek wymiaru pokoju
+}
+
+/** Gotowy układ pokoju: wbudowany albo zapisany przez użytkownika. */
+export interface RoomPreset {
+  id: string;
+  name: string;
+  description: string;
+  buildingTypes?: string[]; // brak = dla wszystkich typów budynków
+  floors: number;
+  objects: PresetObject[];
+  custom?: boolean;
 }
 
 export interface AppData {
@@ -94,7 +118,7 @@ export interface AppData {
   palaces: Palace[];
 }
 
-export type Tool = 'select' | 'move' | 'rotate';
+export type Tool = 'select' | 'move';
 export type ViewMode = 'editor' | 'fp' | 'vr';
 export type CameraKind = 'zoomIn' | 'zoomOut' | 'fit' | 'reset' | 'center' | 'topView';
 
