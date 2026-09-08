@@ -487,16 +487,17 @@ export const useStore = create<State>((set, get) => ({
     });
     if (get().activeBuildingId === id && get().editFloor > floors - 1) set({ editFloor: floors - 1 });
     // pierwsze piętro bez schodów byłoby nieosiągalne: budynek bez wbudowanych schodów (wieża ma spiralę) dostaje
-    // zwykły obiekt „Schody" przy prawej ścianie, biegiem w stronę tylnej — do przesunięcia albo usunięcia
+    // zwykły obiekt „Schody" wzdłuż tylnej ściany — do przesunięcia albo usunięcia. Dół 0,8 m od prawej ściany
+    // (miejsce na podejście), bieg w lewo, a za szczytem zostaje podest, żeby na piętro wchodziło się naturalnie
     if (cur === 1 && floors > 1 && b.type !== 'tower' && !p.objects.some((o) => o.type === 'stairs' && buildingOf(p.objects, o)?.id === id)) {
       const spec = SHELLS[b.type];
       const H = spec.inner.h * b.scale[1];
-      const lx = spec.cx + spec.inner.w / 2 - 0.75 / b.scale[0];
-      // szczyt biegu przy tylnej ścianie, żeby przed dolnym stopniem zostało miejsce na podejście od drzwi
-      const lz = spec.cz - spec.inner.d / 2 + ((1.15 * H) / 2 + 0.1) / b.scale[2];
+      const lx = spec.cx + spec.inner.w / 2 - (0.8 + (1.15 * H) / 2) / b.scale[0];
+      const lz = spec.cz - spec.inner.d / 2 + 0.75 / b.scale[2];
       const [wx, wz] = worldXZ(b, lx, lz);
       const { selectedIds, leftTab } = get();
-      get().addObject('stairs', [wx, buildingFloorY(b, 0), wz], b.rotation[1] + Math.PI, id);
+      // model schodów rośnie ku lokalnemu +Z; obrót o −90° kieruje go ku −X budynku
+      get().addObject('stairs', [wx, buildingFloorY(b, 0), wz], b.rotation[1] - Math.PI / 2, id);
       set({ selectedIds, leftTab });
     }
   },
