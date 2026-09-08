@@ -16,7 +16,7 @@ import { buildRoom, type Room } from './interior';
 import { Physics, FOOT_OFFSET, type StaticShape } from './physics';
 import { ROOMS, colliderKind, spawnKind } from '../catalog';
 import { clampToGround, clipSegment, groundExtent, groundPolygon, insideGround } from '../lib/ground';
-import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorY, buildingOf, buildingOpenings, doorOffsets, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, type Opening } from '../lib/rooms';
+import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, buildingOf, buildingOpenings, doorOffsets, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, type Opening } from '../lib/rooms';
 import { getTexture } from './textures';
 import { Wildlife, type SpawnInfo, type WorldInfo } from './wildlife';
 import { Soundscape } from './soundscape';
@@ -780,16 +780,21 @@ export class SceneManager {
   private syncObjects(p: Palace) {
     const seen = new Set<string>();
     const H = floorHeightFor(p);
+    // ścianki, drzwi, schody i lampy w budynku z wnętrzem w miejscu mają wysokość jego kondygnacji, nie pokoju
+    const hFor = (o: PalaceObject) => {
+      const b = buildingOf(p.objects, o);
+      return b ? buildingFloorHeight(b) : H;
+    };
     // ścianka zależy też od skali X i otworów na drzwi — zmiana któregoś przebudowuje model i kolizję
     const openingsOf = (o: PalaceObject) => (o.type === 'wall' ? doorOffsets(o, p.objects) : []);
     // budynek z wnętrzem w miejscu zależy od liczby pięter i otworów w stropach nad schodami
     const slabOpeningsOf = (o: PalaceObject) => (isInPlace(o) ? buildingOpenings(o, p.objects) : undefined);
     const buildKey = (o: PalaceObject) =>
       o.type === 'wall'
-        ? `wall|${H}|${o.scale[0]}|${openingsOf(o).map((t) => t.toFixed(2)).join(',')}`
+        ? `wall|${hFor(o)}|${o.scale[0]}|${openingsOf(o).map((t) => t.toFixed(2)).join(',')}`
         : isInPlace(o)
           ? `${o.type}|inplace|${o.floors ?? 1}|${JSON.stringify(slabOpeningsOf(o))}`
-          : `${o.type}|${H}`;
+          : `${o.type}|${hFor(o)}`;
     for (const o of p.objects) {
       seen.add(o.id);
       let e = this.entries.get(o.id);
@@ -799,7 +804,7 @@ export class SceneManager {
       }
       if (!e) {
         const key = buildKey(o);
-        const model = buildModel(o.type, { floorHeight: H, scaleX: o.scale[0], openings: openingsOf(o), floors: isInPlace(o) ? (o.floors ?? 1) : 1, slabOpenings: slabOpeningsOf(o) });
+        const model = buildModel(o.type, { floorHeight: hFor(o), scaleX: o.scale[0], openings: openingsOf(o), floors: isInPlace(o) ? (o.floors ?? 1) : 1, slabOpenings: slabOpeningsOf(o) });
         const group = new THREE.Group();
         group.add(model);
         group.userData.objectId = o.id;
@@ -1177,7 +1182,8 @@ export class SceneManager {
     this.renderer.domElement.style.cursor = type ? 'crosshair' : '';
     if (!type) return;
 
-    const model = buildModel(type, { floorHeight: floorHeightFor(this.lastPalace) });
+    const active = this.activeBuilding();
+    const model = buildModel(type, { floorHeight: active ? buildingFloorHeight(active) : floorHeightFor(this.lastPalace) });
     model.traverse((c) => {
       const light = c as THREE.PointLight;
       if (light.isPointLight) light.intensity = 0;
@@ -2621,7 +2627,8 @@ export class SceneManager {
         const n = w.userData.wallNormal as [number, number];
         const nx = n[0] * cos + n[1] * sin;
         const nz = -n[0] * sin + n[1] * cos;
-        w.visible = nx * dx + nz * dz < 0.5 * Math.hypot(dx, dz) * 0.6;
+        // ściana znika, gdy jej zewnętrzna normalna celuje w kamerę (cos > 0,3)
+        w.visible = nx * dx + nz * dz < 0.3 * Math.hypot(dx, dz);
       }
     }
     // we wnętrzu w edytorze chowamy ściany od strony kamery (widok jak do domku dla lalek) i wyższe piętra

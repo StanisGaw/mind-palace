@@ -244,9 +244,11 @@ function applyObjectPatch(pl: Palace, id: string, patch: Partial<PalaceObject>) 
 function dropChildrenOf(pl: Palace, id: string) {
   for (const k of pl.objects) {
     if (k.anchorId !== id) continue;
-    const groundY = groundYOf(pl, k.position[1]);
+    // w budynku z wnętrzem w miejscu obiekt opada na podłogę jego piętra i zostaje w budynku
+    const b = buildingOf(pl.objects, k);
+    const groundY = b && b.id !== id ? buildingFloorY(b, floorOfIn(b, k.position[1])) : groundYOf(pl, k.position[1]);
     const drop = k.position[1] - groundY;
-    k.anchorId = undefined;
+    k.anchorId = b && b.id !== id ? b.id : undefined;
     k.position[1] = groundY;
     for (const deep of descendants(pl.objects, k.id)) deep.position[1] -= drop;
   }
