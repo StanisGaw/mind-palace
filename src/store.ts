@@ -6,7 +6,8 @@ import { yawRotation } from './lib/transform';
 import { getPref, setPref } from './lib/prefs';
 import { chainOf, collectSubtree, loadData, makeInteriorPalace, makePalace, rootOf, saveData } from './lib/storage';
 import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingFloorY, buildingOf, maxFloorsOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt, worldXZ, isFacade } from './lib/rooms';
-import { ROOM_PRESETS, capturePreset, instantiatePreset } from './lib/presets';
+import { ROOM_PRESETS, capturePreset, instantiatePreset, instantiatePresetIn } from './lib/presets';
+import { findStairsIn, findStairsSpot, roomOfSpec } from './lib/layout';
 import { loadCustomPresets, saveCustomPresets } from './lib/presetStore';
 import { isDue, newSrs, reviewSrs } from './lib/srs';
 import { flattenStops, dueInTree, type ReviewStop } from './lib/review';
@@ -70,6 +71,10 @@ interface State {
   setEditFloor(n: number): void;
   setActiveBuilding(id: string | null): void;
   setBuildingFloors(id: string, n: number): void;
+  /** Stawia schody z biblioteki w wolnym miejscu przy murze budynku (albo pokazuje, że go nie ma). */
+  addStairsTo(id: string): void;
+  /** To samo dla wnętrza ładowanego osobno. */
+  addStairsToRoom(): void;
   setInteriorMode(id: string, mode: 'inplace' | 'nested'): void;
   setFloors(n: number): void;
   // presety pokoi
@@ -492,19 +497,23 @@ export const useStore = create<State>((set, get) => ({
     });
     if (get().activeBuildingId === id && get().editFloor > floors - 1) set({ editFloor: floors - 1 });
     // pierwsze piętro bez schodów byłoby nieosiągalne: budynek bez wbudowanych schodów (wieża ma spiralę) dostaje
-    // zwykły obiekt „Schody" wzdłuż tylnej ściany — do przesunięcia albo usunięcia. Dół 0,8 m od prawej ściany
-    // (miejsce na podejście), bieg w lewo, a za szczytem zostaje podest, żeby na piętro wchodziło się naturalnie
+    // zwykły obiekt „Schody" tam, gdzie zmieści się bieg z podejściem i podestem poza ściankami i meblami
     if (cur === 1 && floors > 1 && b.type !== 'tower' && !p.objects.some((o) => o.type === 'stairs' && buildingOf(p.objects, o)?.id === id)) {
-      const spec = SHELLS[b.type];
-      const H = spec.inner.h * b.scale[1];
-      const lx = spec.cx + spec.inner.w / 2 - (0.8 + (1.15 * H) / 2) / b.scale[0];
-      const lz = spec.cz - spec.inner.d / 2 + 0.75 / b.scale[2];
-      const [wx, wz] = worldXZ(b, lx, lz);
-      const { selectedIds, leftTab } = get();
-      // model schodów rośnie ku lokalnemu +Z; obrót o −90° kieruje go ku −X budynku
-      get().addObject('stairs', [wx, buildingFloorY(b, 0), wz], b.rotation[1] - Math.PI / 2, id);
-      set({ selectedIds, leftTab });
+      get().addStairsTo(id);
     }
+  },
+  addStairsTo(id) {
+    const p = get().palace();
+    const b = p.objects.find((o) => o.id === id);
+    if (!b) return;
+    const spot = findStairsSpot(b, p.objects);
+    if (!spot) {
+      get().showToast('Nie ma miejsca na schody przy żadnej ścianie — zrób miejsce i postaw „Schody" z Konstrukcji.');
+      return;
+    }
+    const { selectedIds, leftTab } = get();
+    get().addObject('stairs', spot.position, spot.rotationY, id);
+    set({ selectedIds, leftTab });
   },
   setInteriorMode(id, mode) {
     const p = get().palace();
@@ -525,7 +534,7 @@ export const useStore = create<State>((set, get) => ({
         if (!o) return;
         o.interiorMode = 'inplace';
         o.floors = o.floors ?? SHELLS[o.type]?.defaultFloors ?? 1;
-        o.shellVersion = 4;
+        o.shellVersion = 5;
         o.finish = o.finish ?? DEFAULT_FINISH;
         o.scale = bumped;
       });
@@ -559,12 +568,30 @@ export const useStore = create<State>((set, get) => ({
         return;
       }
     }
+    const cur = p.interior.floors ?? 1;
     get().setPalace((pl) => {
       if (pl.interior) pl.interior.floors = floors;
     }, { undo: false });
     if (get().editFloor > floors - 1) set({ editFloor: floors - 1 });
+    // pierwsze piętro bez schodów byłoby nieosiągalne (wieża ma je wbudowane w mur)
+    if (cur === 1 && floors > 1 && p.interior.buildingType !== 'tower' && !p.objects.some((o) => o.type === 'stairs')) get().addStairsToRoom();
   },
 
+  addStairsToRoom() {
+    const p = get().palace();
+    if (!p.interior) return;
+    const spec = roomSpecFor(p, get().data.palaces);
+    const room = roomOfSpec(spec, p.interior.buildingType);
+    const ground = p.objects.filter((o) => floorOf(o.position[1], spec.height) === 0);
+    const spot = findStairsIn(room, ground, p.objects, 0);
+    if (!spot) {
+      get().showToast('Nie ma miejsca na schody — zrób miejsce i postaw „Schody" z Konstrukcji.');
+      return;
+    }
+    const { selectedIds, leftTab } = get();
+    get().addObject('stairs', spot.position, spot.rotationY);
+    set({ selectedIds, leftTab });
+  },
   applyRoomPreset(id) {
     const p = get().palace();
     const preset = [...ROOM_PRESETS, ...get().customPresets].find((r) => r.id === id);
@@ -573,16 +600,11 @@ export const useStore = create<State>((set, get) => ({
       // wnętrze w miejscu: układ w układzie pokoju o wymiarach wnętrza budynku, przeniesiony do świata i zakotwiczony w budynku
       const b = p.objects.find((o) => o.id === get().activeBuildingId);
       if (!b || !isInPlace(b)) return;
-      const shell = SHELLS[b.type];
-      const spec = { ...ROOMS[b.type], width: shell.inner.w * b.scale[0], depth: shell.inner.d * b.scale[2], height: buildingFloorY(b, 1) - buildingFloorY(b, 0) };
       // obiekty z notatkami zostają — piętro, na którym stoją, nie może zniknąć
       const kept = p.objects.filter((o) => o.note && buildingOf(p.objects, o)?.id === b.id);
       const keptTop = kept.reduce((m, o) => Math.max(m, floorOfIn(b, o.position[1]) + 1), 1);
       const floors = Math.min(maxFloorsOf(b.type), Math.max(keptTop, preset.floors));
-      const fresh = instantiatePreset(preset, spec).map((o) => {
-        const [wx, wz] = worldXZ(b, shell.cx + o.position[0] / b.scale[0], shell.cz + o.position[2] / b.scale[2]);
-        return { ...o, position: [wx, buildingFloorY(b, 0) + o.position[1], wz] as Vec3, rotation: yawRotation(o.rotation[1] + b.rotation[1]), anchorId: o.anchorId ?? b.id };
-      });
+      const fresh = instantiatePresetIn(preset, b);
       get().setPalace((pl) => {
         // elewacja (okna, balkony, tarasy) należy do bryły, nie do układu pokoju — zostaje
         const inside = new Set(pl.objects.filter((o) => !o.note && !isFacade(o.type) && buildingOf(pl.objects, o)?.id === b.id).map((o) => o.id));
@@ -592,6 +614,8 @@ export const useStore = create<State>((set, get) => ({
         if (bb) bb.floors = floors;
       });
       set({ editFloor: 0 });
+      // układ na kilka pięter bez własnych schodów (albo budynek z piętrem, którego układ nie przewidział)
+      if (floors > 1 && b.type !== 'tower' && !fresh.some((o) => o.type === 'stairs')) get().addStairsTo(b.id);
       return;
     }
     const spec = roomSpecFor(p, get().data.palaces);
@@ -603,6 +627,8 @@ export const useStore = create<State>((set, get) => ({
       if (pl.interior) pl.interior.floors = Math.min(FLOOR_MAX, Math.max(1, preset.floors));
     });
     set({ editFloor: 0 });
+    const after = get().palace();
+    if ((after.interior?.floors ?? 1) > 1 && after.interior?.buildingType !== 'tower' && !after.objects.some((o) => o.type === 'stairs')) get().addStairsToRoom();
   },
 
   saveCurrentAsPreset(name) {
@@ -691,7 +717,7 @@ export const useStore = create<State>((set, get) => ({
         rotation: yawRotation(rotationY ?? (item.unique ? Math.atan2(pos[0], pos[2]) : 0)),
         scale: finalScale,
         anchorId,
-        ...(shell ? { interiorMode: 'inplace' as const, floors: shell.defaultFloors, shellVersion: 4 as const, finish: DEFAULT_FINISH } : {}),
+        ...(shell ? { interiorMode: 'inplace' as const, floors: shell.defaultFloors, shellVersion: 5 as const, finish: DEFAULT_FINISH } : {}),
       });
     });
     set({ selectedIds: [id], ...(get().placing ? {} : { leftTab: 'scene' as const }) });
