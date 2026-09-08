@@ -67,7 +67,10 @@ npm run build        # produkcyjny build do dist/
   zaznaczenia): grupa zaznacza się, przesuwa i znika jako całość. Panel „Piętra" ustawia liczbę
   kondygnacji (1–4) budynku i piętro do edycji; schody robią otwór w stropie i prowadzą wyżej. Domek, pałac
   i biblioteka dostają schody same przy pierwszym piętrze — aplikacja szuka miejsca, gdzie bieg mieści się przy
-  ścianie z podejściem i podestem, bez przecinania ścianek i mebli (`lib/layout.ts`); wieża
+  ścianie z podejściem i podestem, bez przecinania ścianek i mebli (`lib/layout.ts`). Usunięcie piętra zabiera
+  ze sobą bieg, który prowadziłby w sufit, i otwór w stropie (`orphanStairs`) — jedno cofnięcie przywraca piętro
+  razem ze schodami. Blokada „na usuwanym piętrze stoją obiekty" dotyczy tylko rzeczy użytkownika; lampy sufitowe
+  i schody aplikacja dokłada i sprząta sama. Wieża
   ma jeden ciągły bieg kręconych schodów przez wszystkie kondygnacje i okrągłe izby na piętrach. Drzwi otwiera
   i zamyka `F` albo kliknięcie.
 - **Zestawy mebli** — zakładka „Zestawy" obok Biblioteki. Zestaw to nazwana grupa mebli o stałych wymiarach

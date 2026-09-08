@@ -5,7 +5,7 @@ import { uid } from './lib/ids';
 import { yawRotation } from './lib/transform';
 import { getPref, setPref } from './lib/prefs';
 import { chainOf, collectSubtree, loadData, makeInteriorPalace, makePalace, rootOf, saveData } from './lib/storage';
-import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingLamps, buildingFloorY, buildingOf, maxFloorsOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt, worldXZ, isFacade } from './lib/rooms';
+import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingLamps, orphanStairs, orphanStairsIn, buildingFloorY, buildingOf, maxFloorsOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt, worldXZ, isFacade } from './lib/rooms';
 import { captureSet, furnitureSet, instantiateSet } from './lib/sets';
 import { findStairsIn, findStairsSpot, roomOfSpec } from './lib/layout';
 import { loadCustomSets, saveCustomSets } from './lib/setStore';
@@ -499,20 +499,34 @@ export const useStore = create<State>((set, get) => ({
     const floors = Math.min(maxFloorsOf(b.type), Math.max(1, Math.round(n)));
     const cur = b.floors ?? 1;
     if (floors === cur) return;
-    if (floors < cur && p.objects.some((o) => buildingOf(p.objects, o)?.id === id && floorOfIn(b, o.position[1]) >= floors)) {
+    // blokujemy tylko z powodu rzeczy użytkownika: lampy i schody dokłada aplikacja i sama je sprząta
+    const onDoomed = (o: PalaceObject) => buildingOf(p.objects, o)?.id === id && floorOfIn(b, o.position[1]) >= floors;
+    if (floors < cur && p.objects.some((o) => o.type !== 'ceiling_lamp' && o.type !== 'stairs' && onDoomed(o))) {
       get().showToast('Na usuwanym piętrze stoją obiekty — najpierw je przenieś albo usuń.');
       return;
     }
+    // schody prowadzące na zniknięte piętro i lampy zniknionego piętra giną razem z nim,
+    // w tej samej zmianie, żeby jedno Ctrl+Z cofnęło całość
+    const goneStairs = orphanStairs(p.objects, b, floors);
+    const doomedStairs = [...goneStairs, ...p.objects.filter((o) => o.type === 'ceiling_lamp' && onDoomed(o)).map((o) => o.id)];
     get().setPalace((pl) => {
       const o = pl.objects.find((x) => x.id === id);
       if (!o) return;
       o.floors = floors;
+      for (const sid of doomedStairs) dropChildrenOf(pl, sid);
+      if (doomedStairs.length > 0) {
+        const gone = new Set(doomedStairs);
+        pl.objects = pl.objects.filter((x) => !gone.has(x.id));
+        pl.path = pl.path.filter((x) => !gone.has(x));
+      }
       // świeżo dołożone piętro bez lamp byłoby ciemne — wcześniej dokładał je gotowy układ pokoju
       const lit = new Set(pl.objects.filter((x) => x.type === 'ceiling_lamp' && x.anchorId === id).map((x) => floorOfIn(o, x.position[1])));
       const dark: number[] = [];
       for (let k = cur; k < floors; k++) if (!lit.has(k)) dark.push(k);
       if (dark.length > 0) pl.objects.push(...buildingLamps(o, dark, uid));
     });
+    if (doomedStairs.length > 0) set({ selectedIds: get().selectedIds.filter((x) => !doomedStairs.includes(x)) });
+    if (goneStairs.length > 0) get().showToast('Schody prowadzące na usunięte piętro zostały skasowane.');
     if (get().activeBuildingId === id && get().editFloor > floors - 1) set({ editFloor: floors - 1 });
     // pierwsze piętro bez schodów byłoby nieosiągalne: budynek bez wbudowanych schodów (wieża ma spiralę) dostaje
     // zwykły obiekt „Schody" tam, gdzie zmieści się bieg z podejściem i podestem poza ściankami i meblami
@@ -578,18 +592,26 @@ export const useStore = create<State>((set, get) => ({
     if (!p.interior) return;
     const floors = Math.min(FLOOR_MAX, Math.max(1, Math.round(n)));
     if (floors === p.interior.floors) return;
-    if (floors < p.interior.floors) {
-      const H = (ROOMS[p.interior.buildingType] ?? ROOMS.house).height;
-      const doomed = p.objects.some((o) => floorOf(o.position[1], H) >= floors);
-      if (doomed) {
-        get().showToast('Na usuwanym piętrze stoją obiekty — najpierw je przenieś albo usuń.');
-        return;
-      }
+    const H = (ROOMS[p.interior.buildingType] ?? ROOMS.house).height;
+    const onDoomed = (o: PalaceObject) => floorOf(o.position[1], H) >= floors;
+    if (floors < p.interior.floors && p.objects.some((o) => o.type !== 'ceiling_lamp' && o.type !== 'stairs' && onDoomed(o))) {
+      get().showToast('Na usuwanym piętrze stoją obiekty — najpierw je przenieś albo usuń.');
+      return;
     }
     const cur = p.interior.floors ?? 1;
+    const goneStairs = orphanStairsIn(p.objects, H, floors);
+    const doomedStairs = [...goneStairs, ...p.objects.filter((o) => o.type === 'ceiling_lamp' && onDoomed(o)).map((o) => o.id)];
     get().setPalace((pl) => {
       if (pl.interior) pl.interior.floors = floors;
+      for (const sid of doomedStairs) dropChildrenOf(pl, sid);
+      if (doomedStairs.length > 0) {
+        const gone = new Set(doomedStairs);
+        pl.objects = pl.objects.filter((x) => !gone.has(x.id));
+        pl.path = pl.path.filter((x) => !gone.has(x));
+      }
     }, { undo: false });
+    if (doomedStairs.length > 0) set({ selectedIds: get().selectedIds.filter((x) => !doomedStairs.includes(x)) });
+    if (goneStairs.length > 0) get().showToast('Schody prowadzące na usunięte piętro zostały skasowane.');
     if (get().editFloor > floors - 1) set({ editFloor: floors - 1 });
     // pierwsze piętro bez schodów byłoby nieosiągalne (wieża ma je wbudowane w mur)
     if (cur === 1 && floors > 1 && p.interior.buildingType !== 'tower' && !p.objects.some((o) => o.type === 'stairs')) get().addStairsToRoom();

@@ -339,6 +339,22 @@ export function worldXZ(b: PalaceObject, lx: number, lz: number): [number, numbe
 }
 
 /**
+ * Schody, które po zejściu do `floors` kondygnacji prowadziłyby w sufit. Piętro liczymy z surowej wysokości,
+ * nie przez `floorOfIn` — ten przycina wynik do bieżącej liczby pięter, więc po zmianie dawałby złą odpowiedź.
+ * Wieża ma bieg wbudowany w mur i żadnych schodów-obiektów, więc nic nie zwraca.
+ */
+export function orphanStairs(objects: PalaceObject[], b: PalaceObject, floors: number): string[] {
+  const H = buildingFloorHeight(b);
+  const base = buildingFloorY(b, 0);
+  return objects.filter((o) => o.type === 'stairs' && buildingOf(objects, o)?.id === b.id && floorOf(o.position[1] - base, H) + 1 > floors - 1).map((o) => o.id);
+}
+
+/** To samo dla pokoju ładowanego osobno: schody stoją na piętrze liczonym od podłogi parteru w zerze. */
+export function orphanStairsIn(objects: PalaceObject[], floorHeight: number, floors: number): string[] {
+  return objects.filter((o) => o.type === 'stairs' && floorOf(o.position[1], floorHeight) + 1 > floors - 1).map((o) => o.id);
+}
+
+/**
  * Otwory w stropach budynku nad schodami w nim zakotwiczonymi — w jednostkach lokalnych modelu
  * (indeks tablicy = piętro startowe schodów). Wzór: `stairOpenings`.
  */
