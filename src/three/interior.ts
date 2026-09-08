@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import type { RoomSpec } from '../types';
-import { mat } from './builders';
+import { discRects, mat, spiralStairs } from './builders';
 import type { Opening } from '../lib/rooms';
 
 export interface RoomBox {
   size: [number, number, number];
   pos: [number, number, number];
+  quat?: [number, number, number, number];
 }
 
 export interface Room {
@@ -60,7 +61,7 @@ const SLAB_T = 0.24; // grubość stropu/sufitu/podłogi
 
 /** Proceduralna powłoka budynku: podłoga, ściany każdej kondygnacji, stropy z otworami nad schodami, sufit. */
 export function buildRoom(spec: RoomSpec, buildingType: string, opts: { floors: number; openings: Opening[][] }): Room {
-  void buildingType; // rodzaj budynku nie wpływa już na powłokę — dekoracje wieży zastąpił preset ze schodami
+  if (buildingType === 'tower') return buildTowerRoom(spec, opts);
   const g = new THREE.Group();
   const w = spec.width;
   const d = spec.depth;
@@ -166,6 +167,138 @@ export function buildRoom(spec: RoomSpec, buildingType: string, opts: { floors: 
     slabs,
     spawn: { pos: new THREE.Vector3(0, 0, d / 2 - 1.6), yaw: 0 },
     bounds: { hx: w / 2 - WALL_T / 2 - 0.35, hz: d / 2 - WALL_T / 2 - 0.35 },
+    colliders,
+    dispose() {
+      g.traverse((c) => {
+        const m = c as THREE.Mesh;
+        if (m.geometry) m.geometry.dispose();
+      });
+      floorMat.dispose();
+      g.removeFromParent();
+    },
+  };
+}
+
+/**
+ * Okrągły pokój wieży: mur z segmentów, stropy z ośmiokątnych pasów i wbudowane kręcone schody
+ * wzdłuż muru — wieża ma być wieżą, nie prostokątnym pokojem, a schodów w niej nie da się dobrze
+ * zbudować ręcznie.
+ */
+function buildTowerRoom(spec: RoomSpec, opts: { floors: number; openings: Opening[][] }): Room {
+  const g = new THREE.Group();
+  const R = Math.min(spec.width, spec.depth) / 2;
+  const h = spec.height;
+  const floors = Math.max(1, opts.floors);
+  const colliders: RoomBox[] = [];
+  const mesh = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, shadow = true) => {
+    const mm = new THREE.Mesh(geo, m);
+    mm.position.set(x, y, z);
+    mm.castShadow = shadow;
+    mm.receiveShadow = true;
+    return mm;
+  };
+  const wallMat = mat(spec.wall, { roughness: 0.95 });
+  const floorMat = new THREE.MeshStandardMaterial({ color: spec.floor, roughness: 1 });
+  const trimMat = mat('#c7c0ae', { roughness: 0.9 });
+  const slabMat = mat('#e8e2d5', { roughness: 1 });
+
+  const floor = mesh(new THREE.CylinderGeometry(R, R, SLAB_T, 24), floorMat, 0, -SLAB_T / 2, 0, false);
+  floor.userData.ground = true;
+  g.add(floor);
+  colliders.push({ size: [2 * R, SLAB_T, 2 * R], pos: [0, -SLAB_T / 2, 0] });
+
+  const walls: THREE.Mesh[] = [];
+  const segments = 16;
+  const side = 2 * R * Math.tan(Math.PI / segments);
+  const doorW = Math.min(DOOR_W, side - 0.3);
+  let exitDoor!: THREE.Mesh;
+  for (let k = 0; k < floors; k++) {
+    const y0 = k * h;
+    for (let i = 0; i < segments; i++) {
+      const a = (i / segments) * Math.PI * 2;
+      const x = Math.sin(a) * R;
+      const z = Math.cos(a) * R;
+      const quat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), a);
+      const q: [number, number, number, number] = [quat.x, quat.y, quat.z, quat.w];
+      // segment frontowy parteru: tylko nadproże, pod nim drzwi wyjściowe
+      const lintel = k === 0 && i === 0;
+      const sy = lintel ? h - DOOR_H : h;
+      const cy = lintel ? y0 + DOOR_H + sy / 2 : y0 + h / 2;
+      const mm = mesh(new THREE.BoxGeometry(side + 0.02, sy, WALL_T), wallMat, x, cy, z);
+      mm.rotation.y = a;
+      mm.userData.floorIndex = k;
+      mm.userData.wallNormal = [Math.sin(a), Math.cos(a)];
+      walls.push(mm);
+      g.add(mm);
+      colliders.push({ size: [side + 0.02, sy, WALL_T], pos: [x, cy, z], quat: q });
+      if (lintel) {
+        // słupki po bokach drzwi w tym samym segmencie
+        const postW = (side + 0.02 - doorW) / 2;
+        for (const sgn of [-1, 1]) {
+          const px = x + Math.cos(a) * sgn * (doorW / 2 + postW / 2);
+          const pz = z - Math.sin(a) * sgn * (doorW / 2 + postW / 2);
+          const post = mesh(new THREE.BoxGeometry(postW, DOOR_H, WALL_T), wallMat, px, y0 + DOOR_H / 2, pz);
+          post.rotation.y = a;
+          post.userData.floorIndex = k;
+          post.userData.wallNormal = [Math.sin(a), Math.cos(a)];
+          walls.push(post);
+          g.add(post);
+          colliders.push({ size: [postW, DOOR_H, WALL_T], pos: [px, y0 + DOOR_H / 2, pz], quat: q });
+        }
+        g.add(mesh(new THREE.BoxGeometry(doorW + 0.24, DOOR_H + 0.12, 0.1), trimMat, 0, y0 + DOOR_H / 2, R - 0.02, true));
+        g.add(mesh(new THREE.BoxGeometry(doorW, DOOR_H, 0.06), mat('#20302a'), 0, y0 + DOOR_H / 2, R - 0.06, false));
+        const door = mesh(new THREE.BoxGeometry(0.72, DOOR_H - 0.12, 0.07), mat('#8b6a4f'), -doorW / 2 + 0.36, y0 + DOOR_H / 2 - 0.06, R - 0.28);
+        door.rotation.y = -0.55;
+        door.userData.exitDoor = true;
+        door.userData.interactive = true;
+        g.add(door);
+        exitDoor = door;
+      }
+    }
+  }
+
+  // kręcone schody między kondygnacjami i stropy z otworem nad ich końcem
+  const slabs: THREE.Object3D[] = [];
+  const stairW = Math.min(1.3, R * 0.45);
+  for (let k = 0; k < floors - 1; k++) {
+    const { hole, ramps } = spiralStairs(
+      g,
+      { cx: 0, cz: 0, r: R - WALL_T / 2 - 0.05, inner: R - WALL_T / 2 - 0.05 - stairW, y0: k * h, height: h, start: Math.PI / 2, turn: Math.PI * 1.5, steps: Math.max(10, Math.round(h / 0.2)) },
+      mat('#d9d4c7'),
+    );
+    for (const r of ramps) colliders.push(r);
+    const y = (k + 1) * h;
+    let rects: Rect[] = discRects(R - WALL_T / 2 + 0.02);
+    rects = subtractRect(rects, hole);
+    for (const op of opts.openings[k] ?? []) rects = subtractRect(rects, { x0: op.cx - op.hx, x1: op.cx + op.hx, z0: op.cz - op.hz, z1: op.cz + op.hz });
+    const slabGroup = new THREE.Group();
+    for (const r of rects) {
+      const sx = r.x1 - r.x0;
+      const sz = r.z1 - r.z0;
+      if (sx < 0.02 || sz < 0.02) continue;
+      const cx = (r.x0 + r.x1) / 2;
+      const cz = (r.z0 + r.z1) / 2;
+      slabGroup.add(mesh(new THREE.BoxGeometry(sx, SLAB_T, sz), slabMat, cx, y + SLAB_T / 2, cz, false));
+      colliders.push({ size: [sx, SLAB_T, sz], pos: [cx, y + SLAB_T / 2, cz] });
+    }
+    g.add(slabGroup);
+    slabs.push(slabGroup);
+  }
+
+  const topY = floors * h;
+  const ceiling = mesh(new THREE.CylinderGeometry(R, R, SLAB_T, 24), slabMat, 0, topY + SLAB_T / 2, 0, false);
+  g.add(ceiling);
+  colliders.push({ size: [2 * R, SLAB_T, 2 * R], pos: [0, topY + SLAB_T / 2, 0] });
+
+  return {
+    group: g,
+    ceiling,
+    floor,
+    exitDoor,
+    walls,
+    slabs,
+    spawn: { pos: new THREE.Vector3(0, 0, R - 1.6), yaw: 0 },
+    bounds: { hx: (R - WALL_T / 2 - 0.35) * 0.72, hz: (R - WALL_T / 2 - 0.35) * 0.72 },
     colliders,
     dispose() {
       g.traverse((c) => {

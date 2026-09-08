@@ -83,12 +83,10 @@ export const ROOM_PRESETS: RoomPreset[] = [
   {
     id: 'tower-floors',
     name: 'Trzy kondygnacje',
-    description: 'Schody prowadzą przez wszystkie piętra wieży.',
+    description: 'Kręcone schody wieży prowadzą przez wszystkie piętra.',
     buildingTypes: ['tower'],
     floors: 3,
     objects: [
-      { type: 'stairs', u: 0.15, v: -0.15, floor: 0, rotationY: 0 },
-      { type: 'stairs', u: -0.15, v: 0.15, floor: 1, rotationY: Math.PI },
       { type: 'chair', u: -0.2, v: -0.2, floor: 2, rotationY: 0 },
       { type: 'candle', u: 0.2, v: 0.2, floor: 0, rotationY: 0 },
       ...lamps(3),

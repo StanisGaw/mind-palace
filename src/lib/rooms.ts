@@ -228,7 +228,7 @@ export const SHELLS: Record<string, ShellSpec> = {
   palace: { inner: { w: 3.28, d: 2.28, h: 1.9 }, cx: 0, cz: -0.2, floorY: 0.44, door: { x: 0, z: 1.0, w: 0.6, h: 1.1 }, minScale: 1.7 },
   library: { inner: { w: 3.08, d: 2.28, h: 1.7 }, cx: 0, cz: -0.2, floorY: 0.24, door: { x: 0, z: 1.0, w: 0.7, h: 1.15 }, minScale: 1.65 },
   temple: { inner: { w: 2.4, d: 2.0, h: 1.5 }, cx: 0, cz: 0, floorY: 0.36, minScale: 1.6 },
-  tower: { inner: { w: 1.4, d: 1.4, h: 3.6 }, cx: 0, cz: 0, floorY: 0.3, door: { x: 0, z: 0.8, w: 0.43, h: 1.0 }, minScale: 2.0 },
+  tower: { inner: { w: 1.4, d: 1.4, h: 3.6 }, cx: 0, cz: 0, floorY: 0.3, door: { x: 0, z: 0.8, w: 0.43, h: 1.0 }, minScale: 2.5 },
 };
 
 /** Budynek z wnętrzem w tej samej scenie (bez ładowania osobnego pałacu). */

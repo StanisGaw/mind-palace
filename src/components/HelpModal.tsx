@@ -56,7 +56,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
           <li><b>Drzwi</b> stawia się w ściance działowej — podgląd sam przyciąga się do jej osi, a ścianka dostaje otwór. <kbd>R</kbd> albo kółko myszy w trakcie stawiania (i przycisk „Zawiasy z drugiej strony" w panelu) zmienia stronę, w którą otwiera się skrzydło. Przesuwane drzwi jadą po ściance; usunięcie ścianki usuwa też jej drzwi.</li>
           <li>Gotowe <b>układy pokoju</b> są we wnętrzu w zakładce „Układy" obok Biblioteki — wybierz jeden i kliknij „Zastosuj". Układ zastąpi obiekty bez notatek; te z notatkami zawsze zostają. Przycisk „Zapisz obecny układ" zachowuje bieżące rozmieszczenie do ponownego użycia w innym budynku.</li>
           <li>Drzwi (obiekt z Konstrukcji) otwierasz i zamykasz klawiszem <kbd>F</kbd> albo kliknięciem — zamknięte blokują przejście, otwarte przepuszczają.</li>
-          <li>Panel „Piętra" (zamiast planszy w Otoczeniu) ustawia liczbę kondygnacji budynku (1–4) i piętro do edycji. Schody postawione na danym piętrze robią w stropie otwór i prowadzą wyżej — w widoku z oczu wystarczy nimi wejść.</li>
+          <li>Panel „Piętra" (zamiast planszy w Otoczeniu) ustawia liczbę kondygnacji budynku (1–4) i piętro do edycji. Schody postawione na danym piętrze robią w stropie otwór i prowadzą wyżej — w widoku z oczu wystarczy nimi wejść. Wieża ma wbudowane kręcone schody wzdłuż muru (w obu trybach wnętrza), a jej pokój ładowany jest okrągły.</li>
           <li>Eksport pałacu dołącza Twoje własne układy pokoi; przy imporcie pliku z układami możesz osobno wybrać, co zrobić z pałacem, a co z presetami.</li>
         </ul>
         <h3>Krajobraz i pogoda</h3>

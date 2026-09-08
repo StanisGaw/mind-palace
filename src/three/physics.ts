@@ -14,6 +14,8 @@ export interface StaticShape {
 export interface RoomBoxInput {
   size: [number, number, number];
   pos: [number, number, number];
+  /** Obrót bryły (kwaternion) — segmenty okrągłego muru i pochylnie kręconych schodów. */
+  quat?: [number, number, number, number];
 }
 
 const CAPSULE_HALF = 0.55;
@@ -174,6 +176,7 @@ export class Physics {
     this.roomBody = this.fixedBody(0, 0, 0);
     for (const b of boxes) {
       const desc = this.R.ColliderDesc.cuboid(b.size[0] / 2, b.size[1] / 2, b.size[2] / 2).setTranslation(b.pos[0], b.pos[1], b.pos[2]);
+      if (b.quat) desc.setRotation({ x: b.quat[0], y: b.quat[1], z: b.quat[2], w: b.quat[3] });
       this.world.createCollider(desc, this.roomBody);
     }
   }
