@@ -2,7 +2,7 @@ import type { AppData, GroundSpec, Palace, PalaceObject, PalaceSettings, RoomPre
 import { catalogItem, ROOMS } from '../catalog';
 import { uid } from './ids';
 import { hashString } from '../three/noise';
-import { FLOOR_MAX, attachLegacyDoors, roomLamps } from './rooms';
+import { FLOOR_MAX, SHELLS, attachLegacyDoors, buildingOf, roomLamps } from './rooms';
 
 const KEY = 'mneme.data.v1';
 
@@ -54,12 +54,13 @@ export function normalizeData(data: AppData): AppData {
       // budynek z wnętrzem w miejscu nie ma osobnego pałacu-wnętrza
       if (o.interiorMode === 'inplace') {
         delete o.interiorId;
-        o.floors = Math.min(FLOOR_MAX, Math.max(1, Math.round(o.floors ?? 1)));
+        o.floors = Math.min(SHELLS[o.type]?.maxFloors ?? FLOOR_MAX, Math.max(1, Math.round(o.floors ?? 1)));
       }
       if (!o.interiorId) continue;
       const inside = byId.get(o.interiorId);
       if (!inside || inside.parentObjectId !== o.id) delete o.interiorId;
     }
+    migrateShellFloors(p.objects);
     // grupa jednoosobowa to brak grupy
     const groupSize = new Map<string, number>();
     for (const o of p.objects) if (o.groupId) groupSize.set(o.groupId, (groupSize.get(o.groupId) ?? 0) + 1);
@@ -194,6 +195,35 @@ function normalizeSettings(raw: unknown, id: string): PalaceSettings {
   }
   delete merged.groundSize;
   return merged;
+}
+
+/** Dawna wysokość wnętrza budynku (dzielona przez piętra) sprzed zmiany na stałą wysokość kondygnacji. */
+const OLD_INNER_H: Record<string, number> = { house: 1.4, palace: 1.9, library: 1.7, temple: 1.5, tower: 3.6 };
+
+/**
+ * Piętra podwyższają teraz bryłę zamiast dzielić ją na cieńsze kondygnacje. Obiekty w budynkach sprzed tej
+ * zmiany przenosimy na to samo piętro w nowej wysokości (znacznik `shellVersion` — jednorazowo).
+ */
+function migrateShellFloors(objects: PalaceObject[]) {
+  for (const b of objects) {
+    if (b.interiorMode !== 'inplace' || b.shellVersion === 2) continue;
+    const spec = SHELLS[b.type];
+    if (!spec) continue;
+    const oldFloors = Math.max(1, b.floors ?? 1);
+    const sy = b.scale[1];
+    const hOld = ((OLD_INNER_H[b.type] ?? spec.inner.h) * sy) / oldFloors;
+    const hNew = spec.inner.h * sy;
+    const base = b.position[1] + spec.floorY * sy;
+    for (const o of objects) {
+      if (o.id === b.id || buildingOf(objects, o)?.id !== b.id) continue;
+      const k = Math.max(0, Math.floor((o.position[1] - base + 0.05) / hOld));
+      o.position[1] = base + k * hNew + (o.position[1] - base - k * hOld);
+    }
+    // dawna wieża miała jedną bryłę 3,6 — teraz to trzy kondygnacje
+    if (b.type === 'tower') b.floors = Math.max(spec.defaultFloors, oldFloors);
+    b.floors = Math.min(spec.maxFloors, Math.max(1, b.floors ?? 1));
+    b.shellVersion = 2;
+  }
 }
 
 /** Korzeń drzewa, do którego należy dany pałac. */

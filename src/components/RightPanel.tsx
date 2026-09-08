@@ -4,7 +4,7 @@ import { describeDue, isDue } from '../lib/srs';
 import { useCurrentPalace, useStore } from '../store';
 import { usePref } from '../lib/prefs';
 import type { Vec3 } from '../types';
-import { SHELLS, WALL_SEGMENT, isInPlace, wallChains } from '../lib/rooms';
+import { SHELLS, WALL_SEGMENT, isInPlace, maxFloorsOf, wallChains } from '../lib/rooms';
 import { I } from './Icons';
 import { Tip } from './Tip';
 
@@ -419,7 +419,7 @@ function Inspector({ id }: { id: string }) {
             <button className="shape-btn" onClick={() => setBuildingFloors(id, (obj.floors ?? 1) - 1)} disabled={(obj.floors ?? 1) <= 1}>
               − Mniej
             </button>
-            <button className="shape-btn" onClick={() => setBuildingFloors(id, (obj.floors ?? 1) + 1)} disabled={(obj.floors ?? 1) >= 4}>
+            <button className="shape-btn" onClick={() => setBuildingFloors(id, (obj.floors ?? 1) + 1)} disabled={(obj.floors ?? 1) >= maxFloorsOf(obj.type)}>
               + Więcej
             </button>
           </div>
@@ -443,7 +443,7 @@ function Inspector({ id }: { id: string }) {
             <I.Door width={14} height={14} /> Pokaż wnętrze{insideCount > 0 ? ` · ${insideCount} obiektów` : ''}
           </button>
           <p className="hint" style={{ marginTop: 6 }}>
-            Klik w budynek chowa dach, klik w pustkę go przywraca. W spacerze otwierasz drzwi klawiszem F i wchodzisz. Skala co najmniej {SHELLS[obj.type]?.minScale ?? 1}, większa daje przestronniejsze wnętrze.
+            Klik w budynek chowa dach, klik w pustkę go przywraca. W spacerze otwierasz drzwi klawiszem F i wchodzisz. Każde piętro podwyższa bryłę (najwyżej {maxFloorsOf(obj.type)}). Skala co najmniej {SHELLS[obj.type]?.minScale ?? 1}, większa daje przestronniejsze wnętrze.
           </p>
         </div>
       )}

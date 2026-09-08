@@ -5,7 +5,7 @@ import { uid } from './lib/ids';
 import { yawRotation } from './lib/transform';
 import { getPref, setPref } from './lib/prefs';
 import { chainOf, collectSubtree, loadData, makeInteriorPalace, makePalace, rootOf, saveData } from './lib/storage';
-import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingFloorY, buildingOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt } from './lib/rooms';
+import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingFloorY, buildingOf, maxFloorsOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt } from './lib/rooms';
 import { ROOM_PRESETS, capturePreset, instantiatePreset } from './lib/presets';
 import { loadCustomPresets, saveCustomPresets } from './lib/presetStore';
 import { isDue, newSrs, reviewSrs } from './lib/srs';
@@ -470,7 +470,7 @@ export const useStore = create<State>((set, get) => ({
     const p = get().palace();
     const b = p.objects.find((o) => o.id === id);
     if (!b || !isInPlace(b)) return;
-    const floors = Math.min(FLOOR_MAX, Math.max(1, Math.round(n)));
+    const floors = Math.min(maxFloorsOf(b.type), Math.max(1, Math.round(n)));
     const cur = b.floors ?? 1;
     if (floors === cur) return;
     if (floors < cur && p.objects.some((o) => buildingOf(p.objects, o)?.id === id && floorOfIn(b, o.position[1]) >= floors)) {
@@ -501,7 +501,8 @@ export const useStore = create<State>((set, get) => ({
         const o = pl.objects.find((x) => x.id === id);
         if (!o) return;
         o.interiorMode = 'inplace';
-        o.floors = o.floors ?? 1;
+        o.floors = o.floors ?? SHELLS[o.type]?.defaultFloors ?? 1;
+        o.shellVersion = 2;
         o.scale = bumped;
       });
       if (bumped.some((v, i) => v !== b.scale[i])) get().showToast(`Skala budynku podniesiona do ${min}, żeby dało się wejść do środka.`);
@@ -639,7 +640,7 @@ export const useStore = create<State>((set, get) => ({
         rotation: yawRotation(rotationY ?? (item.unique ? Math.atan2(pos[0], pos[2]) : 0)),
         scale: finalScale,
         anchorId,
-        ...(shell ? { interiorMode: 'inplace' as const, floors: 1 } : {}),
+        ...(shell ? { interiorMode: 'inplace' as const, floors: shell.defaultFloors, shellVersion: 2 as const } : {}),
       });
     });
     set({ selectedIds: [id], ...(get().placing ? {} : { leftTab: 'scene' as const }) });

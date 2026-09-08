@@ -221,14 +221,18 @@ export interface ShellSpec {
   door?: { x: number; z: number; w: number; h: number };
   /** Najmniejsza skala, przy której kapsuła gracza (1,74 m) przechodzi pod nadprożem drzwi. */
   minScale: number;
+  /** Liczba kondygnacji nowego budynku i najwyższa dopuszczalna — każda dokłada `inner.h` do wysokości bryły. */
+  defaultFloors: number;
+  maxFloors: number;
 }
 
 export const SHELLS: Record<string, ShellSpec> = {
-  house: { inner: { w: 1.88, d: 1.68, h: 1.4 }, cx: 0, cz: 0, floorY: 0.16, door: { x: -0.4, z: 0.9, w: 0.5, h: 1.0 }, minScale: 2.0 },
-  palace: { inner: { w: 3.28, d: 2.28, h: 1.9 }, cx: 0, cz: -0.2, floorY: 0.44, door: { x: 0, z: 1.0, w: 0.6, h: 1.1 }, minScale: 1.7 },
-  library: { inner: { w: 3.08, d: 2.28, h: 1.7 }, cx: 0, cz: -0.2, floorY: 0.24, door: { x: 0, z: 1.0, w: 0.7, h: 1.15 }, minScale: 1.65 },
-  temple: { inner: { w: 2.4, d: 2.0, h: 1.5 }, cx: 0, cz: 0, floorY: 0.36, minScale: 1.6 },
-  tower: { inner: { w: 1.4, d: 1.4, h: 3.6 }, cx: 0, cz: 0, floorY: 0.3, door: { x: 0, z: 0.8, w: 0.43, h: 1.0 }, minScale: 2.5 },
+  house: { inner: { w: 1.88, d: 1.68, h: 1.4 }, cx: 0, cz: 0, floorY: 0.16, door: { x: -0.4, z: 0.9, w: 0.5, h: 1.0 }, minScale: 2.0, defaultFloors: 1, maxFloors: 2 },
+  palace: { inner: { w: 3.28, d: 2.28, h: 1.9 }, cx: 0, cz: -0.2, floorY: 0.44, door: { x: 0, z: 1.0, w: 0.6, h: 1.1 }, minScale: 1.7, defaultFloors: 1, maxFloors: 2 },
+  library: { inner: { w: 3.08, d: 2.28, h: 1.7 }, cx: 0, cz: -0.2, floorY: 0.24, door: { x: 0, z: 1.0, w: 0.7, h: 1.15 }, minScale: 1.65, defaultFloors: 1, maxFloors: 2 },
+  temple: { inner: { w: 2.4, d: 2.0, h: 1.5 }, cx: 0, cz: 0, floorY: 0.36, minScale: 1.6, defaultFloors: 1, maxFloors: 1 },
+  // wieża: kondygnacja 1,2 (3 m przy skali 2,5); trzy kondygnacje dają dotychczasową sylwetkę
+  tower: { inner: { w: 1.4, d: 1.4, h: 1.2 }, cx: 0, cz: 0, floorY: 0.3, door: { x: 0, z: 0.8, w: 0.43, h: 1.0 }, minScale: 2.5, defaultFloors: 3, maxFloors: 4 },
 };
 
 /** Budynek z wnętrzem w tej samej scenie (bez ładowania osobnego pałacu). */
@@ -236,10 +240,15 @@ export function isInPlace(o: Pick<PalaceObject, 'type' | 'interiorMode'>): boole
   return o.interiorMode === 'inplace' && o.type in SHELLS;
 }
 
-/** Wysokość jednej kondygnacji budynku w metrach świata. */
+/** Wysokość jednej kondygnacji budynku w metrach świata — stała, każde piętro podwyższa bryłę. */
 export function buildingFloorHeight(b: PalaceObject): number {
   const spec = SHELLS[b.type] ?? SHELLS.house;
-  return (spec.inner.h * b.scale[1]) / Math.max(1, b.floors ?? 1);
+  return spec.inner.h * b.scale[1];
+}
+
+/** Najwyższa liczba pięter dla typu budynku z wnętrzem w miejscu. */
+export function maxFloorsOf(type: string): number {
+  return SHELLS[type]?.maxFloors ?? 1;
 }
 
 /** Wysokość podłogi piętra `k` budynku w świecie. */

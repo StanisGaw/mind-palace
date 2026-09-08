@@ -10,6 +10,7 @@ import { SceneManager } from '../three/SceneManager';
 import { I } from './Icons';
 import { catalogItem } from '../catalog';
 import { COARSE_Q, useMediaQuery } from '../lib/media';
+import { maxFloorsOf } from '../lib/rooms';
 import { ReviewOverlay } from './ReviewOverlay';
 import { Tip } from './Tip';
 
@@ -491,7 +492,7 @@ function ActiveBuildingSection() {
           <button className="shape-btn" onClick={() => setBuildingFloors(b.id, floors - 1)} disabled={floors <= 1}>
             − Mniej
           </button>
-          <button className="shape-btn" onClick={() => setBuildingFloors(b.id, floors + 1)} disabled={floors >= 4}>
+          <button className="shape-btn" onClick={() => setBuildingFloors(b.id, floors + 1)} disabled={floors >= maxFloorsOf(b.type)}>
             + Więcej
           </button>
         </div>

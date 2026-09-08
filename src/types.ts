@@ -32,6 +32,7 @@ export interface PalaceObject {
   groupId?: string; // grupa: kliknięcie zaznacza wszystkich członków, ruszają się i giną razem
   interiorMode?: 'inplace'; // budynek: wnętrze w tej samej scenie (brak = osobny pałac-wnętrze)
   floors?: number; // budynek z wnętrzem w miejscu: liczba kondygnacji (1–4)
+  shellVersion?: 2; // 2: piętra podwyższają bryłę (stała wysokość kondygnacji); brak = stary podział bryły na piętra
 }
 
 /** Wymiary proceduralnego wnętrza budynku. */
