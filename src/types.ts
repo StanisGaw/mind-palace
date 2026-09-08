@@ -99,6 +99,7 @@ export interface PresetObject {
   rotationY: number;
   scale?: Vec3;
   span?: { axis: 'x' | 'z'; frac: number }; // ściany: długość jako ułamek wymiaru pokoju
+  anchor?: number; // indeks obiektu w układzie, w którym ten obiekt jest zakotwiczony (drzwi w ściance)
 }
 
 /** Gotowy układ pokoju: wbudowany albo zapisany przez użytkownika. */

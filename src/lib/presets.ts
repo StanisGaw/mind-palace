@@ -1,11 +1,8 @@
 import { catalogItem } from '../catalog';
 import { yawRotation } from './transform';
 import { uid } from './ids';
-import { floorOf } from './rooms';
+import { WALL_SEGMENT, attachLegacyDoors, floorOf } from './rooms';
 import type { Palace, PalaceObject, PresetObject, RoomPreset, RoomSpec, Vec3 } from '../types';
-
-/** Długość bazowego segmentu ściany/drzwi w `three/builders.ts` — punkt odniesienia dla `span`. */
-const WALL_SEGMENT = 2.0;
 
 /**
  * Układy pokoi wbudowane w aplikację. Współrzędne są względne (u, v ∈ -0.5..0.5, ściany przez `span`),
@@ -19,9 +16,8 @@ export const ROOM_PRESETS: RoomPreset[] = [
     buildingTypes: ['house'],
     floors: 1,
     objects: [
-      { type: 'wall', u: 0, v: -0.32, floor: 0, rotationY: Math.PI / 2, span: { axis: 'z', frac: 0.34 } },
-      { type: 'door', u: 0, v: 0, floor: 0, rotationY: Math.PI / 2 },
-      { type: 'wall', u: 0, v: 0.32, floor: 0, rotationY: Math.PI / 2, span: { axis: 'z', frac: 0.34 } },
+      { type: 'wall', u: 0, v: 0, floor: 0, rotationY: Math.PI / 2, span: { axis: 'z', frac: 1 } },
+      { type: 'door', u: 0, v: 0, floor: 0, rotationY: Math.PI / 2, anchor: 0 },
       { type: 'table', u: -0.22, v: -0.15, floor: 0, rotationY: 0 },
       { type: 'chair', u: -0.22, v: 0.05, floor: 0, rotationY: Math.PI },
       { type: 'shelf', u: 0.35, v: -0.35, floor: 0, rotationY: Math.PI / 2 },
@@ -47,10 +43,10 @@ export const ROOM_PRESETS: RoomPreset[] = [
     buildingTypes: ['palace'],
     floors: 1,
     objects: [
-      { type: 'wall', u: -0.15, v: -0.05, floor: 0, rotationY: Math.PI / 2, span: { axis: 'z', frac: 0.55 } },
-      { type: 'door', u: -0.15, v: 0.3, floor: 0, rotationY: Math.PI / 2 },
-      { type: 'wall', u: 0.15, v: -0.05, floor: 0, rotationY: Math.PI / 2, span: { axis: 'z', frac: 0.55 } },
-      { type: 'door', u: 0.15, v: 0.3, floor: 0, rotationY: Math.PI / 2 },
+      { type: 'wall', u: -0.15, v: 0, floor: 0, rotationY: Math.PI / 2, span: { axis: 'z', frac: 1 } },
+      { type: 'door', u: -0.15, v: 0.3, floor: 0, rotationY: Math.PI / 2, anchor: 0 },
+      { type: 'wall', u: 0.15, v: 0, floor: 0, rotationY: Math.PI / 2, span: { axis: 'z', frac: 1 } },
+      { type: 'door', u: 0.15, v: 0.3, floor: 0, rotationY: Math.PI / 2, anchor: 2 },
       { type: 'table', u: 0, v: -0.1, floor: 0, rotationY: 0 },
       { type: 'chair', u: 0, v: 0.1, floor: 0, rotationY: Math.PI },
       { type: 'bench', u: -0.35, v: -0.1, floor: 0, rotationY: Math.PI / 2 },
@@ -64,12 +60,10 @@ export const ROOM_PRESETS: RoomPreset[] = [
     buildingTypes: ['palace'],
     floors: 1,
     objects: [
-      { type: 'wall', u: -0.25, v: -0.15, floor: 0, rotationY: 0, span: { axis: 'x', frac: 0.3 } },
-      { type: 'door', u: 0, v: -0.15, floor: 0, rotationY: 0 },
-      { type: 'wall', u: 0.25, v: -0.15, floor: 0, rotationY: 0, span: { axis: 'x', frac: 0.3 } },
-      { type: 'wall', u: -0.25, v: 0.15, floor: 0, rotationY: 0, span: { axis: 'x', frac: 0.3 } },
-      { type: 'door', u: 0, v: 0.15, floor: 0, rotationY: 0 },
-      { type: 'wall', u: 0.25, v: 0.15, floor: 0, rotationY: 0, span: { axis: 'x', frac: 0.3 } },
+      { type: 'wall', u: 0, v: -0.15, floor: 0, rotationY: 0, span: { axis: 'x', frac: 0.8 } },
+      { type: 'door', u: 0, v: -0.15, floor: 0, rotationY: 0, anchor: 0 },
+      { type: 'wall', u: 0, v: 0.15, floor: 0, rotationY: 0, span: { axis: 'x', frac: 0.8 } },
+      { type: 'door', u: 0, v: 0.15, floor: 0, rotationY: 0, anchor: 2 },
       { type: 'statue', u: 0, v: -0.35, floor: 0, rotationY: 0 },
       { type: 'candle', u: 0, v: 0, floor: 0, rotationY: 0 },
       { type: 'painting', u: 0, v: 0.38, floor: 0, rotationY: Math.PI },
@@ -110,9 +104,8 @@ export const ROOM_PRESETS: RoomPreset[] = [
     buildingTypes: ['library'],
     floors: 1,
     objects: [
-      { type: 'wall', u: 0, v: -0.3, floor: 0, rotationY: Math.PI / 2, span: { axis: 'z', frac: 0.3 } },
-      { type: 'door', u: 0, v: 0, floor: 0, rotationY: Math.PI / 2 },
-      { type: 'wall', u: 0, v: 0.3, floor: 0, rotationY: Math.PI / 2, span: { axis: 'z', frac: 0.3 } },
+      { type: 'wall', u: 0, v: 0, floor: 0, rotationY: Math.PI / 2, span: { axis: 'z', frac: 0.9 } },
+      { type: 'door', u: 0, v: 0, floor: 0, rotationY: Math.PI / 2, anchor: 0 },
       { type: 'shelf', u: -0.3, v: -0.25, floor: 0, rotationY: Math.PI / 2 },
       { type: 'shelf', u: 0.3, v: -0.25, floor: 0, rotationY: -Math.PI / 2 },
       { type: 'shelf', u: -0.3, v: 0.25, floor: 0, rotationY: Math.PI / 2 },
@@ -138,9 +131,8 @@ export const ROOM_PRESETS: RoomPreset[] = [
     buildingTypes: ['temple'],
     floors: 1,
     objects: [
-      { type: 'wall', u: -0.2, v: 0.25, floor: 0, rotationY: 0, span: { axis: 'x', frac: 0.25 } },
-      { type: 'door', u: 0, v: 0.25, floor: 0, rotationY: 0 },
-      { type: 'wall', u: 0.2, v: 0.25, floor: 0, rotationY: 0, span: { axis: 'x', frac: 0.25 } },
+      { type: 'wall', u: 0, v: 0.25, floor: 0, rotationY: 0, span: { axis: 'x', frac: 0.65 } },
+      { type: 'door', u: 0, v: 0.25, floor: 0, rotationY: 0, anchor: 0 },
       { type: 'candle', u: 0, v: -0.25, floor: 0, rotationY: 0 },
     ],
   },
@@ -155,7 +147,8 @@ export const ROOM_PRESETS: RoomPreset[] = [
 
 /** Zamienia układ na liście `PalaceObject` we współrzędnych bieżącego pokoju. */
 export function instantiatePreset(preset: RoomPreset, spec: RoomSpec): PalaceObject[] {
-  return preset.objects.map((po) => {
+  const ids = preset.objects.map(() => uid());
+  const objects = preset.objects.map((po, i) => {
     const item = catalogItem(po.type);
     let scale: Vec3 = po.scale ?? [1, 1, 1];
     if (po.span) {
@@ -163,22 +156,26 @@ export function instantiatePreset(preset: RoomPreset, spec: RoomSpec): PalaceObj
       const factor = (po.span.frac * dim) / WALL_SEGMENT;
       scale = [factor, scale[1], scale[2]];
     }
+    const anchorId = po.anchor !== undefined && po.anchor !== i ? ids[po.anchor] : undefined;
     return {
-      id: uid(),
+      id: ids[i],
       type: po.type,
       name: po.name ?? item.name,
-      position: [po.u * spec.width, po.floor * spec.height + (po.dy ?? 0), po.v * spec.depth],
+      position: [po.u * spec.width, po.floor * spec.height + (po.dy ?? 0), po.v * spec.depth] as Vec3,
       rotation: yawRotation(po.rotationY),
       scale,
+      anchorId,
     };
   });
+  // własne presety sprzed kotwiczenia drzwi w ściance: drzwi-segment dostaje ściankę
+  return attachLegacyDoors(objects, uid);
 }
 
 /** Odwrotność `instantiatePreset`: bieżący układ pokoju jako preset do zapisania. Obiekty z notatkami pomijamy. */
 export function capturePreset(name: string, palace: Palace, spec: RoomSpec): RoomPreset {
-  const objects: PresetObject[] = palace.objects
-    .filter((o) => !o.note)
-    .map((o) => {
+  const kept = palace.objects.filter((o) => !o.note);
+  const indexOf = new Map(kept.map((o, i) => [o.id, i]));
+  const objects: PresetObject[] = kept.map((o) => {
       const floor = floorOf(o.position[1], spec.height);
       const po: PresetObject = {
         type: o.type,
@@ -188,6 +185,8 @@ export function capturePreset(name: string, palace: Palace, spec: RoomSpec): Roo
         dy: o.position[1] - floor * spec.height,
         rotationY: o.rotation[1],
       };
+      const anchor = o.anchorId ? indexOf.get(o.anchorId) : undefined;
+      if (anchor !== undefined) po.anchor = anchor;
       if (o.type === 'wall') {
         // długość ściany zapisujemy jako ułamek wymiaru pokoju, żeby preset pasował do innej skali
         const alongX = Math.cos(o.rotation[1]) ** 2 > 0.5;

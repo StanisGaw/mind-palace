@@ -4,6 +4,7 @@ import { describeDue, isDue } from '../lib/srs';
 import { useCurrentPalace, useStore } from '../store';
 import { usePref } from '../lib/prefs';
 import type { Vec3 } from '../types';
+import { WALL_SEGMENT } from '../lib/rooms';
 import { I } from './Icons';
 import { Tip } from './Tip';
 
@@ -368,7 +369,21 @@ function Inspector({ id }: { id: string }) {
         <span>{onPath ? `Na ścieżce pamięci (przystanek ${idx + 1})` : 'Dodaj do ścieżki pamięci'}</span>
         <span className="sw" />
       </button>
-      {anchor && (
+      {anchor && obj.type === 'door' && (
+        <div className="anchor-row">
+          <span>
+            W ściance: <b>{anchor.name}</b>
+          </span>
+          <button
+            className="btn small"
+            title="Skrzydło otwiera się w drugą stronę"
+            onClick={() => updateObject(id, { rotation: [0, obj.rotation[1] + Math.PI, 0] })}
+          >
+            Zawiasy z drugiej strony
+          </button>
+        </div>
+      )}
+      {anchor && obj.type !== 'door' && (
         <div className="anchor-row">
           <span>
             Stoi na: <b>{anchor.name}</b>
@@ -376,6 +391,14 @@ function Inspector({ id }: { id: string }) {
           <button className="btn small" onClick={() => dropToGround(id)}>
             Postaw na ziemi
           </button>
+        </div>
+      )}
+      {obj.type === 'wall' && (
+        <div className="field">
+          <label>Długość (zmienia ją skala X)</label>
+          <div className="row">
+            <span className="val">{(obj.scale[0] * WALL_SEGMENT).toFixed(1).replace('.', ',')} m</span>
+          </div>
         </div>
       )}
       <div className="field">
@@ -393,8 +416,8 @@ function Inspector({ id }: { id: string }) {
           <span className="val">{obj.position[1].toFixed(2)} m</span>
         </div>
       </div>
-      <ScaleField id={id} scale={obj.scale} max={item.maxScale ?? 10} />
-      <RotationField id={id} rotation={obj.rotation} />
+      {obj.type !== 'door' && <ScaleField id={id} scale={obj.scale} max={item.maxScale ?? 10} />}
+      {obj.type !== 'door' && <RotationField id={id} rotation={obj.rotation} />}
       <div className="actions">
         <button className="btn small" onClick={() => flyTo(id)}>
           <I.Eye width={14} height={14} /> Pokaż

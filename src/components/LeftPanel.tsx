@@ -103,7 +103,7 @@ function Library({ q }: { q: string }) {
                 <button
                   key={item.id}
                   className={'item-row' + (placing?.type === item.id ? ' placing' : '')}
-                  title={placing?.type === item.id ? 'Kliknij scenę, aby postawić (Esc anuluje)' : item.description}
+                  title={placing?.type === item.id ? (item.id === 'wall' ? 'Kliknij początek i koniec ścianki (Esc anuluje)' : 'Kliknij scenę, aby postawić (Esc anuluje)') : item.description}
                   onClick={() => {
                     if (viewMode !== 'editor') {
                       addObject(item.id);
@@ -123,7 +123,7 @@ function Library({ q }: { q: string }) {
                     <div className="name">{item.name}</div>
                     <div className="sub">{item.description}</div>
                   </span>
-                  <span className="add">{placing?.type === item.id ? 'Kliknij scenę' : '+ Dodaj'}</span>
+                  <span className="add">{placing?.type === item.id ? (item.id === 'wall' ? 'Początek i koniec' : 'Kliknij scenę') : '+ Dodaj'}</span>
                 </button>
               ))}
           </div>
