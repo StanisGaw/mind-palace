@@ -21,6 +21,10 @@ npm run build        # produkcyjny build do dist/
   wokół osi X/Y/Z. Skalowanie i obrót osobno na każdej osi. Kamera: środkowy przycisk obraca, prawy
   przesuwa, kółko przybliża; w rzucie z góry (`T`) przytrzymanie środkowego przycisku chwilowo pochyla widok.
   Przyciski kamery: wyśrodkuj (`F`), rzut z góry (`T`), pełny ekran. Podpowiedzi po najechaniu na przyciski.
+- **Rozmiary budynków** — wnętrza mają powierzchnię prawdziwych pomieszczeń (domek 10,4 × 9,6 m przy skali 2,
+  pałac 11,2 × 9,8 m, biblioteka 10,2 × 9,5 m, świątynia 7,7 × 6,4 m, wieża 10 m średnicy), więc mieszczą klatkę
+  schodową, ścianki działowe i meble. Starsze pałace przechodzą migrację (`shellVersion: 5`): elewacja wraca na
+  nowe lico muru, a plansza rośnie tak, by pomieścić bryły.
 - **Układanie i kotwiczenie** — obiekty można stawiać na innych; postawiony przedmiot przesuwa się
   i obraca razem z podstawą. Stawianie działa też poza planszą, na okolicznym terenie.
 - **Plansza i nawierzchnia** — kształt płyty (prostokąt, koło, sześciokąt), jej wymiary, kilkanaście
@@ -61,7 +65,8 @@ npm run build        # produkcyjny build do dist/
   otwór, `R` zmienia stronę zawiasów), schody, lampa sufitowa. Obiekty można grupować („Grupuj" w panelu
   zaznaczenia): grupa zaznacza się, przesuwa i znika jako całość. Panel „Piętra" ustawia liczbę
   kondygnacji (1–4) budynku i piętro do edycji; schody robią otwór w stropie i prowadzą wyżej. Domek, pałac
-  i biblioteka dostają schody same przy pierwszym piętrze (zwykły obiekt wzdłuż tylnej ściany, z podestem); wieża
+  i biblioteka dostają schody same przy pierwszym piętrze — aplikacja szuka miejsca, gdzie bieg mieści się przy
+  ścianie z podejściem i podestem, bez przecinania ścianek i mebli (`lib/layout.ts`); wieża
   ma jeden ciągły bieg kręconych schodów przez wszystkie kondygnacje i okrągłe izby na piętrach. Zakładka „Układy"
   (we wnętrzu i dla odsłoniętego budynku w miejscu) proponuje gotowe układy pokoju (wbudowane i własne) — „Zastosuj" zastępuje obiekty bez
   notatek, „Zapisz obecny układ" zachowuje bieżące rozmieszczenie do ponownego użycia. Drzwi otwiera
@@ -96,6 +101,17 @@ npm run build        # produkcyjny build do dist/
 ## Podgląd fizyki
 
 Dopisz `?physdebug=1` do adresu, aby zobaczyć bryły kolizji jako linie.
+
+## Testy
+
+```bash
+npm test          # vitest: testy integracyjne układów pokoi (src/lib/layout.test.ts)
+```
+
+Testy sprawdzają geometrię układów w metrach: czy schody mieszczą się w pokoju razem z podejściem i podestem,
+czy nie przecinają ścianek i mebli, czy od wejścia da się dojść do każdego mebla i do schodów (siatka przejść
+z kapsułą gracza o promieniu 0,32 m), czy krzesła stoją przy stole, a obrazy przy ścianie. Każdy wbudowany układ
+jest sprawdzany w dwóch skalach budynku i osobno w pokoju ładowanym jako osobna scena.
 
 ## Struktura
 

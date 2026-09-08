@@ -8,6 +8,7 @@
 ## Polecenia
 
 ```bash
+npm test             # vitest: testy integracyjne układów pokoi (src/lib/layout.test.ts)
 npm run dev          # http://localhost:5187, nasłuch także w sieci lokalnej
 npm run dev:https    # wymagane do WebXR i czujników ruchu na telefonie
 npm run build        # tsc --noEmit + vite build
@@ -16,8 +17,12 @@ npx tsc --noEmit     # sama kontrola typów (szybka)
 
 ## Czego w tym projekcie nie ma
 
-Nie ma backendu, API, DTO, mapperów, React Query, testów jednostkowych ani lintera.
-Nie proponuj rozwiązań opartych na tych elementach.
+Nie ma backendu, API, DTO, mapperów, React Query ani lintera. Nie proponuj rozwiązań opartych
+na tych elementach.
+
+Testy są tylko tam, gdzie liczy się czysta geometria: `src/lib/layout.test.ts` sprawdza układy pokoi
+(przestrzeń przy schodach, przejścia, meble przy ścianach). Warstwy `three/` i `components/` nadal
+weryfikujemy zrzutami z przeglądarki.
 
 ## Rozmiar paczek
 

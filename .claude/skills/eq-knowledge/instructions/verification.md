@@ -2,11 +2,15 @@
 
 Kolejność jest obowiązkowa: bez zrzutu ekranu nie twierdź, że funkcja wizualna działa.
 
-## 1. Typy
+## 1. Typy i testy
 
 ```bash
 npx tsc --noEmit
+npm test             # układy pokoi: schody, przejścia, meble (src/lib/layout.test.ts)
 ```
+
+Zmieniając wymiary budynków (`SHELLS`), układy (`ROOM_PRESETS`) albo geometrię schodów, uruchom `npm test`
+— testy pilnują, że gracz zmieści się przy schodach i dojdzie do każdego mebla.
 
 ## 2. Zrzut z przeglądarki
 

@@ -9,7 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
     "typecheck": "tsc --noEmit",
-    "shot": "node tools/shot.mjs"
+    "shot": "node tools/shot.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",
@@ -24,8 +25,9 @@
     "@types/three": "^0.169.0",
     "@vitejs/plugin-basic-ssl": "^1.1.0",
     "@vitejs/plugin-react": "^4.3.2",
+    "puppeteer-core": "^24.0.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.9",
-    "puppeteer-core": "^24.0.0"
+    "vitest": "^2.1.9"
   }
 }

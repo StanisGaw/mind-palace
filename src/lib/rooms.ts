@@ -232,19 +232,34 @@ export interface ShellSpec {
 }
 
 /** Promień wewnętrznego lica muru wieży (jednostki modelu). */
-export const TOWER_R = 1.0;
+export const TOWER_R = 2.0;
 
+/**
+ * Wnętrza o realistycznej powierzchni: domek 10,4 × 9,6 m przy skali 2, pałac 11,2 × 9,8 m przy 1,7,
+ * biblioteka 10,2 × 9,5 m przy 1,65, świątynia 7,7 × 6,4 m, wieża o średnicy 10 m przy 2,5 — jest miejsce na
+ * klatkę schodową z podejściem i podestem, ścianki działowe i meble. Wysokości kondygnacji bez zmian.
+ */
 export const SHELLS: Record<string, ShellSpec> = {
-  // wnętrza na tyle duże, żeby zmieścić klatkę schodową (bieg 1,15 × wysokość kondygnacji) i wejście:
-  // domek 5,2 × 4,8 m przy skali 2, pałac 5,6 × 4,9 m przy 1,7, biblioteka 5,1 × 4,8 m przy 1,65
-  house: { inner: { w: 2.6, d: 2.4, h: 1.4 }, cx: 0, cz: 0, floorY: 0.16, door: { x: -0.6, z: 1.26, w: 0.5, h: 1.0 }, minScale: 2.0, defaultFloors: 1, maxFloors: 2 },
-  palace: { inner: { w: 3.28, d: 2.88, h: 1.9 }, cx: 0, cz: -0.2, floorY: 0.44, door: { x: 0, z: 1.3, w: 0.6, h: 1.1 }, minScale: 1.7, defaultFloors: 1, maxFloors: 2 },
-  library: { inner: { w: 3.08, d: 2.88, h: 1.7 }, cx: 0, cz: -0.2, floorY: 0.24, door: { x: 0, z: 1.3, w: 0.7, h: 1.15 }, minScale: 1.65, defaultFloors: 1, maxFloors: 2 },
-  temple: { inner: { w: 2.4, d: 2.0, h: 1.5 }, cx: 0, cz: 0, floorY: 0.36, minScale: 1.6, defaultFloors: 1, maxFloors: 1 },
-  // wieża: mur o promieniu TOWER_R, kondygnacja 1,4 (3,5 m przy skali 2,5) — węższa i niższa była za ciasna
-  // dla postaci obok kręconych schodów
-  tower: { inner: { w: 2.0, d: 2.0, h: 1.4 }, cx: 0, cz: 0, floorY: 0.3, door: { x: 0, z: 1.0, w: 0.43, h: 1.0 }, minScale: 2.5, defaultFloors: 3, maxFloors: 4 },
+  house: { inner: { w: 5.2, d: 4.8, h: 1.4 }, cx: 0, cz: 0, floorY: 0.16, door: { x: -1.2, z: 2.46, w: 0.5, h: 1.0 }, minScale: 2.0, defaultFloors: 1, maxFloors: 2 },
+  palace: { inner: { w: 6.56, d: 5.76, h: 1.9 }, cx: 0, cz: -0.2, floorY: 0.44, door: { x: 0, z: 2.74, w: 0.6, h: 1.1 }, minScale: 1.7, defaultFloors: 1, maxFloors: 2 },
+  library: { inner: { w: 6.16, d: 5.76, h: 1.7 }, cx: 0, cz: -0.2, floorY: 0.24, door: { x: 0, z: 2.74, w: 0.7, h: 1.15 }, minScale: 1.65, defaultFloors: 1, maxFloors: 2 },
+  temple: { inner: { w: 4.8, d: 4.0, h: 1.5 }, cx: 0, cz: 0, floorY: 0.36, minScale: 1.6, defaultFloors: 1, maxFloors: 1 },
+  tower: { inner: { w: 4.0, d: 4.0, h: 1.4 }, cx: 0, cz: 0, floorY: 0.3, door: { x: 0, z: 2.0, w: 0.43, h: 1.0 }, minScale: 2.5, defaultFloors: 3, maxFloors: 4 },
 };
+
+/**
+ * Bryły wbudowane w powłokę, które stoją w środku pokoju i zajmują miejsce tak samo jak meble
+ * (świątynia: osiem kolumn i blok ołtarza). Jednostki modelu, wspólne dla `buildTemple` i sprawdzania układów.
+ */
+export function shellFixedBoxes(type: string): { cx: number; cz: number; hx: number; hz: number }[] {
+  if (type !== 'temple') return [];
+  const { w, d } = SHELLS.temple.inner;
+  const cx = w / 2 - 0.3;
+  const cz = d / 2 - 0.3;
+  // pośrodku frontu kolumny nie ma — tamtędy się wchodzi
+  const cols: [number, number][] = [[-cx, cz], [cx, cz], [-cx, -cz], [cx, -cz], [0, -cz], [-cx, 0], [cx, 0]];
+  return [...cols.map(([x, z]) => ({ cx: x, cz: z, hx: 0.15, hz: 0.15 })), { cx: 0, cz: -d * 0.3, hx: 0.4, hz: 0.4 }];
+}
 
 /** Budynek z wnętrzem w tej samej scenie (bez ładowania osobnego pałacu). */
 export function isInPlace(o: Pick<PalaceObject, 'type' | 'interiorMode'>): boolean {
@@ -405,34 +420,41 @@ export interface ShellWindow {
  */
 export const SHELL_WINDOWS: Record<string, ShellWindow[]> = {
   house: [
-    { wall: 'front', u: 0.6, w: 0.4, h: 0.4, sill: 0.65 },
-    { wall: 'back', u: -0.7, w: 0.4, h: 0.4, sill: 0.65 },
-    { wall: 'back', u: 0.7, w: 0.4, h: 0.4, sill: 0.65 },
-    { wall: 'left', u: 0.1, w: 0.4, h: 0.4, sill: 0.65 },
-    { wall: 'right', u: 0.1, w: 0.4, h: 0.4, sill: 0.65 },
+    { wall: 'front', u: 1.2, w: 0.4, h: 0.4, sill: 0.65 },
+    // środek tylnej ściany zostaje wolny na kominek, kredens albo wezgłowie łóżka
+    { wall: 'back', u: -1.9, w: 0.4, h: 0.4, sill: 0.65 },
+    { wall: 'back', u: 1.9, w: 0.4, h: 0.4, sill: 0.65 },
+    { wall: 'left', u: -1.0, w: 0.4, h: 0.4, sill: 0.65 },
+    { wall: 'left', u: 1.0, w: 0.4, h: 0.4, sill: 0.65 },
+    { wall: 'right', u: -1.0, w: 0.4, h: 0.4, sill: 0.65 },
+    { wall: 'right', u: 1.0, w: 0.4, h: 0.4, sill: 0.65 },
   ],
   palace: [
-    { wall: 'front', u: -1.05, w: 0.36, h: 0.5, sill: 0.85 },
-    { wall: 'front', u: 1.05, w: 0.36, h: 0.5, sill: 0.85 },
-    { wall: 'back', u: -1.05, w: 0.36, h: 0.5, sill: 0.85 },
+    { wall: 'front', u: -2.1, w: 0.36, h: 0.5, sill: 0.85 },
+    { wall: 'front', u: 2.1, w: 0.36, h: 0.5, sill: 0.85 },
+    { wall: 'back', u: -2.1, w: 0.36, h: 0.5, sill: 0.85 },
     { wall: 'back', u: 0, w: 0.36, h: 0.5, sill: 0.85 },
-    { wall: 'back', u: 1.05, w: 0.36, h: 0.5, sill: 0.85 },
-    { wall: 'left', u: -0.2, w: 0.36, h: 0.5, sill: 0.85 },
-    { wall: 'right', u: -0.2, w: 0.36, h: 0.5, sill: 0.85 },
+    { wall: 'back', u: 2.1, w: 0.36, h: 0.5, sill: 0.85 },
+    { wall: 'left', u: -1.5, w: 0.36, h: 0.5, sill: 0.85 },
+    { wall: 'left', u: 1.1, w: 0.36, h: 0.5, sill: 0.85 },
+    { wall: 'right', u: -1.5, w: 0.36, h: 0.5, sill: 0.85 },
+    { wall: 'right', u: 1.1, w: 0.36, h: 0.5, sill: 0.85 },
   ],
   library: [
-    { wall: 'front', u: -1.0, w: 0.34, h: 0.45, sill: 0.775 },
-    { wall: 'front', u: 1.0, w: 0.34, h: 0.45, sill: 0.775 },
-    { wall: 'back', u: -0.9, w: 0.34, h: 0.45, sill: 0.775 },
-    { wall: 'back', u: 0.9, w: 0.34, h: 0.45, sill: 0.775 },
-    { wall: 'left', u: -0.2, w: 0.34, h: 0.45, sill: 0.775 },
-    { wall: 'right', u: -0.2, w: 0.34, h: 0.45, sill: 0.775 },
+    { wall: 'front', u: -2.0, w: 0.34, h: 0.45, sill: 0.775 },
+    { wall: 'front', u: 2.0, w: 0.34, h: 0.45, sill: 0.775 },
+    { wall: 'back', u: -1.8, w: 0.34, h: 0.45, sill: 0.775 },
+    { wall: 'back', u: 1.8, w: 0.34, h: 0.45, sill: 0.775 },
+    { wall: 'left', u: -1.4, w: 0.34, h: 0.45, sill: 0.775 },
+    { wall: 'left', u: 1.0, w: 0.34, h: 0.45, sill: 0.775 },
+    { wall: 'right', u: -1.4, w: 0.34, h: 0.45, sill: 0.775 },
+    { wall: 'right', u: 1.0, w: 0.34, h: 0.45, sill: 0.775 },
   ],
   tower: [
-    { wall: 'seg1', u: 0, w: 0.22, h: 0.4, sill: 0.55 },
-    { wall: 'seg4', u: 0, w: 0.22, h: 0.4, sill: 0.55 },
-    { wall: 'seg7', u: 0, w: 0.22, h: 0.4, sill: 0.55 },
-    { wall: 'seg10', u: 0, w: 0.22, h: 0.4, sill: 0.55 },
+    { wall: 'seg1', u: 0, w: 0.3, h: 0.45, sill: 0.55 },
+    { wall: 'seg4', u: 0, w: 0.3, h: 0.45, sill: 0.55 },
+    { wall: 'seg7', u: 0, w: 0.3, h: 0.45, sill: 0.55 },
+    { wall: 'seg10', u: 0, w: 0.3, h: 0.45, sill: 0.55 },
   ],
   temple: [],
 };

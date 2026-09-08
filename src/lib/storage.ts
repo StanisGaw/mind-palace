@@ -2,13 +2,13 @@ import type { AppData, GroundSpec, Palace, PalaceObject, PalaceSettings, RoomPre
 import { catalogItem, ROOMS } from '../catalog';
 import { uid } from './ids';
 import { hashString } from '../three/noise';
-import { FLOOR_MAX, SHELLS, attachLegacyDoors, buildingOf, facadeSnap, isFacade, roomLamps } from './rooms';
+import { FLOOR_MAX, SHELLS, attachLegacyDoors, buildingOf, facadeSnap, isFacade, localXZ, roomLamps, worldXZ } from './rooms';
 import { yawRotation } from './transform';
 
 const KEY = 'mneme.data.v1';
 
 export function defaultSettings(): PalaceSettings {
-  return { grid: true, showPath: true, ground: { width: 24, depth: 24, shape: 'rect' }, ambience: 'garden', weather: 'clear', scenery: 'meadow', seed: (Math.random() * 1e9) | 0 };
+  return { grid: true, showPath: true, ground: { width: 40, depth: 40, shape: 'rect' }, ambience: 'garden', weather: 'clear', scenery: 'meadow', seed: (Math.random() * 1e9) | 0 };
 }
 
 export function makePalace(name = 'Ogród dobrych myśli'): Palace {
@@ -41,6 +41,31 @@ export function loadData(): AppData | null {
   }
 }
 
+/**
+ * Plansza musi pomieścić budynki: po powiększeniu powłok bryły postawione przy krawędzi wychodziłyby poza płytę,
+ * więc raz ją poszerzamy do ich zasięgu (najwyżej do 80 m, jak suwak w panelu otoczenia).
+ */
+function growGroundForBuildings(p: Palace) {
+  if (p.interior) return;
+  let needX = 0;
+  let needZ = 0;
+  for (const o of p.objects) {
+    const shell = SHELLS[o.type];
+    if (!shell) continue;
+    const reach = Math.max(shell.inner.w * o.scale[0], shell.inner.d * o.scale[2]) / 2 + 1.5;
+    needX = Math.max(needX, (Math.abs(o.position[0]) + reach) * 2);
+    needZ = Math.max(needZ, (Math.abs(o.position[2]) + reach) * 2);
+  }
+  const g = p.settings.ground;
+  // koło i sześciokąt biorą średnicę z `width`, `depth` jest wtedy nieużywane — muszą urosnąć po dłuższej osi
+  const round = g.shape !== 'rect';
+  const even = (v: number) => Math.ceil(v / 2) * 2; // suwak planszy chodzi co 2 m
+  const wantX = round ? Math.max(needX, needZ) : needX;
+  const width = Math.min(80, Math.max(g.width, even(wantX)));
+  const depth = round ? width : Math.min(80, Math.max(g.depth, even(needZ)));
+  if (width !== g.width || depth !== g.depth) p.settings = { ...p.settings, ground: { ...g, width, depth } };
+}
+
 /** Naprawia powiązania między pałacami: osierocone wnętrza stają się samodzielne, martwe odsyłacze znikają. */
 export function normalizeData(data: AppData): AppData {
   const byId = new Map(data.palaces.map((p) => [p.id, p]));
@@ -63,7 +88,9 @@ export function normalizeData(data: AppData): AppData {
       if (!inside || inside.parentObjectId !== o.id) delete o.interiorId;
     }
     migrateShellFloors(p.objects);
-    migrateShellFacade(p.objects);
+    // planszę poszerzamy tylko wtedy, gdy w tym przebiegu powiększyliśmy powłoki — inaczej nadpisywalibyśmy
+    // rozmiar ustawiony przez użytkownika przy każdym wczytaniu
+    if (migrateShellFacade(p.objects)) growGroundForBuildings(p);
     // grupa jednoosobowa to brak grupy
     const groupSize = new Map<string, number>();
     for (const o of p.objects) if (o.groupId) groupSize.set(o.groupId, (groupSize.get(o.groupId) ?? 0) + 1);
@@ -232,24 +259,56 @@ function migrateShellFloors(objects: PalaceObject[]) {
   }
 }
 
+/** Wymiary wnętrz (szerokość, głębokość w jednostkach modelu) w poprzednich wersjach powłok — do przeliczenia elewacji. */
+const OLD_INNER: Record<number, Record<string, [number, number]>> = {
+  3: { house: [1.88, 1.68], palace: [3.28, 2.28], library: [3.08, 2.28], temple: [2.4, 2.0], tower: [2.0, 2.0] },
+  4: { house: [2.6, 2.4], palace: [3.28, 2.88], library: [3.08, 2.88], temple: [2.4, 2.0], tower: [2.0, 2.0] },
+};
+
 /**
- * Wersja 4 powłok: większe wnętrza domku, pałacu i biblioteki (mury odsunęły się o 0,3–0,36 jednostki modelu).
- * Okna, balkony i tarasy zakotwiczone w budynku wisiałyby w głębi pokoju, więc przyciągamy je ponownie do nowego
- * lica tej samej ściany; obiekty w środku zostają (wnętrze tylko urosło). Jednorazowo, przez znacznik `shellVersion`.
+ * Wersje 4 i 5 powłok: większe wnętrza, mury odsunęły się od środka (w wersji 5 dwukrotnie). Okna, balkony
+ * i tarasy zakotwiczone w budynku zawisłyby w głębi pokoju, więc ich położenie względem środka bryły skalujemy
+ * proporcjonalnie do wzrostu wnętrza i dociągamy do lica nowej ściany. Meble w środku zostają na swoich
+ * miejscach — pokój tylko urósł. Jednorazowo, przez znacznik `shellVersion`.
  */
-function migrateShellFacade(objects: PalaceObject[]) {
+function migrateShellFacade(objects: PalaceObject[]): boolean {
+  let changed = false;
   for (const b of objects) {
-    if (b.interiorMode !== 'inplace' || b.shellVersion !== 3) continue;
-    if (!SHELLS[b.type]) continue;
+    const ver = b.shellVersion ?? 0;
+    if (b.interiorMode !== 'inplace' || ver < 3 || ver >= 5) continue;
+    const spec = SHELLS[b.type];
+    const old = OLD_INNER[ver]?.[b.type];
+    if (!spec || !old) continue;
+    const rx = spec.inner.w / old[0];
+    const rz = spec.inner.d / old[1];
     for (const o of objects) {
-      if (o.anchorId !== b.id || !isFacade(o.type)) continue;
-      const hit = facadeSnap(b, o.type, o.position[0], o.position[2]);
-      if (!hit) continue;
-      o.position = [hit.x, o.position[1], hit.z];
-      o.rotation = yawRotation(hit.yaw);
+      if (o.anchorId !== b.id) continue;
+      if (isFacade(o.type)) {
+        const [lx, lz] = localXZ(b, o.position[0], o.position[2]);
+        const [wx, wz] = worldXZ(b, spec.cx + (lx - spec.cx) * rx, spec.cz + (lz - spec.cz) * rz);
+        const hit = facadeSnap(b, o.type, wx, wz);
+        o.position = [hit ? hit.x : wx, o.position[1], hit ? hit.z : wz];
+        if (hit) o.rotation = yawRotation(hit.yaw);
+      } else if (o.type === 'wall') {
+        // ścianka dobrana do dawnej głębokości pokoju przestałaby go dzielić — rośnie razem z wnętrzem
+        const [lx, lz] = localXZ(b, o.position[0], o.position[2]);
+        const [wx, wz] = worldXZ(b, spec.cx + (lx - spec.cx) * rx, spec.cz + (lz - spec.cz) * rz);
+        const alongX = Math.cos(o.rotation[1] - b.rotation[1]) ** 2 > 0.5;
+        o.position = [wx, o.position[1], wz];
+        o.scale = [o.scale[0] * (alongX ? rx : rz), o.scale[1], o.scale[2]];
+        // drzwi w tej ściance jadą razem z nią
+        for (const dr of objects) {
+          if (dr.type !== 'door' || dr.anchorId !== o.id) continue;
+          const [dx2, dz2] = localXZ(b, dr.position[0], dr.position[2]);
+          const [dwx, dwz] = worldXZ(b, spec.cx + (dx2 - spec.cx) * rx, spec.cz + (dz2 - spec.cz) * rz);
+          dr.position = [dwx, dr.position[1], dwz];
+        }
+      }
     }
-    b.shellVersion = 4;
+    b.shellVersion = 5;
+    changed = true;
   }
+  return changed;
 }
 
 /** Korzeń drzewa, do którego należy dany pałac. */
