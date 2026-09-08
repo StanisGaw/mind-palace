@@ -96,31 +96,15 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
   );
 }
 
-export function SubBar() {
-  const palace = useCurrentPalace();
-  const palaces = useStore((s) => s.data.palaces);
-  const currentId = useStore((s) => s.data.currentId);
-  const switchPalace = useStore((s) => s.switchPalace);
-  const exitInterior = useStore((s) => s.exitInterior);
-  const trail = chainOf(currentId, palaces);
-  const saved = useStore((s) => s.saved);
-  const renamePalace = useStore((s) => s.renamePalace);
+/** Wczytanie pliku pałacu: stary format idzie od razu, plik z presetami czeka na wybór w dialogu. */
+export function useImportFile() {
   const importPalaces = useStore((s) => s.importPalaces);
-  const customPresets = useStore((s) => s.customPresets);
-  const startReview = useStore((s) => s.startReview);
-  const review = useStore((s) => s.review);
-  const endReview = useStore((s) => s.endReview);
   const showToast = useStore((s) => s.showToast);
-  const camera = useStore((s) => s.camera);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const due = dueCount(palace, palaces);
   const [pendingImport, setPendingImport] = useState<{ palaces: Palace[]; presets: RoomPreset[] } | null>(null);
-
   const onImport = async (file: File) => {
     try {
       const text = await file.text();
       const parsed = parseImport(text);
-      // plik ze starym formatem (bez presetów) importujemy od razu — dialog widzą tylko pliki, które mają wybór do zrobienia
       if (parsed.presets.length > 0) {
         setPendingImport(parsed);
         return;
@@ -131,6 +115,26 @@ export function SubBar() {
       showToast('Nie udało się zaimportować pliku: ' + (e as Error).message);
     }
   };
+  return { onImport, pendingImport, setPendingImport };
+}
+
+export function SubBar() {
+  const palace = useCurrentPalace();
+  const palaces = useStore((s) => s.data.palaces);
+  const currentId = useStore((s) => s.data.currentId);
+  const switchPalace = useStore((s) => s.switchPalace);
+  const exitInterior = useStore((s) => s.exitInterior);
+  const trail = chainOf(currentId, palaces);
+  const saved = useStore((s) => s.saved);
+  const renamePalace = useStore((s) => s.renamePalace);
+  const customPresets = useStore((s) => s.customPresets);
+  const startReview = useStore((s) => s.startReview);
+  const review = useStore((s) => s.review);
+  const endReview = useStore((s) => s.endReview);
+  const camera = useStore((s) => s.camera);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const due = dueCount(palace, palaces);
+  const { onImport, pendingImport, setPendingImport } = useImportFile();
 
   return (
     <div className="subbar">
@@ -258,7 +262,7 @@ export function PhoneBar({ onMenu }: { onMenu: () => void }) {
   );
 }
 
-function ImportDialog({ data, onClose }: { data: { palaces: Palace[]; presets: RoomPreset[] }; onClose: () => void }) {
+export function ImportDialog({ data, onClose }: { data: { palaces: Palace[]; presets: RoomPreset[] }; onClose: () => void }) {
   const palace = useCurrentPalace();
   const allPalaces = useStore((s) => s.data.palaces);
   const importPalaces = useStore((s) => s.importPalaces);

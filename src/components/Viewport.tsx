@@ -33,6 +33,7 @@ export function Viewport() {
   const doorPrompt = useStore((s) => s.doorPrompt);
   const setSettings = useStore((s) => s.setSettings);
   const palace = useCurrentPalace();
+  const activeBuildingId = useStore((s) => s.activeBuildingId);
   const isTouch = useMediaQuery(COARSE_Q);
   const placing = useStore((s) => s.placing);
   const setPlacing = useStore((s) => s.setPlacing);
@@ -81,7 +82,9 @@ export function Viewport() {
         'viewport' +
         (vrActive ? ' vr-active' : '') +
         (vrActive && !nativeFullscreen ? ' vr-cover' : '') +
-        (viewMode === 'fp' ? ' fp-mode' : '')
+        (viewMode === 'fp' ? ' fp-mode' : '') +
+        (review ? ' review-mode' : '') +
+        (palace.interior || activeBuildingId ? ' in-building' : '')
       }
     >
       <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
@@ -123,7 +126,9 @@ export function Viewport() {
       {/* góra-prawo: otoczenie */}
       <div className="hud hud-top-right">
         <SoundMenu />
-        <EnvironmentMenu />
+        <span className="hud-env">
+          <EnvironmentMenu />
+        </span>
       </div>
 
       {/* narzędzia */}
@@ -166,12 +171,12 @@ export function Viewport() {
       {/* dół-prawo: kamera */}
       <div className="hud tools hud-camera">
         <Tip label="Przybliż" side="left">
-          <button onClick={() => camera('zoomIn')} disabled={viewMode !== 'editor'}>
+          <button className="zoom-btn" onClick={() => camera('zoomIn')} disabled={viewMode !== 'editor'}>
             <I.Plus />
           </button>
         </Tip>
         <Tip label="Oddal" side="left">
-          <button onClick={() => camera('zoomOut')} disabled={viewMode !== 'editor'}>
+          <button className="zoom-btn" onClick={() => camera('zoomOut')} disabled={viewMode !== 'editor'}>
             <I.Minus />
           </button>
         </Tip>
@@ -212,7 +217,7 @@ export function Viewport() {
         ) : null}
       </div>
       <div className="hud toggles hud-toggles">
-        <Tip label="Siatka i przyciąganie co pół metra" side="top-end">
+        <Tip label="Siatka i przyciąganie co pół metra" side="top-end" className="toggle-grid">
           <button className={'toggle' + (palace.settings.grid ? ' on' : '')} onClick={() => setSettings({ grid: !palace.settings.grid })}>
             <I.Grid width={13} height={13} /> Siatka
           </button>

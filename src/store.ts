@@ -36,7 +36,7 @@ interface State {
   hoverId: string | null;
   tool: Tool;
   viewMode: ViewMode;
-  leftTab: 'library' | 'scene';
+  leftTab: 'library' | 'scene' | 'presets';
   saved: boolean;
   undoStack: Snapshot[];
   redoStack: Snapshot[];
@@ -99,7 +99,7 @@ interface State {
   setHover(id: string | null): void;
   setTool(t: Tool): void;
   setViewMode(v: ViewMode): void;
-  setLeftTab(t: 'library' | 'scene'): void;
+  setLeftTab(t: 'library' | 'scene' | 'presets'): void;
   // notatki
   setNote(id: string, title: string, body: string): void;
   clearNote(id: string): void;

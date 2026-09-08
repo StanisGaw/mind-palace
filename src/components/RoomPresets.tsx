@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { ROOM_PRESETS } from '../lib/presets';
 import { useCurrentPalace, useStore } from '../store';
 import { I } from './Icons';
@@ -12,7 +11,6 @@ export function RoomPresets() {
   const saveCurrentAsPreset = useStore((s) => s.saveCurrentAsPreset);
   const deleteCustomPreset = useStore((s) => s.deleteCustomPreset);
   const isEmpty = palace.objects.length === 0;
-  const [open, setOpen] = useState(isEmpty);
   if (!buildingType) return null;
 
   const list = [...ROOM_PRESETS, ...customPresets].filter((p) => !p.buildingTypes || p.buildingTypes.includes(buildingType));
@@ -20,11 +18,11 @@ export function RoomPresets() {
 
   return (
     <div className="room-presets">
-      <button className={'cat-head' + (open ? '' : ' collapsed')} onClick={() => setOpen((o) => !o)}>
+      <div className="cat-head static">
         <span className="cat-title">{isEmpty ? 'Wybierz układ pokoju' : 'Układy pokoju'}</span>
-        <I.Down className="chev" width={14} height={14} />
-      </button>
-      {open && (
+      </div>
+      <p className="lead" style={{ marginTop: 0 }}>Układ zastępuje obiekty bez notatek; te z notatkami zawsze zostają.</p>
+      {(
         <div className="room-presets-list">
           {list.map((preset) => (
             <div key={preset.id} className="item-row" style={{ alignItems: 'flex-start' }}>

@@ -4,6 +4,7 @@ import { LeftPanel } from './components/LeftPanel';
 import { RightPanel } from './components/RightPanel';
 import { Viewport } from './components/Viewport';
 import { HelpModal } from './components/HelpModal';
+import { MobileMenu } from './components/MobileMenu';
 import { useStore } from './store';
 import { LANDSCAPE_Q, PHONE_Q, useMediaQuery } from './lib/media';
 import { I } from './components/Icons';
@@ -79,7 +80,7 @@ export default function App() {
           </nav>
         )}
       </main>
-      {phone && !landscape && !hudHidden && (
+      {phone && !landscape && !hudHidden && viewMode === 'editor' && (
         <nav className="mobile-bar">
           <button className={mobile === 'left' ? 'active' : ''} onClick={() => toggleDrawer('left')}>
             <I.Library width={18} height={18} />
@@ -95,20 +96,7 @@ export default function App() {
           </button>
         </nav>
       )}
-      {phone && menu && (
-        <div className="sheet-backdrop" onClick={() => setMenu(false)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="sheet-head">
-              <span className="eyebrow">Menu pałacu</span>
-              <button className="icon-btn" onClick={() => setMenu(false)} aria-label="Zamknij">
-                <I.X />
-              </button>
-            </div>
-            <TopBar onHelp={() => { setMenu(false); setHelp(true); }} />
-            <SubBar />
-          </div>
-        </div>
-      )}
+      {phone && menu && <MobileMenu onClose={() => setMenu(false)} onHelp={() => { setMenu(false); setHelp(true); }} />}
       {toast && <div className="toast">{toast}</div>}
       {help && <HelpModal onClose={() => setHelp(false)} />}
     </div>

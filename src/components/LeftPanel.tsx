@@ -12,6 +12,9 @@ export function LeftPanel() {
   const setTab = useStore((s) => s.setLeftTab);
   const palace = useCurrentPalace();
   const [q, setQ] = useState('');
+  // układy pokoju istnieją tylko we wnętrzu — poza nim zakładka znika, a wybór wraca do biblioteki
+  const presetsTab = !!palace.interior;
+  const activeTab = tab === 'presets' && !presetsTab ? 'library' : tab;
 
   return (
     <aside className="panel left">
@@ -19,21 +22,28 @@ export function LeftPanel() {
         <div className="eyebrow">Twoja wyobraźnia, Twoje zasady</div>
         <div className="headline">Zbuduj swoje miejsce.</div>
         <div className="tabs">
-          <button className={'tab' + (tab === 'library' ? ' active' : '')} onClick={() => setTab('library')}>
+          <button className={'tab' + (activeTab === 'library' ? ' active' : '')} onClick={() => setTab('library')}>
             Biblioteka
           </button>
-          <button className={'tab' + (tab === 'scene' ? ' active' : '')} onClick={() => setTab('scene')}>
+          <button className={'tab' + (activeTab === 'scene' ? ' active' : '')} onClick={() => setTab('scene')}>
             Na scenie <span className="count">{palace.objects.length}</span>
           </button>
+          {presetsTab && (
+            <button className={'tab' + (activeTab === 'presets' ? ' active' : '')} onClick={() => setTab('presets')}>
+              Układy
+            </button>
+          )}
         </div>
       </div>
       <div className="scroll">
-        <label className="search">
-          <I.Search width={14} height={14} />
-          <input placeholder="Znajdź coś wyjątkowego…" value={q} onChange={(e) => setQ(e.target.value)} />
-          <kbd>/</kbd>
-        </label>
-        {tab === 'library' ? <Library q={q} /> : <SceneList q={q} />}
+        {activeTab !== 'presets' && (
+          <label className="search">
+            <I.Search width={14} height={14} />
+            <input placeholder="Znajdź coś wyjątkowego…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <kbd>/</kbd>
+          </label>
+        )}
+        {activeTab === 'library' ? <Library q={q} /> : activeTab === 'scene' ? <SceneList q={q} /> : <RoomPresets />}
       </div>
       <div className="tip-card">
         <I.Spark className="ico" width={20} height={20} />
@@ -100,7 +110,6 @@ function Library({ q }: { q: string }) {
   const total = shownCats.reduce((n, cat) => n + filtered.filter((c) => c.category === cat).length, 0);
   return (
     <div>
-      {isInterior && <RoomPresets />}
       <div className="cat-chips">
         <button className={'cat-chip' + (active === 'all' ? ' on' : '')} onClick={() => setCategory('all')} title="Pokaż wszystkie kategorie">
           Wszystkie
