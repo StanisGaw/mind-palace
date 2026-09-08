@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCurrentPalace, useStore, dueCount } from '../store';
 import { chainOf, downloadText, exportPalaceJson, parseImport, rootOf } from '../lib/storage';
-import type { Palace, RoomPreset } from '../types';
+import type { Palace, FurnitureSet } from '../types';
 import { I } from './Icons';
 import { Tip } from './Tip';
 
@@ -100,12 +100,12 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
 export function useImportFile() {
   const importPalaces = useStore((s) => s.importPalaces);
   const showToast = useStore((s) => s.showToast);
-  const [pendingImport, setPendingImport] = useState<{ palaces: Palace[]; presets: RoomPreset[] } | null>(null);
+  const [pendingImport, setPendingImport] = useState<{ palaces: Palace[]; sets: FurnitureSet[] } | null>(null);
   const onImport = async (file: File) => {
     try {
       const text = await file.text();
       const parsed = parseImport(text);
-      if (parsed.presets.length > 0) {
+      if (parsed.sets.length > 0) {
         setPendingImport(parsed);
         return;
       }
@@ -127,7 +127,7 @@ export function SubBar() {
   const trail = chainOf(currentId, palaces);
   const saved = useStore((s) => s.saved);
   const renamePalace = useStore((s) => s.renamePalace);
-  const customPresets = useStore((s) => s.customPresets);
+  const customSets = useStore((s) => s.customSets);
   const startReview = useStore((s) => s.startReview);
   const review = useStore((s) => s.review);
   const endReview = useStore((s) => s.endReview);
@@ -191,7 +191,7 @@ export function SubBar() {
           onClick={() => {
             const root = rootOf(palace.id, palaces);
             const safe = root.name.replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 40) || 'palac';
-            downloadText(`mneme-${safe}.json`, exportPalaceJson(root, palaces, customPresets));
+            downloadText(`mneme-${safe}.json`, exportPalaceJson(root, palaces, customSets));
           }}
         >
           <I.Download /> <span className="label-text">Eksportuj</span>
@@ -262,15 +262,15 @@ export function PhoneBar({ onMenu }: { onMenu: () => void }) {
   );
 }
 
-export function ImportDialog({ data, onClose }: { data: { palaces: Palace[]; presets: RoomPreset[] }; onClose: () => void }) {
+export function ImportDialog({ data, onClose }: { data: { palaces: Palace[]; sets: FurnitureSet[] }; onClose: () => void }) {
   const palace = useCurrentPalace();
   const allPalaces = useStore((s) => s.data.palaces);
   const importPalaces = useStore((s) => s.importPalaces);
-  const importPresets = useStore((s) => s.importPresets);
+  const importSets = useStore((s) => s.importSets);
   const deletePalace = useStore((s) => s.deletePalace);
   const showToast = useStore((s) => s.showToast);
   const [palaceChoice, setPalaceChoice] = useState<'new' | 'replace' | 'skip'>('new');
-  const [presetChoice, setPresetChoice] = useState<'import' | 'skip'>('import');
+  const [setsChoice, setSetsChoice] = useState<'import' | 'skip'>('import');
   const root = data.palaces.find((p) => !p.parentId) ?? data.palaces[0];
 
   const onConfirm = () => {
@@ -278,7 +278,7 @@ export function ImportDialog({ data, onClose }: { data: { palaces: Palace[]; pre
       if (palaceChoice === 'replace') deletePalace(rootOf(palace.id, allPalaces).id);
       importPalaces(data.palaces);
     }
-    if (presetChoice === 'import' && data.presets.length > 0) importPresets(data.presets);
+    if (setsChoice === 'import' && data.sets.length > 0) importSets(data.sets);
     showToast('Zaimportowano plik.');
     onClose();
   };
@@ -302,13 +302,13 @@ export function ImportDialog({ data, onClose }: { data: { palaces: Palace[]; pre
             <input type="radio" checked={palaceChoice === 'skip'} onChange={() => setPalaceChoice('skip')} /> Pomiń
           </label>
         </div>
-        <h3>Presety ({data.presets.length})</h3>
+        <h3>Zestawy ({data.sets.length})</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label>
-            <input type="radio" checked={presetChoice === 'import'} onChange={() => setPresetChoice('import')} /> Dołącz
+            <input type="radio" checked={setsChoice === 'import'} onChange={() => setSetsChoice('import')} /> Dołącz
           </label>
           <label>
-            <input type="radio" checked={presetChoice === 'skip'} onChange={() => setPresetChoice('skip')} /> Pomiń
+            <input type="radio" checked={setsChoice === 'skip'} onChange={() => setSetsChoice('skip')} /> Pomiń
           </label>
         </div>
         <button className="btn primary" onClick={onConfirm}>

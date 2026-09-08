@@ -52,7 +52,8 @@ npm run build        # produkcyjny build do dist/
   parterze); każde piętro podwyższa bryłę budynku.
   Wyposażenie: obrazy z generowanym płótnem, popiersie, kominek, fotel, sofa, łóżko, biurko, kredens,
   zegar, lustro, wazon, zasłony, globus, naczynia; regał z tomami o złoconych grzbietach i tytułach,
-  ułożonymi w każdym regale inaczej; z nich siedem gotowych układów pokoi.
+  ułożonymi w każdym regale inaczej; piec kaflowy i szafka kuchenna z blatem i zlewem. Z nich zbudowane są
+  gotowe zestawy mebli.
 - **Wnętrza budynków** — dwa tryby. *W budynku* (domyślny dla nowych): wnętrze w tej samej scenie,
   w spacerze otwierasz drzwi (`F` lub klik) i wchodzisz; w edytorze klik w budynek chowa dach i ściany od
   strony kamery, obiekty stawia się na jego podłodze, piętra (1–4) i piętro do edycji są w panelu budynku.
@@ -67,10 +68,16 @@ npm run build        # produkcyjny build do dist/
   kondygnacji (1–4) budynku i piętro do edycji; schody robią otwór w stropie i prowadzą wyżej. Domek, pałac
   i biblioteka dostają schody same przy pierwszym piętrze — aplikacja szuka miejsca, gdzie bieg mieści się przy
   ścianie z podejściem i podestem, bez przecinania ścianek i mebli (`lib/layout.ts`); wieża
-  ma jeden ciągły bieg kręconych schodów przez wszystkie kondygnacje i okrągłe izby na piętrach. Zakładka „Układy"
-  (we wnętrzu i dla odsłoniętego budynku w miejscu) proponuje gotowe układy pokoju (wbudowane i własne) — „Zastosuj" zastępuje obiekty bez
-  notatek, „Zapisz obecny układ" zachowuje bieżące rozmieszczenie do ponownego użycia. Drzwi otwiera
+  ma jeden ciągły bieg kręconych schodów przez wszystkie kondygnacje i okrągłe izby na piętrach. Drzwi otwiera
   i zamyka `F` albo kliknięcie.
+- **Zestawy mebli** — zakładka „Zestawy" obok Biblioteki. Zestaw to nazwana grupa mebli o stałych wymiarach
+  w metrach, taka sama w każdym rodzaju budynku: salon, kuchnia, jadalnia, sypialnia, gabinet i kącik czytelniczy
+  we wnętrzu, ogród na planszy. „Postaw" włącza podgląd, który jedzie za kursorem (kółko myszy obraca), a klik
+  stawia cały zestaw jako jedną grupę — przesuwa się i znika w całości. Zestaw z tyłem sam ustawia się plecami
+  do najbliższej ściany w promieniu 1,6 m; ręczny obrót wyłącza to przyciąganie. Zestaw niczego nie kasuje, tylko
+  dokłada, więc w jednym wnętrzu można wydzielić salon, kuchnię i gabinet jak w lofcie. „Zapisz zaznaczenie jako
+  zestaw" zachowuje własne rozmieszczenie (`localStorage`, klucz `mneme.sets.v1`); dawne układy pokoi z poprzedniej
+  wersji przeliczają się na zestawy przy pierwszym wczytaniu.
 - **Krajobraz** — proceduralny pierścień terenu wokół planszy (łąki, góry, wybrzeże, pustynia) z losowanym
   ukształtowaniem oraz kategoria „Krajobraz" w bibliotece: góra, wulkan z dymem, głaz, wzgórze, staw, wodospad.
 - **Pogoda i pora dnia** — niezależne ustawienia: cztery klimaty i sześć rodzajów pogody (chmury, deszcz,
@@ -88,8 +95,8 @@ npm run build        # produkcyjny build do dist/
   kliknięcie, chwyt to skok. Kamera nie przenosi gracza samoczynnie. Gdy przeglądarka nie ma WebXR,
   włącza się tryb stereo (Cardboard): przytrzymanie ekranu idzie do przodu, krótkie dotknięcie to interakcja.
 - **Zapis** — automatycznie w `localStorage` (wiele pałaców). **Eksport/Import** — plik JSON, dołącza
-  własne układy pokoi; import pliku z układami pyta osobno o pałac (dodaj / zastąp / pomiń) i o presety
-  (importuj / pomiń).
+  własne zestawy mebli; import pliku pyta osobno o pałac (dodaj / zastąp / pomiń) i o zestawy
+  (importuj / pomiń). Pliki sprzed zestawów wczytują się dalej — ich układy pokoi zamieniają się w zestawy.
 
 ## VR z telefonu — krok po kroku
 
@@ -105,13 +112,14 @@ Dopisz `?physdebug=1` do adresu, aby zobaczyć bryły kolizji jako linie.
 ## Testy
 
 ```bash
-npm test          # vitest: testy integracyjne układów pokoi (src/lib/layout.test.ts)
+npm test          # vitest: testy integracyjne układów i zestawów (src/lib/layout.test.ts)
 ```
 
-Testy sprawdzają geometrię układów w metrach: czy schody mieszczą się w pokoju razem z podejściem i podestem,
+Testy sprawdzają geometrię w metrach: czy schody mieszczą się w pokoju razem z podejściem i podestem,
 czy nie przecinają ścianek i mebli, czy od wejścia da się dojść do każdego mebla i do schodów (siatka przejść
-z kapsułą gracza o promieniu 0,32 m), czy krzesła stoją przy stole, a obrazy przy ścianie. Każdy wbudowany układ
-jest sprawdzany w dwóch skalach budynku i osobno w pokoju ładowanym jako osobna scena.
+z kapsułą gracza o promieniu 0,32 m), czy krzesła stoją przy stole, a obrazy przy ścianie. Każdy wbudowany zestaw
+sprawdzany jest w pokoju na swoją miarę, w swoim obrysie oraz w domku, pałacu i bibliotece w dwóch skalach —
+wtedy wystarczy, że gdzieś przy tylnym murze da się go postawić bez uwag.
 
 ## Struktura
 

@@ -21,7 +21,7 @@ export function MobileMenu({ onClose, onHelp }: { onClose: () => void; onHelp: (
   const startReview = useStore((s) => s.startReview);
   const endReview = useStore((s) => s.endReview);
   const review = useStore((s) => s.review);
-  const customPresets = useStore((s) => s.customPresets);
+  const customSets = useStore((s) => s.customSets);
   const due = dueCount(palace, allPalaces);
   const fileRef = useRef<HTMLInputElement>(null);
   const { onImport, pendingImport, setPendingImport } = useImportFile();
@@ -75,7 +75,7 @@ export function MobileMenu({ onClose, onHelp }: { onClose: () => void; onHelp: (
             onClick={() => {
               const root = rootOf(palace.id, allPalaces);
               const safe = root.name.replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 40) || 'palac';
-              downloadText(`mneme-${safe}.json`, exportPalaceJson(root, allPalaces, customPresets));
+              downloadText(`mneme-${safe}.json`, exportPalaceJson(root, allPalaces, customSets));
               onClose();
             }}
           />

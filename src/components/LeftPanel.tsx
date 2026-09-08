@@ -5,18 +5,16 @@ import { useCurrentPalace, useStore } from '../store';
 import { usePref } from '../lib/prefs';
 import { insideGround } from '../lib/ground';
 import { I } from './Icons';
-import { RoomPresets } from './RoomPresets';
-import { isDrawn, isInPlace } from '../lib/rooms';
+import { FurnitureSets } from './FurnitureSets';
+import { isDrawn } from '../lib/rooms';
 
 export function LeftPanel() {
   const tab = useStore((s) => s.leftTab);
   const setTab = useStore((s) => s.setLeftTab);
   const palace = useCurrentPalace();
   const [q, setQ] = useState('');
-  // układy pokoju istnieją we wnętrzu i dla odsłoniętego budynku z wnętrzem w miejscu — poza tym zakładka znika
-  const activeBuildingId = useStore((s) => s.activeBuildingId);
-  const presetsTab = !!palace.interior || (!!activeBuildingId && palace.objects.some((o) => o.id === activeBuildingId && isInPlace(o)));
-  const activeTab = tab === 'presets' && !presetsTab ? 'library' : tab;
+  // zestawy są wszędzie: we wnętrzu meblowe, na planszy ogrodowe — zakładka nigdy nie znika
+  const activeTab = tab;
 
   return (
     <aside className="panel left">
@@ -30,22 +28,20 @@ export function LeftPanel() {
           <button className={'tab' + (activeTab === 'scene' ? ' active' : '')} onClick={() => setTab('scene')}>
             Na scenie <span className="count">{palace.objects.length}</span>
           </button>
-          {presetsTab && (
-            <button className={'tab' + (activeTab === 'presets' ? ' active' : '')} onClick={() => setTab('presets')}>
-              Układy
-            </button>
-          )}
+          <button className={'tab' + (activeTab === 'sets' ? ' active' : '')} onClick={() => setTab('sets')}>
+            Zestawy
+          </button>
         </div>
       </div>
       <div className="scroll">
-        {activeTab !== 'presets' && (
+        {activeTab !== 'sets' && (
           <label className="search">
             <I.Search width={14} height={14} />
             <input placeholder="Znajdź coś wyjątkowego…" value={q} onChange={(e) => setQ(e.target.value)} />
             <kbd>/</kbd>
           </label>
         )}
-        {activeTab === 'library' ? <Library q={q} /> : activeTab === 'scene' ? <SceneList q={q} /> : <RoomPresets />}
+        {activeTab === 'library' ? <Library q={q} /> : activeTab === 'scene' ? <SceneList q={q} /> : <FurnitureSets />}
       </div>
       <div className="tip-card">
         <I.Spark className="ico" width={20} height={20} />

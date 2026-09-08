@@ -161,7 +161,7 @@ function Welcome() {
       <div className="headline big">Każde miejsce opowiada historię.</div>
       <p className="lead">
         {palace.interior && palace.objects.length === 0
-          ? 'Wybierz układ po lewej albo zbuduj pokój sam z Konstrukcji i Wyposażenia.'
+          ? 'Postaw zestaw z zakładki „Zestawy” albo zbuduj pokój sam z Konstrukcji i Wyposażenia.'
           : 'Stwórz świat, w którym Twoje myśli poczują się jak w domu.'}
       </p>
       <div className="steps">
@@ -527,7 +527,7 @@ function Inspector({ id }: { id: string }) {
             <I.Door width={14} height={14} /> Pokaż wnętrze{insideCount > 0 ? ` · ${insideCount} obiektów` : ''}
           </button>
           <p className="hint" style={{ marginTop: 6 }}>
-            Klik w budynek chowa dach, klik w pustkę go przywraca. W spacerze otwierasz drzwi klawiszem F i wchodzisz. {maxFloorsOf(obj.type) > 1 ? `Każde piętro podwyższa bryłę (najwyżej ${maxFloorsOf(obj.type)}); ${obj.type === 'tower' ? 'wieża ma wbudowane kręcone schody' : 'pierwsze piętro dostaje schody, które możesz przesunąć albo usunąć'}. ` : ''}Gotowe układy są w zakładce „Układy". Skala co najmniej {SHELLS[obj.type]?.minScale ?? 1}, większa daje przestronniejsze wnętrze.
+            Klik w budynek chowa dach, klik w pustkę go przywraca. W spacerze otwierasz drzwi klawiszem F i wchodzisz. {maxFloorsOf(obj.type) > 1 ? `Każde piętro podwyższa bryłę (najwyżej ${maxFloorsOf(obj.type)}); ${obj.type === 'tower' ? 'wieża ma wbudowane kręcone schody' : 'pierwsze piętro dostaje schody, które możesz przesunąć albo usunąć'}. ` : ''}Gotowe zestawy mebli są w zakładce „Zestawy". Skala co najmniej {SHELLS[obj.type]?.minScale ?? 1}, większa daje przestronniejsze wnętrze.
           </p>
         </div>
       )}
