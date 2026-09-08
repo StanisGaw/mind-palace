@@ -1639,6 +1639,38 @@ function buildSideboard(g: THREE.Group) {
   for (const x of [-0.6, 0.6]) for (const z of [-0.2, 0.2]) add(g, box(0.06, 0.08, 0.06), woodMat(C.woodDark), x, 0.04, z);
 }
 
+/** Szafka kuchenna: korpus z drzwiczkami, kamienny blat i wpuszczony zlew. */
+function buildCounter(g: THREE.Group) {
+  add(g, box(1.14, 0.82, 0.54), woodMat(C.wood), 0, 0.45, 0);
+  const top = add(g, box(1.2, 0.05, 0.6), mat(C.stone), 0, 0.89, 0);
+  top.userData.floorSurface = true; // na blacie da się postawić naczynia
+  for (const x of [-0.28, 0.28]) {
+    add(g, box(0.5, 0.6, 0.02), woodMat(C.woodDark), x, 0.42, 0.28);
+    add(g, box(0.03, 0.09, 0.02), mat(C.metal, { metalness: 0.6, roughness: 0.4 }), x + (x < 0 ? 0.2 : -0.2), 0.42, 0.3);
+  }
+  // zlew: płytka niecka wpuszczona w blat, z baterią przy tylnej krawędzi
+  add(g, box(0.42, 0.12, 0.34), mat(C.metal, { metalness: 0.5, roughness: 0.35 }), 0.32, 0.86, 0);
+  add(g, cyl(0.02, 0.02, 0.22, 8), mat(C.metal, { metalness: 0.6, roughness: 0.3 }), 0.32, 1.02, -0.17);
+  add(g, box(0.03, 0.03, 0.12), mat(C.metal, { metalness: 0.6, roughness: 0.3 }), 0.32, 1.12, -0.11);
+  for (const x of [-0.5, 0.5]) for (const z of [-0.2, 0.2]) add(g, box(0.06, 0.08, 0.06), woodMat(C.woodDark), x, 0.04, z);
+}
+
+/** Piec kaflowy z paleniskiem, płytą i rurą pod sufit. */
+function buildStove(g: THREE.Group) {
+  add(g, box(0.66, 0.9, 0.56), mat(C.cream2), 0, 0.47, 0);
+  // fugi między kaflami — bez nich korpus wygląda jak zwykłe pudełko
+  for (let r = 0; r < 3; r++) for (const x of [-0.16, 0.16]) add(g, box(0.3, 0.005, 0.005), mat(C.stoneDark), x, 0.18 + r * 0.26, 0.283);
+  add(g, box(0.7, 0.05, 0.6), mat(C.metal), 0, 0.94, 0);
+  for (const x of [-0.16, 0.16]) add(g, cyl(0.1, 0.1, 0.02, 12), mat(C.dark), x, 0.97, -0.08);
+  add(g, box(0.34, 0.3, 0.03), mat(C.dark), 0, 0.36, 0.29);
+  add(g, box(0.26, 0.16, 0.01), mat(C.glow, { emissive: '#ff8a3d' }), 0, 0.36, 0.31);
+  add(g, box(0.04, 0.1, 0.02), mat(C.metal, { metalness: 0.6, roughness: 0.4 }), 0.14, 0.36, 0.32);
+  add(g, cyl(0.08, 0.08, 1.1, 10), mat(C.metal), 0, 1.5, -0.2);
+  const fire = new THREE.PointLight('#ff9a4d', 1.4, 4, 2);
+  fire.position.set(0, 0.4, 0.3);
+  g.add(fire);
+}
+
 /** Zegar stojący z tarczą i wahadłem. */
 function buildClock(g: THREE.Group) {
   add(g, box(0.5, 2.0, 0.3), woodMat(C.woodDark), 0, 1.0, 0);
@@ -1810,6 +1842,8 @@ const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   pond: buildPond,
   waterfall: buildWaterfall,
   table: buildTable,
+  counter: buildCounter,
+  stove: buildStove,
   shelf: buildShelf,
   chair: buildChair,
   painting: buildPainting,

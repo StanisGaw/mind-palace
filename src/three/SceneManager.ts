@@ -5,7 +5,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRe
 import { StereoEffect } from 'three/examples/jsm/effects/StereoEffect.js';
 import { useStore, descendants, movableRoots, selectionRoots } from '../store';
 import { yawOfObject } from '../lib/transform';
-import type { CameraKind, Palace, PalaceObject, RoomSpec, Vec3, ViewMode } from '../types';
+import type { CameraKind, FurnitureSet, Palace, PalaceObject, RoomSpec, Vec3, ViewMode } from '../types';
 import { AMBIENCES, catalogItem, hasInterior } from '../catalog';
 import { buildModel, disposeObject, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN, PLANE_SEAT, PLANE_EXIT, type BuildCtx } from './builders';
 import { ART_VARIANTS } from './art';
@@ -19,6 +19,8 @@ import { Physics, FOOT_OFFSET, type StaticShape } from './physics';
 import { ROOMS, colliderKind, spawnKind } from '../catalog';
 import { clampToGround, clipSegment, groundExtent, groundPolygon, insideGround } from '../lib/ground';
 import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, buildingOf, buildingOpenings, facadeFloorOk, facadeHoles, facadeSlotFree, facadeSnap, isDrawn, isFacade, doorOffsets, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, localXZ, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, SHELLS, TOWER_R, type Opening } from '../lib/rooms';
+import { SET_WALL_GAP, furnitureSet, instantiateSet } from '../lib/sets';
+import { boxLocal, boxPoint, insideRoom, roomOfBuilding, roomOfSpec, type RoomShape } from '../lib/layout';
 import { getTexture } from './textures';
 import { Wildlife, type SpawnInfo, type WorldInfo } from './wildlife';
 import { Soundscape } from './soundscape';
@@ -103,9 +105,9 @@ const UP = new THREE.Vector3(0, 1, 0);
 // yawOf ma własny wektor — wołający trzymają w tmpV wektor ruchu, który nie może zostać nadpisany
 const tmpYaw = new THREE.Vector3();
 
-/** Klucz trybu stawiania: typ z biblioteki albo szablon kopii konkretnych obiektów. */
-function placingKey(p: { type: string; ids?: string[] } | null | undefined): string {
-  return p ? `${p.type}|${(p.ids ?? []).join(',')}` : '';
+/** Klucz trybu stawiania: typ z biblioteki, zestaw mebli albo szablon kopii konkretnych obiektów. */
+function placingKey(p: { type: string; ids?: string[]; setId?: string } | null | undefined): string {
+  return p ? `${p.type}|${p.setId ?? ''}|${(p.ids ?? []).join(',')}` : '';
 }
 
 /** Bryła kolizji zamkniętego skrzydła: stała dla drzwi z Konstrukcji, z `SHELLS` dla budynków. */
@@ -203,6 +205,10 @@ export class SceneManager {
   private ghostKey = '';
   /** Kopiowane obiekty (tryb `template` albo drzwi z `ids`) — kliknięcie tworzy ich kopie. */
   private ghostIds: string[] | null = null;
+  /** Stawiany zestaw mebli (tryb `set`) — kliknięcie tworzy jego obiekty. */
+  private ghostSet: FurnitureSet | null = null;
+  /** Zestaw z tyłem sam ustawia się do ściany, dopóki użytkownik nie obróci podglądu ręcznie. */
+  private ghostAutoRot = true;
   private ghostFootprint = 1;
   ghostRot = 0;
   private ghostPos = new THREE.Vector3();
@@ -1269,13 +1275,15 @@ export class SceneManager {
   }
 
   /** Półprzezroczysty podgląd elementu wybranego z biblioteki. */
-  private setGhost(placing: { type: string; ids?: string[] } | null) {
+  private setGhost(placing: { type: string; ids?: string[]; setId?: string } | null) {
     const key = placingKey(placing);
     if (this.ghostKey === key) return;
     this.ghostKey = key;
     const type = placing?.type ?? null;
     this.ghostType = type ?? '';
     this.ghostIds = placing?.ids ?? null;
+    this.ghostSet = placing?.setId ? furnitureSet(placing.setId, useStore.getState().customSets) ?? null : null;
+    this.ghostAutoRot = true;
     if (this.ghost) {
       this.scene.remove(this.ghost);
       disposeObject(this.ghost);
@@ -1300,10 +1308,12 @@ export class SceneManager {
 
     const g = new THREE.Group();
     const p = this.lastPalace;
-    const sources = this.ghostIds && p ? p.objects.filter((o) => this.ghostIds!.includes(o.id)) : [];
+    // zestaw materializujemy wokół zera — dalej idzie tą samą drogą co szablon kopii
+    const sources = this.ghostSet ? instantiateSet(this.ghostSet) : this.ghostIds && p ? p.objects.filter((o) => this.ghostIds!.includes(o.id)) : [];
     if (sources.length > 0 && p) {
       // szablon kopii: modele oryginałów w ich wzajemnym układzie, środek pod kursorem
-      const roots = sources.filter((o) => !o.anchorId || !this.ghostIds!.includes(o.anchorId));
+      const inSource = new Set(sources.map((o) => o.id));
+      const roots = sources.filter((o) => !o.anchorId || !inSource.has(o.anchorId));
       const cx = roots.reduce((a, o) => a + o.position[0], 0) / roots.length;
       const cz = roots.reduce((a, o) => a + o.position[2], 0) / roots.length;
       const baseY = Math.min(...roots.map((o) => o.position[1]));
@@ -1319,7 +1329,9 @@ export class SceneManager {
         wrap.scale.set(src.scale[0], src.scale[1], src.scale[2]);
         g.add(wrap);
         const e = this.entries.get(src.id);
-        const reach = Math.hypot(wrap.position.x, wrap.position.z) + (e ? e.footprint * hs(e) : 1);
+        // obiekty zestawu nie mają jeszcze wpisu w scenie — zasięg liczymy z katalogu
+        const own = e ? e.footprint * hs(e) : catalogItem(src.type).footprint * Math.max(src.scale[0], src.scale[2]);
+        const reach = Math.hypot(wrap.position.x, wrap.position.z) + own;
         this.ghostFootprint = Math.max(this.ghostFootprint, reach);
       }
     } else {
@@ -1641,7 +1653,10 @@ export class SceneManager {
   rotateGhost() {
     if (!this.ghost) return;
     if (this.ghostType === 'door') this.doorFlip = !this.doorFlip;
-    else this.ghostRot += Math.PI / 12;
+    else {
+      this.ghostRot += Math.PI / 12;
+      this.ghostAutoRot = false;
+    }
     this.updateGhost();
   }
 
@@ -1681,6 +1696,7 @@ export class SceneManager {
       // poza płytą zostaje wysokość terenu z punktu trafienia
     }
     if (this.ghostType === 'window' && this.room) this.snapWindowToWall(p);
+    if (this.ghostSet?.back && this.ghostAutoRot) this.snapSetToWall(p);
     this.ghostPos.copy(p);
     this.ghost.position.copy(p);
     this.ghost.rotation.y = this.ghostRot;
@@ -1697,6 +1713,70 @@ export class SceneManager {
       }
     }
     (this.ghostRing.material as THREE.MeshBasicMaterial).color.set(this.ghostAnchor ? '#2b6ea8' : blocked ? '#b4483d' : '#3f7550');
+  }
+
+  /** Pokój, w którym stoi podgląd: wnętrze w miejscu spod kursora albo pokój ładowany. */
+  private ghostRoom(): RoomShape | null {
+    const p = this.lastPalace;
+    if (!p) return null;
+    if (p.interior) return roomOfSpec(roomSpecFor(p, useStore.getState().data.palaces), p.interior.buildingType);
+    const b = this.placeBuilding()?.b;
+    return b ? roomOfBuilding(b) : null;
+  }
+
+  /**
+   * Zestaw z tyłem sam staje plecami do najbliższej ściany (mur pokoju albo ścianka działowa) w promieniu
+   * 1,5 m — inaczej obrazy i lustra z zestawu wisiałyby w powietrzu. Ręczny obrót wyłącza to na stałe.
+   */
+  private snapSetToWall(p: THREE.Vector3) {
+    const set = this.ghostSet;
+    if (!set) return;
+    const room = this.ghostRoom();
+    const half = set.depth / 2 + SET_WALL_GAP;
+    let best: { yaw: number; x: number; z: number; dist: number } | null = null;
+    // kursor za licem muru liczy się jak zero — inaczej celowanie w ścianę od zewnątrz nie przyciągałoby
+    const take = (yaw: number, x: number, z: number, raw: number) => {
+      const dist = Math.max(0, raw);
+      if (dist < 1.6 && (!best || dist < best.dist)) best = { yaw, x, z, dist };
+    };
+    // lokalne +Z zestawu (jego przód) pada w świecie na kierunek (sin yaw, cos yaw); tył ma dotykać ściany
+    if (room && room.radius === undefined && insideRoom(room, p.x, p.z, -0.9)) {
+      const [lx, lz] = boxLocal(room.box, p.x, p.z);
+      const inX = room.box.hx - half;
+      const inZ = room.box.hz - half;
+      const sides: [number, number, number][] = [
+        [room.box.hz + lz, 0, -inZ], // mur przy −Z: zestaw stoi przed nim i patrzy w +Z
+        [room.box.hz - lz, Math.PI, inZ],
+        [room.box.hx + lx, Math.PI / 2, -inX],
+        [room.box.hx - lx, -Math.PI / 2, inX],
+      ];
+      for (const [dist, yaw, edge] of sides) {
+        const alongX = Math.abs(Math.cos(yaw)) < 0.5;
+        const [wx, wz] = alongX ? boxPoint(room.box, edge, lz) : boxPoint(room.box, lx, edge);
+        take(room.box.yaw + yaw, wx, wz, dist);
+      }
+    }
+    const st = useStore.getState();
+    const floorY = this.editFloorY();
+    for (const w of st.palace().objects) {
+      if (w.type !== 'wall' || Math.abs(w.position[1] - floorY) > 0.5) continue;
+      const { t, dist } = wallOffsetOf(w, p.x, p.z);
+      if (Math.abs(t) > wallLength(w) / 2) continue;
+      // normalna ścianki to (sin r, cos r); zestaw zostaje po tej stronie, po której jest kursor
+      const r = w.rotation[1];
+      const side = Math.sign((p.x - w.position[0]) * Math.sin(r) + (p.z - w.position[2]) * Math.cos(r)) || 1;
+      const yaw = side > 0 ? r : r + Math.PI;
+      const base = wallPointAt(w, t);
+      take(yaw, base[0] + Math.sin(yaw) * half, base[1] + Math.cos(yaw) * half, dist);
+    }
+    if (!best) {
+      this.ghostRot = 0; // z dala od ścian wracamy do ustawienia wyjściowego, inaczej obrót zostałby po chwilowym przyciągnięciu
+      return;
+    }
+    const hit = best as { yaw: number; x: number; z: number; dist: number };
+    this.ghostRot = hit.yaw;
+    p.x = hit.x;
+    p.z = hit.z;
   }
 
   /** Okno zawsze stoi w najbliższej ścianie obwodowej edytowanego piętra, twarzą do środka pokoju. */
@@ -1738,6 +1818,11 @@ export class SceneManager {
     }
     if (isFacade(type) && (this.ghostBlocked || !this.ghostAnchor)) {
       st.showToast(this.facadeBlockReason || 'Okna, balkony i tarasy stawia się na murze budynku z wnętrzem w miejscu.');
+      return;
+    }
+    if (this.ghostSet) {
+      st.placeSet(this.ghostSet.id, { position: [this.ghostPos.x, this.ghostPos.y, this.ghostPos.z], rotation: this.ghostRot, anchorId: this.ghostAnchor });
+      if (!keepPlacing) st.setPlacing(null);
       return;
     }
     if (this.ghostIds) {
@@ -2770,6 +2855,7 @@ export class SceneManager {
       return;
     }
     this.ghostRot += Math.sign(ev.deltaY) * (Math.PI / 12);
+    this.ghostAutoRot = false;
     this.updateGhost();
   };
 
@@ -2808,7 +2894,10 @@ export class SceneManager {
       if (ev.code === 'KeyR') {
         ev.preventDefault();
         if (this.ghostType === 'door') this.doorFlip = !this.doorFlip; // zawiasy z drugiej strony
-        else if (!this.drawing() && !isFacade(this.ghostType)) this.ghostRot += Math.PI / 12;
+        else if (!this.drawing() && !isFacade(this.ghostType)) {
+          this.ghostRot += Math.PI / 12;
+          this.ghostAutoRot = false;
+        }
         this.updateGhost();
         return;
       }
