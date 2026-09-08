@@ -875,6 +875,8 @@ export class SceneManager {
     // taras: schodki od podłogi parteru do ziemi
     if (o.type === 'terrace' && b) return { ...base, drop: Math.round((buildingFloorY(b, 0) - b.position[1]) * 100) / 100 };
     if (o.type === 'painting') return { ...base, variant: hashString(o.id) % ART_VARIANTS };
+    // regał i stos książek: układ tomów z ziarna obiektu
+    if (o.type === 'shelf' || o.type === 'books') return { ...base, variant: hashString(o.id) % 1000 };
     return base;
   }
 

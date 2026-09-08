@@ -9,7 +9,7 @@ export interface CatalogItem {
   emoji: string; // ikona w liście
   footprint: number; // przybliżony promień (do rozmieszczania)
   maxScale?: number; // górna granica suwaka wielkości (domyślnie 10)
-  emitter?: 'smoke' | 'mist'; // system cząsteczek doczepiony do obiektu
+  emitter?: 'smoke' | 'mist' | 'fireflies' | 'butterflies'; // system cząsteczek doczepiony do obiektu
   collider?: 'trimesh' | 'box' | 'cylinder' | 'none'; // bryła kolizji (domyślnie 'box')
   unique?: boolean; // tylko jeden taki obiekt na pałac (brama)
   spawn?: AnimalKind; // punkt pojawiania zwierzęcia
@@ -39,7 +39,7 @@ export const CATALOG: CatalogItem[] = [
   { id: 'fountain', name: 'Fontanna', category: 'object', emoji: '⛲', description: 'Woda w centrum ogrodu.', footprint: 1.4, collider: 'trimesh' },
   { id: 'bench', name: 'Ławka', category: 'object', emoji: '🪑', description: 'Miejsce, by usiąść z myślą.', footprint: 0.8, collider: 'trimesh' },
 
-  { id: 'books', name: 'Książki', category: 'object', emoji: '📖', description: 'Stos książek — dobry na listy.', footprint: 0.5 },
+  { id: 'books', name: 'Książki', category: 'object', emoji: '📖', description: 'Stos tomów ze złoconymi grzbietami i otwartą księgą na wierzchu.', footprint: 0.5 },
   { id: 'statue', name: 'Posąg', category: 'object', emoji: '🗿', description: 'Postać na cokole.', footprint: 0.7 },
   { id: 'obelisk', name: 'Obelisk', category: 'object', emoji: '🔺', description: 'Kamienny znak pamięci.', footprint: 0.6 },
   { id: 'chest', name: 'Skrzynia', category: 'object', emoji: '🧰', description: 'Skrzynia na sekrety.', footprint: 0.6 },
@@ -60,10 +60,12 @@ export const CATALOG: CatalogItem[] = [
   { id: 'waterfall', name: 'Wodospad', category: 'landscape', emoji: '🏔️', description: 'Woda spadająca ze skalnej ściany.', footprint: 2.2, maxScale: 20, emitter: 'mist' },
   // Wyposażenie wnętrz
   { id: 'table', name: 'Stół', category: 'furniture', emoji: '🪵', description: 'Blat na notatki i mapy.', footprint: 0.9, collider: 'trimesh' },
-  { id: 'shelf', name: 'Regał', category: 'furniture', emoji: '🗄️', description: 'Półki pełne tomów.', footprint: 0.7, collider: 'box' },
+  { id: 'shelf', name: 'Regał', category: 'furniture', emoji: '🗄️', description: 'Półki pełne tomów — każdy regał ułożony inaczej.', footprint: 0.7, collider: 'box' },
   { id: 'chair', name: 'Krzesło', category: 'furniture', emoji: '💺', description: 'Miejsce do namysłu.', footprint: 0.4, collider: 'trimesh' },
   { id: 'painting', name: 'Obraz', category: 'furniture', emoji: '🖼️', description: 'Płótno w ramie — każdy obraz ma inny motyw.', footprint: 0.5, collider: 'none' },
-  { id: 'easel', name: 'Sztaluga', category: 'furniture', emoji: '🎨', description: 'Płótno na sztalugach w pracowni.', footprint: 0.5, collider: 'box' },
+  { id: 'easel', name: 'Sztaluga', category: 'furniture', emoji: '🎨', description: 'Płótno na sztalugach w pracowni.', footprint: 0.5, collider: 'box', hidden: true },
+  { id: 'globe', name: 'Globus', category: 'furniture', emoji: '🌍', description: 'Kula z mapą na mosiężnym południku.', footprint: 0.3, collider: 'box' },
+  { id: 'dishes', name: 'Naczynia', category: 'furniture', emoji: '🍽️', description: 'Taca z talerzami, kubkami, dzbankiem i misą.', footprint: 0.5, collider: 'box' },
   { id: 'bust', name: 'Popiersie', category: 'furniture', emoji: '🗿', description: 'Rzeźba na cokole.', footprint: 0.4, collider: 'box' },
   { id: 'fireplace', name: 'Kominek', category: 'furniture', emoji: '🔥', description: 'Ciepło i światło w salonie.', footprint: 0.9, collider: 'box' },
   { id: 'armchair', name: 'Fotel', category: 'furniture', emoji: '🛋️', description: 'Miękkie miejsce na dłuższą myśl.', footprint: 0.5, collider: 'box' },
@@ -89,6 +91,8 @@ export const CATALOG: CatalogItem[] = [
   { id: 'spawn_cat', name: 'Kot', category: 'animal', emoji: '🐈', description: 'Wędruje po okolicy i ucieka, gdy podejdziesz za blisko.', footprint: 0.5, collider: 'none', spawn: 'cat' },
   { id: 'spawn_squirrel', name: 'Wiewiórka', category: 'animal', emoji: '🐿️', description: 'Biega między drzewami, wspina się przy zagrożeniu.', footprint: 0.4, collider: 'none', spawn: 'squirrel' },
   { id: 'spawn_wolf', name: 'Wilk', category: 'animal', emoji: '🐺', description: 'Patroluje teren i warczy z bezpiecznej odległości.', footprint: 0.6, collider: 'none', spawn: 'wolf' },
+  { id: 'fireflies', name: 'Świetliki', category: 'animal', emoji: '✨', description: 'Słoik, wokół którego wieczorem roją się świecące owady.', footprint: 0.3, collider: 'none', emitter: 'fireflies' },
+  { id: 'butterflies', name: 'Motyle', category: 'animal', emoji: '🦋', description: 'Kępa kwiatów z motylami krążącymi w pobliżu.', footprint: 0.4, collider: 'none', emitter: 'butterflies' },
   { id: 'spawn_dragon', name: 'Smok', category: 'animal', emoji: '🐉', description: 'Krąży wysoko, przelatuje nad głową i zionie ogniem.', footprint: 0.8, collider: 'none', spawn: 'dragon' },
   // Specjalne
   { id: 'gate', name: 'Brama wejściowa', category: 'special', emoji: '🚪', description: 'Tu zaczyna się spacer po pałacu. Może być tylko jedna.', footprint: 1.6, collider: 'trimesh', unique: true },

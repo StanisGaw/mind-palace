@@ -3,6 +3,7 @@ import { buildAnimalBody, type AnimalKind } from './wildlife';
 import { DOOR_OPENING, FACADE, SHELLS, SHELL_WALL_T, TOWER_R, WALL_SEGMENT, WALL_THICKNESS, facadeWallsOf, shellWindowHoles, type FacadeWall, type Opening, type ShellSpec, type WallHole } from '../lib/rooms';
 import { subtractRect, type Rect } from './interior';
 import { paintingTexture } from './art';
+import { Noise2D } from './noise';
 import { grainTexture, textureById } from './textures';
 import { MATERIAL_DEFAULTS, MATERIAL_ROLES, paletteOf, type MaterialRole } from '../lib/materials';
 
@@ -570,11 +571,100 @@ function buildLantern(g: THREE.Group) {
   g.add(light);
 }
 
-function buildBooks(g: THREE.Group) {
-  add(g, box(0.7, 0.14, 0.5), mat(C.book1), 0, 0.07, 0, [0, 0.1, 0]);
-  add(g, box(0.62, 0.14, 0.46), mat(C.book2), 0.03, 0.21, 0.02, [0, -0.15, 0]);
-  add(g, box(0.66, 0.12, 0.48), mat(C.book3), -0.02, 0.34, -0.02, [0, 0.25, 0]);
-  add(g, box(0.5, 0.05, 0.36), mat(C.paper), 0, 0.42, 0, [0, 0.05, 0]);
+/** Tytuły na grzbietach — kilka współdzielonych tekstur (złote litery i ornament na przezroczystym tle). */
+const BOOK_TITLES = ['Pamięć', 'Sny', 'Podróże', 'Ogród', 'Mapy', 'Listy', 'Idee', 'Czas', 'Baśnie', 'Atlas'];
+const spineMats = new Map<number, THREE.MeshStandardMaterial>();
+function spineMat(i: number): THREE.MeshStandardMaterial {
+  let m = spineMats.get(i);
+  if (m) return m;
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 256;
+  const ctx = c.getContext('2d')!;
+  ctx.clearRect(0, 0, 64, 256);
+  ctx.strokeStyle = '#e2c27a';
+  ctx.lineWidth = 3;
+  // podwójne linie u góry i u dołu, rozetka pośrodku dołu
+  for (const y of [22, 30, 226, 234]) {
+    ctx.beginPath();
+    ctx.moveTo(8, y);
+    ctx.lineTo(56, y);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.arc(32, 200, 9, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(32, 200, 3, 0, Math.PI * 2);
+  ctx.fillStyle = '#e2c27a';
+  ctx.fill();
+  // tytuł wzdłuż grzbietu (obrócony), pogrubiony szeryf
+  ctx.save();
+  ctx.translate(32, 108);
+  ctx.rotate(-Math.PI / 2);
+  ctx.font = 'bold 30px Georgia, "Times New Roman", serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#e2c27a';
+  ctx.fillText(BOOK_TITLES[i % BOOK_TITLES.length], 0, 0);
+  ctx.restore();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  m = new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.4, metalness: 0.5, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 });
+  spineMats.set(i, m);
+  return m;
+}
+
+/**
+ * Książka: okładka, kartki wystające z przodu i z góry, złocone paski na grzbiecie i tytuł.
+ * Grubość wzdłuż X, wysokość Y, grzbiet na +Z. Zwraca grupę do ustawienia przez wywołującego.
+ */
+function book(g: THREE.Group, w: number, h: number, d: number, cover: THREE.Material, title: number): THREE.Group {
+  const b = new THREE.Group();
+  add(b, box(w, h, d), cover, 0, 0, 0);
+  // blok kartek: cieńszy od okładki, wysunięty w stronę otwarcia (−Z) i widoczny od góry
+  add(b, box(w - 0.012, h - 0.02, d - 0.01), mat(C.paper, { roughness: 1 }), 0, 0, -0.012);
+  const gold = mat(C.gold, { roughness: 0.35, metalness: 0.7 });
+  for (const y of [h * 0.36, -h * 0.36]) add(b, box(w + 0.004, 0.008, 0.004), gold, 0, y, d / 2);
+  const spine = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.9, h * 0.92), spineMat(title));
+  spine.position.set(0, 0, d / 2 + 0.002);
+  spine.userData.skipCollider = true;
+  b.add(spine);
+  g.add(b);
+  return b;
+}
+
+/** Ciąg deterministycznych liczb 0..1 z ziarna — regały różnią się układem, ale nie zmieniają go przy przebudowie. */
+function rng(seed: number) {
+  let x = (seed * 9301 + 49297) % 233280 || 1;
+  return () => {
+    x = (x * 9301 + 49297) % 233280;
+    return x / 233280;
+  };
+}
+
+const BOOK_COLORS: (() => string)[] = [() => C.book1, () => C.book2, () => C.book3, () => C.velvet, () => C.cypress, () => C.fabric, () => C.woodDark, () => C.leafDark];
+
+/** Stos książek: cztery leżące tomy z grzbietami w różne strony i otwarta książka na wierzchu. */
+function buildBooks(g: THREE.Group, ctx: BuildCtx) {
+  const r = rng((ctx.variant ?? 0) + 7);
+  let y = 0;
+  const sizes: [number, number, number][] = [[0.07, 0.34, 0.24], [0.06, 0.3, 0.22], [0.05, 0.32, 0.23], [0.06, 0.28, 0.2]];
+  sizes.forEach(([w, h, d], i) => {
+    const b = book(g, w, h, d, mat(BOOK_COLORS[Math.floor(r() * BOOK_COLORS.length)]()), Math.floor(r() * BOOK_TITLES.length));
+    b.rotation.set(0, (r() - 0.5) * 0.6 + (i % 2 ? Math.PI : 0), Math.PI / 2);
+    b.position.set((r() - 0.5) * 0.04, y + w / 2, (r() - 0.5) * 0.04);
+    y += w;
+  });
+  // otwarta książka: dwie strony pod lekkim kątem
+  const open = new THREE.Group();
+  open.position.set(0, y + 0.01, 0);
+  open.rotation.y = (r() - 0.5) * 0.8;
+  for (const sgn of [-1, 1]) {
+    add(open, box(0.14, 0.012, 0.2), mat(C.paper, { roughness: 1 }), sgn * 0.075, 0.012, 0, [0, 0, sgn * 0.12]);
+    add(open, box(0.15, 0.006, 0.21), mat(C.woodDark), sgn * 0.075, 0.003, 0, [0, 0, sgn * 0.12]);
+  }
+  g.add(open);
 }
 
 function buildStatue(g: THREE.Group) {
@@ -1009,17 +1099,184 @@ function buildTable(g: THREE.Group) {
   add(g, box(0.4, 0.04, 0.3), mat(C.paper), 0.3, 0.83, 0.1, [0, 0.3, 0]);
 }
 
-function buildShelf(g: THREE.Group) {
-  add(g, box(1.4, 2.2, 0.36), woodMat(C.woodDark), 0, 1.1, -0.02);
-  add(g, box(1.3, 2.05, 0.06), woodMat(C.wood), 0, 1.1, 0.14);
-  const cols = [C.book1, C.book2, C.book3, C.flower3];
+/**
+ * Regał: boki, gzyms, cokół i tylna ścianka z ciemniejszego drewna, cztery półki z listwą czołową, a na nich
+ * książki stojące, pochylone i leżące w stosach — układ z ziarna obiektu.
+ */
+function buildShelf(g: THREE.Group, ctx: BuildCtx) {
+  const dark = woodMat(C.woodDark);
+  const light = woodMat(C.wood);
+  const W = 1.4;
+  const D = 0.38;
+  const H = 2.2;
+  add(g, box(W - 0.1, H, 0.03), dark, 0, H / 2, -D / 2 + 0.015); // plecy
+  for (const x of [-W / 2 + 0.025, W / 2 - 0.025]) add(g, box(0.05, H, D), dark, x, H / 2, 0);
+  add(g, box(W + 0.08, 0.06, D + 0.06), dark, 0, H + 0.03, 0.02); // gzyms
+  add(g, box(W + 0.02, 0.03, D + 0.02), light, 0, H - 0.015, 0.02);
+  add(g, box(W + 0.04, 0.12, D + 0.02), dark, 0, 0.06, 0.01); // cokół
+  const r = rng((ctx.variant ?? 0) + 3);
+  const innerW = W - 0.1;
   for (let shelf = 0; shelf < 4; shelf++) {
-    const y = 0.35 + shelf * 0.5;
-    add(g, box(1.28, 0.05, 0.32), woodMat(C.wood), 0, y, 0);
-    for (let i = 0; i < 7; i++) {
-      const h = 0.28 + ((i * 7 + shelf * 3) % 5) * 0.02;
-      add(g, box(0.13, h, 0.24), mat(cols[(i + shelf) % 4]), -0.53 + i * 0.17, y + h / 2 + 0.03, 0);
+    const y = 0.28 + shelf * 0.5;
+    add(g, box(innerW, 0.04, D - 0.04), light, 0, y, 0);
+    add(g, box(innerW, 0.05, 0.02), dark, 0, y, D / 2 - 0.03); // listwa czołowa
+    // od lewej: grupy stojących książek, czasem pochylona, czasem stos leżących, czasem przerwa
+    let x = -innerW / 2 + 0.04;
+    const top = y + 0.02;
+    while (x < innerW / 2 - 0.06) {
+      const kind = r();
+      if (kind < 0.12) {
+        x += 0.06 + r() * 0.1; // przerwa
+        continue;
+      }
+      if (kind < 0.3) {
+        // stos 2–3 leżących tomów, grzbietami do przodu
+        const n = 2 + Math.floor(r() * 2);
+        let sy = top;
+        let maxH = 0;
+        for (let i = 0; i < n; i++) {
+          const w = 0.035 + r() * 0.03;
+          const h = 0.22 + r() * 0.08;
+          const b = book(g, w, h, 0.2 + r() * 0.06, mat(BOOK_COLORS[Math.floor(r() * BOOK_COLORS.length)]()), Math.floor(r() * BOOK_TITLES.length));
+          b.rotation.set(0, 0, Math.PI / 2);
+          b.position.set(x + h / 2, sy + w / 2, 0.02);
+          sy += w;
+          maxH = Math.max(maxH, h);
+        }
+        x += maxH + 0.03;
+        continue;
+      }
+      // grupa stojących
+      const n = 2 + Math.floor(r() * 5);
+      for (let i = 0; i < n && x < innerW / 2 - 0.06; i++) {
+        const w = 0.035 + r() * 0.035;
+        const h = 0.24 + r() * 0.16;
+        const d = 0.18 + r() * 0.08;
+        const b = book(g, w, h, d, mat(BOOK_COLORS[Math.floor(r() * BOOK_COLORS.length)]()), Math.floor(r() * BOOK_TITLES.length));
+        const lean = i === n - 1 && r() < 0.35 ? -0.18 : 0;
+        b.rotation.z = lean;
+        b.position.set(x + w / 2 + (lean ? h * 0.08 : 0), top + h / 2, 0.04 - r() * 0.02);
+        x += w + 0.004 + (lean ? 0.05 : 0);
+      }
+      x += r() < 0.4 ? 0.02 : 0;
     }
+  }
+}
+
+let globeTex: THREE.CanvasTexture | null = null;
+/** Mapa globusa: ocean i kontynenty z szumu — jedna tekstura na sesję. */
+function globeTexture(): THREE.CanvasTexture {
+  if (globeTex) return globeTex;
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 128;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#7fa7c2';
+  ctx.fillRect(0, 0, 256, 128);
+  const img = ctx.getImageData(0, 0, 256, 128);
+  const n = new Noise2D(77);
+  for (let y = 0; y < 128; y++) {
+    for (let x = 0; x < 256; x++) {
+      // szum na sferze: x zawija się, więc mieszamy dwa odczyty na krawędzi
+      const v = n.fbm(x * 0.03, y * 0.03, 4) * 0.5 + n.fbm((256 - x) * 0.03 + 9, y * 0.03, 4) * 0.5;
+      const polar = Math.abs(y - 64) > 56;
+      if (v > 0.08 || polar) {
+        const i = (y * 256 + x) * 4;
+        const [r, g, b] = polar ? [240, 242, 240] : v > 0.2 ? [150, 140, 100] : [140, 165, 105];
+        img.data[i] = r;
+        img.data[i + 1] = g;
+        img.data[i + 2] = b;
+      }
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  ctx.strokeStyle = 'rgba(60,50,40,0.25)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 8; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * 32, 0);
+    ctx.lineTo(i * 32, 128);
+    ctx.stroke();
+  }
+  for (let i = 1; i < 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(0, i * 32);
+    ctx.lineTo(256, i * 32);
+    ctx.stroke();
+  }
+  globeTex = new THREE.CanvasTexture(c);
+  globeTex.colorSpace = THREE.SRGBColorSpace;
+  return globeTex;
+}
+
+/** Globus: toczona podstawa, mosiężny południk i kula z mapą, pochylona jak Ziemia. */
+function buildGlobe(g: THREE.Group) {
+  const brass = mat(C.gold, { roughness: 0.35, metalness: 0.7 });
+  add(g, cyl(0.16, 0.2, 0.03, 16), woodMat(C.woodDark), 0, 0.015, 0);
+  add(g, cyl(0.04, 0.06, 0.16, 10), woodMat(C.woodDark), 0, 0.11, 0);
+  add(g, cyl(0.02, 0.03, 0.3, 8), brass, 0, 0.34, 0);
+  const tilt = new THREE.Group();
+  tilt.position.set(0, 0.7, 0);
+  tilt.rotation.z = 0.41;
+  add(tilt, new THREE.TorusGeometry(0.27, 0.012, 8, 32), brass, 0, 0, 0, [0, Math.PI / 2, 0]);
+  add(tilt, cyl(0.008, 0.008, 0.58, 6), brass, 0, 0, 0);
+  const globe = add(tilt, new THREE.SphereGeometry(0.24, 24, 16), mat('#ffffff', { roughness: 0.6, flat: false, map: globeTexture() }), 0, 0, 0);
+  globe.castShadow = true;
+  g.add(tilt);
+}
+
+/** Naczynia na drewnianej tacy: talerze, dwa kubki, dzbanek i misa — z niebieskim paskiem. */
+function buildDishes(g: THREE.Group) {
+  const white = mat(C.linen, { roughness: 0.5, flat: false });
+  const band = mat(C.book2, { roughness: 0.5, flat: false });
+  add(g, box(0.9, 0.025, 0.55), woodMat(C.wood), 0, 0.012, 0);
+  for (const x of [-0.45, 0.45]) add(g, box(0.02, 0.06, 0.55), woodMat(C.woodDark), x, 0.04, 0);
+  // talerze: stos dwóch i jeden osobno
+  for (const [x, z, n] of [[-0.25, 0.12, 2], [0.08, 0.16, 1]] as [number, number, number][]) {
+    for (let i = 0; i < n; i++) {
+      add(g, cyl(0.13, 0.09, 0.015, 20), white, x, 0.032 + i * 0.016, z);
+      add(g, new THREE.TorusGeometry(0.11, 0.004, 6, 24), band, x, 0.041 + i * 0.016, z, [Math.PI / 2, 0, 0]);
+    }
+  }
+  // kubki z uszkiem
+  for (const [x, z, a] of [[0.3, 0.15, 0.4], [0.32, -0.08, 2.2]] as [number, number, number][]) {
+    add(g, cyl(0.045, 0.04, 0.09, 14), white, x, 0.07, z);
+    add(g, cyl(0.046, 0.046, 0.012, 14), band, x, 0.1, z);
+    add(g, new THREE.TorusGeometry(0.025, 0.007, 6, 14), white, x + Math.cos(a) * 0.055, 0.07, z + Math.sin(a) * 0.055, [0, -a, 0]);
+  }
+  // dzbanek
+  add(g, cyl(0.06, 0.08, 0.2, 14), white, -0.28, 0.125, -0.15);
+  add(g, cyl(0.07, 0.06, 0.03, 14), white, -0.28, 0.24, -0.15);
+  add(g, cyl(0.065, 0.065, 0.02, 14), band, -0.28, 0.16, -0.15);
+  add(g, new THREE.TorusGeometry(0.05, 0.01, 6, 14), white, -0.2, 0.15, -0.15, [0, 0, 0]);
+  add(g, box(0.05, 0.02, 0.03), white, -0.34, 0.245, -0.15, [0, 0, 0.3]); // dzióbek
+  // misa
+  add(g, cyl(0.13, 0.07, 0.08, 18), white, 0.05, 0.065, -0.15);
+  add(g, cyl(0.12, 0.12, 0.012, 18), band, 0.05, 0.1, -0.15);
+  add(g, cyl(0.115, 0.115, 0.01, 18), mat(C.flower2), 0.05, 0.1, -0.15); // owoce w środku
+}
+
+/** Słoik ze świetlikami — znacznik roju (cząstki dokłada scena). */
+function buildFireflyJar(g: THREE.Group) {
+  add(g, cyl(0.1, 0.1, 0.24, 14), glassMat(), 0, 0.13, 0);
+  add(g, cyl(0.07, 0.07, 0.02, 14), mat(C.gold, { roughness: 0.4, metalness: 0.6 }), 0, 0.26, 0);
+  add(g, cyl(0.075, 0.075, 0.03, 14), woodMat(C.woodDark), 0, 0.28, 0);
+  add(g, cyl(0.035, 0.035, 0.12, 8), mat(C.glow, { emissive: '#d8e86a' }), 0, 0.13, 0);
+  const light = new THREE.PointLight('#d8ff7a', 2.5, 4, 2);
+  light.position.set(0, 0.5, 0);
+  g.add(light);
+}
+
+/** Kępa kwiatów — znacznik roju motyli. */
+function buildButterflyPatch(g: THREE.Group) {
+  add(g, cyl(0.28, 0.32, 0.08, 10), mat(C.soil), 0, 0.04, 0);
+  add(g, sphere(0.26, 8), mat(C.leaf2), 0, 0.2, 0);
+  const cols = [C.flower1, C.flower2, C.flower3, C.book2];
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2;
+    const rr = 0.1 + (i % 3) * 0.07;
+    add(g, cyl(0.006, 0.006, 0.3, 5), mat(C.leafDark), Math.cos(a) * rr, 0.35, Math.sin(a) * rr);
+    add(g, sphere(0.035, 6), mat(cols[i % 4]), Math.cos(a) * rr, 0.5, Math.sin(a) * rr);
   }
 }
 
@@ -1280,6 +1537,10 @@ function buildWaterfall(g: THREE.Group) {
 const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   wall: buildWall,
   pathway: buildPath,
+  globe: buildGlobe,
+  dishes: buildDishes,
+  fireflies: buildFireflyJar,
+  butterflies: buildButterflyPatch,
   door: buildDoor,
   window: buildWindow,
   balcony: buildBalcony,
