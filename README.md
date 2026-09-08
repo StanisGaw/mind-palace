@@ -29,6 +29,10 @@ npm run build        # produkcyjny build do dist/
 - **Zwierzęta** — punkty pojawiania (ptaki, pies, kot, wiewiórka, wilk, smok) stawiane w edytorze
   ożywają w trybie chodzenia: pies podbiega i siada, kot ucieka, wiewiórka wspina się na drzewo,
   wilk warczy z dystansu, smok krąży, przelatuje nad głową i zionie ogniem.
+- **Elewacja i dekoracje** — okno, balkon i taras stawia się na murze budynku z wnętrzem w miejscu
+  (mur dostaje otwór; balkon na piętrze, taras przy parterze); każde piętro podwyższa bryłę budynku.
+  Wyposażenie: obrazy z generowanym płótnem, popiersie, kominek, fotel, sofa, łóżko, biurko, kredens,
+  zegar, lustro, wazon, zasłony; z nich siedem gotowych układów pokoi.
 - **Wnętrza budynków** — dwa tryby. *W budynku* (domyślny dla nowych): wnętrze w tej samej scenie,
   w spacerze otwierasz drzwi (`F` lub klik) i wchodzisz; w edytorze klik w budynek chowa dach i ściany od
   strony kamery, obiekty stawia się na jego podłodze, piętra (1–4) i piętro do edycji są w panelu budynku.
