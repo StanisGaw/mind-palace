@@ -2,7 +2,7 @@ import type { AppData, GroundSpec, Palace, PalaceObject, PalaceSettings, RoomPre
 import { catalogItem, ROOMS } from '../catalog';
 import { uid } from './ids';
 import { hashString } from '../three/noise';
-import { FLOOR_MAX } from './rooms';
+import { FLOOR_MAX, attachLegacyDoors } from './rooms';
 
 const KEY = 'mneme.data.v1';
 
@@ -130,7 +130,8 @@ export function normalizePalace(p: Partial<Palace>): Palace {
     ...p,
     id: p.id ?? base.id,
     interior: normalizeInterior(rawInterior),
-    objects: needsWindowMigration ? [...migratedObjects, ...migrateWindows(rawInterior!.buildingType ?? 'house')] : migratedObjects,
+    // dawne drzwi-segmenty dostają własną ściankę (drzwi żyją teraz w ściance przez `anchorId`)
+    objects: attachLegacyDoors(needsWindowMigration ? [...migratedObjects, ...migrateWindows(rawInterior!.buildingType ?? 'house')] : migratedObjects, uid),
     path: Array.isArray(p.path) ? p.path.filter((id) => ids.has(id)) : [],
     // ziarno starych pałaców wyliczamy z id, żeby teren nie zmieniał się przy każdym otwarciu
     settings: normalizeSettings(p.settings, p.id ?? base.id),

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildAnimalBody, type AnimalKind } from './wildlife';
+import { DOOR_OPENING, WALL_SEGMENT, WALL_THICKNESS } from '../lib/rooms';
 
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
 export function mat(color: string, opts: { emissive?: string; roughness?: number; metalness?: number; flat?: boolean } = {}) {
@@ -375,33 +376,101 @@ function buildCampfire(g: THREE.Group) {
 
 // ---------- konstrukcja (wnętrza budynków) ----------
 
-/** Bazowa długość segmentu ściany/drzwi — skala X wydłuża go wzdłuż tej osi. */
-const WALL_LEN = 2.0;
-const WALL_T = 0.24;
-
-function buildWall(g: THREE.Group, ctx: { floorHeight: number }) {
-  add(g, box(WALL_LEN, ctx.floorHeight, WALL_T), mat(C.cream2), 0, ctx.floorHeight / 2, 0);
+/** Kontekst budowy modelu: wysokość kondygnacji i (dla ścianki) skala X oraz położenia otworów na drzwi. */
+export interface BuildCtx {
+  floorHeight: number;
+  /** Skala X obiektu — ścianka buduje się w jednostkach lokalnych, więc wymiary w metrach dzieli przez nią. */
+  scaleX?: number;
+  /** Środki otworów drzwiowych wzdłuż ścianki, w metrach świata od jej środka. */
+  openings?: number[];
 }
 
-function buildDoor(g: THREE.Group, ctx: { floorHeight: number }) {
+/**
+ * Ścianka działowa: pełne pudełko albo słupki i nadproża wokół otworów na drzwi.
+ * Wysokość o 0,02 m większa od kondygnacji: spód chowa się w podłodze, wierzch w stropie,
+ * bo wspólna płaszczyzna z nimi migotałaby.
+ */
+function buildWall(g: THREE.Group, ctx: BuildCtx) {
   const H = ctx.floorHeight;
-  const openW = 1.0;
-  const openH = 2.1;
-  const postW = (WALL_LEN - openW) / 2;
-  add(g, box(postW, H, WALL_T), mat(C.cream2), -(openW / 2 + postW / 2), H / 2, 0);
-  add(g, box(postW, H, WALL_T), mat(C.cream2), openW / 2 + postW / 2, H / 2, 0);
-  add(g, box(openW, H - openH, WALL_T), mat(C.cream2), 0, openH + (H - openH) / 2, 0); // nadproże
-  // framuga: cienka ramka WOKÓŁ otworu (nie wolno jej wypełniać — inaczej blokowałaby przejście na stałe)
-  const frameT = 0.08;
-  add(g, box(frameT, openH + frameT, WALL_T + 0.04), mat(C.woodDark), -openW / 2 - frameT / 2, openH / 2, 0);
-  add(g, box(frameT, openH + frameT, WALL_T + 0.04), mat(C.woodDark), openW / 2 + frameT / 2, openH / 2, 0);
-  add(g, box(openW + frameT * 2, frameT, WALL_T + 0.04), mat(C.woodDark), 0, openH + frameT / 2, 0);
-  // skrzydło na zawiasie: pivot na krawędzi otworu, obraca go SceneManager (etap 4)
+  const sx = Math.max(ctx.scaleX ?? 1, 0.01);
+  const m = mat(C.cream2);
+  const openings = (ctx.openings ?? []).slice().sort((a, b) => a - b);
+  const wallH = H + 0.02;
+  if (openings.length === 0) {
+    add(g, box(WALL_SEGMENT, wallH, WALL_THICKNESS), m, 0, H / 2, 0);
+    return;
+  }
+  // otwory w jednostkach lokalnych (świat / skala X); pełna długość lokalna to zawsze WALL_SEGMENT
+  const half = WALL_SEGMENT / 2;
+  const ow = DOOR_OPENING.w / sx;
+  let cursor = -half;
+  const post = (x0: number, x1: number) => {
+    if (x1 - x0 < 1e-3) return;
+    add(g, box(x1 - x0, wallH, WALL_THICKNESS), m, (x0 + x1) / 2, H / 2, 0);
+  };
+  for (const t of openings) {
+    const c = t / sx;
+    const x0 = Math.max(cursor, c - ow / 2);
+    const x1 = Math.min(half, c + ow / 2);
+    post(cursor, x0);
+    // nadproże wchodzi 0,02 m w słupki (bez szczeliny na styku) i jest odrobinę cieńsze,
+    // żeby jego lico w słupku leżało za licem słupka, a nie w tej samej płaszczyźnie
+    const lintelH = H + 0.01 - DOOR_OPENING.h;
+    const inset = 0.02 / sx;
+    add(g, box(x1 - x0 + inset * 2, lintelH, WALL_THICKNESS - 0.006), m, (x0 + x1) / 2, DOOR_OPENING.h + lintelH / 2, 0);
+    cursor = x1;
+  }
+  post(cursor, half);
+}
+
+/**
+ * Drzwi bez własnego muru: ościeżnica wpuszczona 0,02 m w otwór ścianki, próg, skrzydło płycinowe
+ * z klamką. Lokalny środek leży w osi ścianki; oś X biegnie wzdłuż ścianki.
+ */
+function buildDoor(g: THREE.Group) {
+  const lightW = DOOR_OPENING.w - 0.16; // światło 1,0 m
+  const lightH = DOOR_OPENING.h - 0.08; // 2,1 m
+  const jambW = 0.1; // 0,08 widoczne + 0,02 w murze
+  const depth = WALL_THICKNESS + 0.04;
+  const frame = mat(C.woodDark);
+  const jambX = lightW / 2 + jambW / 2;
+  add(g, box(jambW, lightH + 0.1, depth), frame, -jambX, (lightH + 0.1) / 2, 0);
+  add(g, box(jambW, lightH + 0.1, depth), frame, jambX, (lightH + 0.1) / 2, 0);
+  add(g, box(lightW + jambW * 2, jambW, depth), frame, 0, lightH + jambW / 2, 0);
+  // próg: spód w podłodze
+  add(g, box(lightW, 0.03, depth), mat(C.stoneDark), 0, 0.005, 0);
+
+  // skrzydło na zawiasie przy lewym boku; obraca je SceneManager (`toggleDoor`)
   const pivot = new THREE.Group();
-  pivot.position.set(-openW / 2, 0, 0);
+  pivot.position.set(-lightW / 2, 0, 0);
   pivot.userData.doorLeaf = true;
-  const leaf = add(pivot, box(openW - 0.1, openH - 0.1, 0.06), mat(C.woodDark), (openW - 0.1) / 2, (openH - 0.1) / 2, 0.02);
-  leaf.userData.skipCollider = true;
+  // szczelina 1,5 cm wokół skrzydła — większa prześwitywała jasnym pasem przy ościeżnicy
+  const leafW = lightW - 0.03;
+  const leafH = lightH - 0.03;
+  const leafT = 0.05;
+  const leafX = 0.015 + leafW / 2;
+  const leafY = 0.01 + leafH / 2;
+  const leafMat = mat(C.wood);
+  const panelMat = mat('#c9a074');
+  const parts: THREE.Mesh[] = [];
+  parts.push(add(pivot, box(leafW, leafH, leafT), leafMat, leafX, leafY, 0));
+  // płyciny: obwódka lekko nad licem, wypełnienie cofnięte — po obu stronach skrzydła
+  const panelW = leafW - 0.24;
+  const panels: [number, number][] = [
+    [leafY + leafH * 0.22, leafH * 0.36],
+    [leafY - leafH * 0.24, leafH * 0.32],
+  ];
+  for (const side of [-1, 1]) {
+    for (const [py, ph] of panels) {
+      parts.push(add(pivot, box(panelW, ph, 0.012), mat(C.woodDark), leafX, py, side * (leafT / 2 + 0.003)));
+      parts.push(add(pivot, box(panelW - 0.08, ph - 0.08, 0.02), panelMat, leafX, py, side * (leafT / 2 - 0.004)));
+    }
+    // klamka: pręt poziomy i gałka przy krawędzi zamka
+    const hx = leafX + leafW / 2 - 0.1;
+    parts.push(add(pivot, cyl(0.016, 0.016, 0.05, 8), mat(C.metal), hx, 1.02, side * (leafT / 2 + 0.02), [Math.PI / 2, 0, 0]));
+    parts.push(add(pivot, box(0.12, 0.024, 0.024), mat(C.metal), hx - 0.045, 1.02, side * (leafT / 2 + 0.05)));
+  }
+  for (const part of parts) part.userData.skipCollider = true;
   g.add(pivot);
 }
 
@@ -412,7 +481,7 @@ function buildWindow(g: THREE.Group) {
   add(g, box(1.4, 1.7, 0.14), trimMat, 0, 1.4, -0.02);
 }
 
-function buildStairs(g: THREE.Group, ctx: { floorHeight: number }) {
+function buildStairs(g: THREE.Group, ctx: BuildCtx) {
   const H = ctx.floorHeight;
   const len = 1.15 * H;
   const width = 1.2;
@@ -560,7 +629,7 @@ function buildWaterfall(g: THREE.Group) {
   add(g, dodeca(0.4, 0), mat(C.rock), 1.5, 0.3, 0.6);
 }
 
-const BUILDERS: Record<string, (g: THREE.Group, ctx: { floorHeight: number }) => void> = {
+const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   wall: buildWall,
   door: buildDoor,
   window: buildWindow,
@@ -610,15 +679,15 @@ const BUILDERS: Record<string, (g: THREE.Group, ctx: { floorHeight: number }) =>
 };
 
 /**
+ * Bryła kolizji skrzydła drzwi obiektowych (typ `door`) w stanie zamkniętym, w lokalnych
+ * współrzędnych modelu — liczona wprost ze stałych w `buildDoor`.
+ */
+export const DOOR_LEAF_LOCAL = { size: [0.97, 2.07, 0.05] as [number, number, number], center: [0, 1.045, 0] as [number, number, number] };
+
+/**
  * Drzwi budynków w lokalnych współrzędnych modelu:
  * `local` to sama framuga, `outside` to miejsce, w którym staje gracz po wyjściu.
  */
-/**
- * Bryła kolizji skrzydła drzwi obiektowych (typ `door`) w stanie zamkniętym, w lokalnych
- * współrzędnych modelu — liczona wprost ze stałych w `buildDoor` (niezależna od wysokości pokoju).
- */
-export const DOOR_LEAF_LOCAL = { size: [0.9, 2.0, 0.06] as [number, number, number], center: [-0.05, 1.0, 0.02] as [number, number, number] };
-
 export const DOORS: Record<string, { local: [number, number, number]; outside: [number, number, number] }> = {
   palace: { local: [0, 0.44, 1.0], outside: [0, 0, 3.1] },
   library: { local: [0, 0.24, 1.0], outside: [0, 0, 3.0] },
@@ -637,9 +706,9 @@ export const EMITTER_ANCHORS: Record<string, [number, number, number]> = {
   campfire: [0, 0.7, 0],
 };
 
-export function buildModel(type: string, ctx?: { floorHeight: number }): THREE.Group {
+export function buildModel(type: string, ctx?: Partial<BuildCtx>): THREE.Group {
   const g = new THREE.Group();
-  (BUILDERS[type] ?? buildObelisk)(g, { floorHeight: ctx?.floorHeight ?? 3.2 });
+  (BUILDERS[type] ?? buildObelisk)(g, { ...ctx, floorHeight: ctx?.floorHeight ?? 3.2 });
   return g;
 }
 

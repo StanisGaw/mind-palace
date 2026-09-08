@@ -78,8 +78,8 @@ export const CATALOG: CatalogItem[] = [
   // Specjalne
   { id: 'gate', name: 'Brama wejściowa', category: 'special', emoji: '🚪', description: 'Tu zaczyna się spacer po pałacu. Może być tylko jedna.', footprint: 1.6, collider: 'trimesh', unique: true },
   // Konstrukcja (tylko we wnętrzach — układ pokoju z elementów biblioteki)
-  { id: 'wall', name: 'Ściana działowa', category: 'structure', emoji: '🧱', description: 'Dzieli pokój na mniejsze przestrzenie.', footprint: 1.0, collider: 'box', maxScale: 12 },
-  { id: 'door', name: 'Drzwi', category: 'structure', emoji: '🚪', description: 'Otwierane skrzydło — kliknij albo naciśnij F.', footprint: 1.0, collider: 'trimesh' },
+  { id: 'wall', name: 'Ściana działowa', category: 'structure', emoji: '🧱', description: 'Kliknij początek i koniec — dzieli pokój na mniejsze przestrzenie.', footprint: 1.0, collider: 'trimesh', maxScale: 12 },
+  { id: 'door', name: 'Drzwi', category: 'structure', emoji: '🚪', description: 'Stawia się w ściance działowej. Otwierane skrzydło — kliknij albo naciśnij F.', footprint: 1.0, collider: 'trimesh' },
   { id: 'window', name: 'Okno', category: 'structure', emoji: '🪟', description: 'Przyciąga się do najbliższej ściany obwodowej.', footprint: 0.6, collider: 'none' },
   { id: 'stairs', name: 'Schody', category: 'structure', emoji: '🪜', description: 'Prowadzą na wyższe piętro.', footprint: 0.8, collider: 'trimesh', maxScale: 2 },
 ];

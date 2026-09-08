@@ -1,4 +1,4 @@
-import { ROOMS } from '../catalog';
+import { ROOMS, catalogItem } from '../catalog';
 import type { Palace, PalaceObject, RoomSpec } from '../types';
 
 /** Najwyższe piętro, jakie można ustawić budynkowi. */
@@ -61,4 +61,92 @@ export function stairOpenings(objects: PalaceObject[], floorHeight: number): Ope
   const out: Opening[][] = [];
   for (let i = 0; i <= maxFloor; i++) out.push(byFloor.get(i) ?? []);
   return out;
+}
+
+// ---------- ścianki działowe i drzwi ----------
+
+/** Długość bazowego segmentu ścianki (`scale[0]` mnoży ją wzdłuż osi X obiektu). */
+export const WALL_SEGMENT = 2.0;
+export const WALL_THICKNESS = 0.24;
+/**
+ * Otwór wycinany w ściance pod drzwi: światło 1,0 × 2,1 plus ościeżnica po 0,08 z każdej strony,
+ * wpuszczona 0,02 m w mur (dzięki temu żadna ścianka ościeżnicy nie leży w płaszczyźnie muru).
+ */
+export const DOOR_OPENING = { w: 1.16, h: 2.18 };
+/** Najmniejszy odstęp między osiami dwóch drzwi w tej samej ściance. */
+export const DOOR_SLOT = DOOR_OPENING.w + 0.1;
+
+export function wallLength(wall: Pick<PalaceObject, 'scale'>): number {
+  return wall.scale[0] * WALL_SEGMENT;
+}
+
+/** Wektor jednostkowy wzdłuż ścianki w rzucie z góry (lokalna oś X obrócona o `rotation[1]`). */
+export function wallAxis(wall: Pick<PalaceObject, 'rotation'>): [number, number] {
+  return [Math.cos(wall.rotation[1]), -Math.sin(wall.rotation[1])];
+}
+
+/** Rzut punktu na oś ścianki: `t` wzdłuż od środka (w metrach świata), `dist` w poprzek. */
+export function wallOffsetOf(wall: Pick<PalaceObject, 'position' | 'rotation'>, x: number, z: number): { t: number; dist: number } {
+  const [ax, az] = wallAxis(wall);
+  const dx = x - wall.position[0];
+  const dz = z - wall.position[2];
+  return { t: dx * ax + dz * az, dist: Math.abs(-dx * az + dz * ax) };
+}
+
+/** Punkt na osi ścianki w odległości `t` od jej środka. */
+export function wallPointAt(wall: Pick<PalaceObject, 'position' | 'rotation'>, t: number): [number, number] {
+  const [ax, az] = wallAxis(wall);
+  return [wall.position[0] + ax * t, wall.position[2] + az * t];
+}
+
+/** Zakres `t`, w którym mieści się cały otwór drzwiowy. */
+export function doorRange(wall: Pick<PalaceObject, 'scale'>): number {
+  return Math.max(0, wallLength(wall) / 2 - DOOR_OPENING.w / 2);
+}
+
+/** Położenia (wzdłuż osi, w metrach świata) drzwi zakotwiczonych w ściance i mieszczących się w niej. */
+export function doorOffsets(wall: PalaceObject, objects: PalaceObject[]): number[] {
+  const range = doorRange(wall);
+  const out: number[] = [];
+  for (const o of objects) {
+    if (o.type !== 'door' || o.anchorId !== wall.id) continue;
+    const { t } = wallOffsetOf(wall, o.position[0], o.position[2]);
+    if (Math.abs(t) <= range + 1e-6) out.push(t);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+/** Czy w miejscu `t` ścianki nie ma jeszcze innych drzwi (poza `ignoreId`). */
+export function doorSlotFree(wall: PalaceObject, objects: PalaceObject[], t: number, ignoreId?: string): boolean {
+  for (const o of objects) {
+    if (o.type !== 'door' || o.anchorId !== wall.id || o.id === ignoreId) continue;
+    const { t: ot } = wallOffsetOf(wall, o.position[0], o.position[2]);
+    if (Math.abs(ot - t) < DOOR_SLOT) return false;
+  }
+  return true;
+}
+
+/**
+ * Dawne drzwi były własnym segmentem ściany; teraz drzwi żyją w ściance (`anchorId`).
+ * Drzwi bez kotwicy w ściance dostają ściankę 2,0 m w tym samym miejscu. Idempotentne.
+ */
+export function attachLegacyDoors(objects: PalaceObject[], makeId: () => string): PalaceObject[] {
+  const byId = new Map(objects.map((o) => [o.id, o]));
+  const added: PalaceObject[] = [];
+  for (const o of objects) {
+    if (o.type !== 'door') continue;
+    const anchor = o.anchorId ? byId.get(o.anchorId) : undefined;
+    if (anchor?.type === 'wall') continue;
+    const wall: PalaceObject = {
+      id: makeId(),
+      type: 'wall',
+      name: catalogItem('wall').name,
+      position: [o.position[0], o.position[1], o.position[2]],
+      rotation: [0, o.rotation[1], 0],
+      scale: [o.scale[0], 1, 1],
+    };
+    o.anchorId = wall.id;
+    added.push(wall);
+  }
+  return added.length ? [...objects, ...added] : objects;
 }

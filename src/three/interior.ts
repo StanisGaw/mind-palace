@@ -163,7 +163,8 @@ export function buildRoom(spec: RoomSpec, buildingType: string, opts: { floors: 
   colliders.push({ size: [w, SLAB_T, d], pos: [0, topY + SLAB_T / 2, 0] });
 
   // listwa przypodłogowa
-  g.add(mesh(new THREE.BoxGeometry(w, 0.16, 0.06), trimMat, 0, 0.08, -d / 2 + WALL_T / 2 + 0.03, false));
+  // tył listwy schowany 0,01 m w ścianie — wspólna płaszczyzna z murem migotałaby
+  g.add(mesh(new THREE.BoxGeometry(w, 0.16, 0.08), trimMat, 0, 0.08, -d / 2 + WALL_T / 2 + 0.03, false));
 
   return {
     group: g,
