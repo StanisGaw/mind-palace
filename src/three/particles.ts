@@ -225,3 +225,153 @@ export class PuffEmitter implements Updatable {
     this.object.removeFromParent();
   }
 }
+
+export interface SwarmOpts {
+  count: number;
+  /** Środek roju w lokalnych współrzędnych obiektu i promień w poziomie. */
+  origin: [number, number, number];
+  radius: number;
+  height: number;
+  kind: 'firefly' | 'butterfly';
+  colors: string[];
+  size: number;
+  speed: number;
+}
+
+let glowTex: THREE.Texture | null = null;
+let wingTex: THREE.Texture | null = null;
+
+/** Miękki punkt światła (świetlik). */
+function glowTexture(): THREE.Texture {
+  if (glowTex) return glowTex;
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 64;
+  const ctx = c.getContext('2d')!;
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.25, 'rgba(255,255,255,0.8)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  glowTex = new THREE.CanvasTexture(c);
+  return glowTex;
+}
+
+/** Dwa skrzydła z ciemnym tułowiem (motyl) — biały, barwiony kolorem punktu. */
+function wingTexture(): THREE.Texture {
+  if (wingTex) return wingTex;
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 64;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#ffffff';
+  for (const sgn of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(32 + sgn * 14, 24, 13, 16, sgn * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(32 + sgn * 11, 44, 9, 11, -sgn * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#332b28';
+  ctx.beginPath();
+  ctx.ellipse(32, 34, 3, 16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  wingTex = new THREE.CanvasTexture(c);
+  return wingTex;
+}
+
+/**
+ * Rój: punkty krążące wokół własnych kotwic w walcu nad obiektem (świetliki, motyle). Każdy punkt ma
+ * własną fazę, więc trajektorie się nie powtarzają; świetliki mrugają przez kolor (mieszanie addytywne).
+ */
+export class SwarmEmitter implements Updatable {
+  readonly object: THREE.Points;
+  private positions: Float32Array;
+  private colors: Float32Array;
+  private base: Float32Array;
+  private anchors: Float32Array;
+  private phase: Float32Array;
+  private opts: SwarmOpts;
+  private t = Math.random() * 100;
+
+  constructor(opts: SwarmOpts) {
+    this.opts = opts;
+    const n = opts.count;
+    this.positions = new Float32Array(n * 3);
+    this.colors = new Float32Array(n * 3);
+    this.base = new Float32Array(n * 3);
+    this.anchors = new Float32Array(n * 3);
+    this.phase = new Float32Array(n * 4);
+    const col = new THREE.Color();
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(Math.random()) * opts.radius;
+      this.anchors[i * 3] = opts.origin[0] + Math.cos(a) * r;
+      this.anchors[i * 3 + 1] = opts.origin[1] + Math.random() * opts.height;
+      this.anchors[i * 3 + 2] = opts.origin[2] + Math.sin(a) * r;
+      for (let k = 0; k < 4; k++) this.phase[i * 4 + k] = Math.random() * Math.PI * 2;
+      col.set(opts.colors[i % opts.colors.length]);
+      this.base[i * 3] = col.r;
+      this.base[i * 3 + 1] = col.g;
+      this.base[i * 3 + 2] = col.b;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('color', new THREE.BufferAttribute(this.colors, 3).setUsage(THREE.DynamicDrawUsage));
+    const firefly = opts.kind === 'firefly';
+    const material = new THREE.PointsMaterial({
+      size: opts.size,
+      map: firefly ? glowTexture() : wingTexture(),
+      vertexColors: true,
+      transparent: true,
+      depthWrite: false,
+      blending: firefly ? THREE.AdditiveBlending : THREE.NormalBlending,
+      alphaTest: firefly ? 0 : 0.4,
+      sizeAttenuation: true,
+    });
+    this.object = new THREE.Points(geo, material);
+    this.object.frustumCulled = false;
+    this.object.renderOrder = 5;
+    this.write();
+  }
+
+  private write() {
+    const o = this.opts;
+    const t = this.t;
+    const firefly = o.kind === 'firefly';
+    for (let i = 0; i < o.count; i++) {
+      const p0 = this.phase[i * 4];
+      const p1 = this.phase[i * 4 + 1];
+      const p2 = this.phase[i * 4 + 2];
+      const p3 = this.phase[i * 4 + 3];
+      // wędrówka wokół kotwicy: dwa niewspółmierne okresy na osi, żeby tor nie był kołem
+      const wander = firefly ? 0.6 : 0.9;
+      this.positions[i * 3] = this.anchors[i * 3] + Math.sin(t * 0.7 + p0) * wander + Math.sin(t * 1.9 + p1) * 0.15;
+      this.positions[i * 3 + 1] = this.anchors[i * 3 + 1] + Math.sin(t * 0.9 + p2) * (firefly ? 0.25 : 0.4) + (firefly ? 0 : Math.abs(Math.sin(t * 9 + p3)) * 0.05);
+      this.positions[i * 3 + 2] = this.anchors[i * 3 + 2] + Math.cos(t * 0.6 + p1) * wander + Math.cos(t * 2.3 + p3) * 0.15;
+      // świetlik mruga (krótkie błyski), motyl tylko lekko ciemnieje przy złożonych skrzydłach
+      const blink = firefly ? Math.max(0, Math.sin(t * 2.2 + p3) - 0.55) / 0.45 : 0.75 + 0.25 * Math.abs(Math.sin(t * 9 + p3));
+      const k = firefly ? 0.15 + blink : blink;
+      this.colors[i * 3] = this.base[i * 3] * k;
+      this.colors[i * 3 + 1] = this.base[i * 3 + 1] * k;
+      this.colors[i * 3 + 2] = this.base[i * 3 + 2] * k;
+    }
+    const geo = this.object.geometry;
+    (geo.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    (geo.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
+  }
+
+  update(dt: number, _camPos: THREE.Vector3) {
+    void _camPos;
+    this.t += dt * this.opts.speed;
+    this.write();
+  }
+
+  dispose() {
+    this.object.geometry.dispose();
+    (this.object.material as THREE.Material).dispose();
+    this.object.removeFromParent();
+  }
+}

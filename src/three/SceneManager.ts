@@ -12,7 +12,7 @@ import { ART_VARIANTS } from './art';
 import { hashString } from './noise';
 import { makeTextPanel, disposeTextPanel } from './text';
 import { WeatherSystem } from './weather';
-import { PuffEmitter, type Updatable } from './particles';
+import { PuffEmitter, SwarmEmitter, type Updatable } from './particles';
 import { buildTerrain, type Terrain } from './terrain';
 import { buildRoom, type Room } from './interior';
 import { Physics, FOOT_OFFSET, type StaticShape } from './physics';
@@ -831,7 +831,11 @@ export class SceneManager {
           e.emitter =
             item.emitter === 'smoke'
               ? new PuffEmitter({ count: 22, origin: anchor, radius: 0.4, rise: 1.9, life: 3.8, scaleFrom: 0.3, scaleTo: 1.15, color: '#b3aca6', opacity: 0.34, drift: [0.4, 0.14] })
-              : new PuffEmitter({ count: 16, origin: anchor, radius: 0.4, rise: 0.45, life: 1.6, scaleFrom: 0.12, scaleTo: 0.42, color: '#ffffff', opacity: 0.26 });
+              : item.emitter === 'mist'
+                ? new PuffEmitter({ count: 16, origin: anchor, radius: 0.4, rise: 0.45, life: 1.6, scaleFrom: 0.12, scaleTo: 0.42, color: '#ffffff', opacity: 0.26 })
+                : item.emitter === 'fireflies'
+                  ? new SwarmEmitter({ count: 26, origin: [0, 0.4, 0], radius: 2.2, height: 1.6, kind: 'firefly', colors: ['#d8ff7a', '#f4ffb0', '#b8f060'], size: 0.09, speed: 0.8 })
+                  : new SwarmEmitter({ count: 12, origin: [0, 0.5, 0], radius: 2.0, height: 1.2, kind: 'butterfly', colors: ['#f2b64c', '#e88a8a', '#8fb7e6', '#f6f0d8', '#c9a2d8'], size: 0.14, speed: 1.0 });
           e.emitter.object.userData.noPick = true;
           e.group.add(e.emitter.object);
         }
