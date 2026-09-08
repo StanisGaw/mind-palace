@@ -55,7 +55,7 @@ npm run build        # produkcyjny build do dist/
   otwór, `R` zmienia stronę zawiasów), schody, lampa sufitowa. Obiekty można grupować („Grupuj" w panelu
   zaznaczenia): grupa zaznacza się, przesuwa i znika jako całość. Panel „Piętra" ustawia liczbę
   kondygnacji (1–4) budynku i piętro do edycji; schody robią otwór w stropie i prowadzą wyżej. Domek, pałac
-  i biblioteka dostają schody same przy pierwszym piętrze (zwykły obiekt do przesunięcia albo usunięcia); wieża
+  i biblioteka dostają schody same przy pierwszym piętrze (zwykły obiekt wzdłuż tylnej ściany, z podestem); wieża
   ma jeden ciągły bieg kręconych schodów przez wszystkie kondygnacje i okrągłe izby na piętrach. Zakładka „Układy"
   (we wnętrzu i dla odsłoniętego budynku w miejscu) proponuje gotowe układy pokoju (wbudowane i własne) — „Zastosuj" zastępuje obiekty bez
   notatek, „Zapisz obecny układ" zachowuje bieżące rozmieszczenie do ponownego użycia. Drzwi otwiera
@@ -66,6 +66,8 @@ npm run build        # produkcyjny build do dist/
   śnieg, mgła, burza z błyskawicami).
 - **Fizyka** — silnik Rapier (WASM, ładowany dopiero przy wejściu w tryb chodzenia): grawitacja, skok
   (`Spacja`, przycisk na telefonie, grip w VR), wchodzenie po schodach i wskakiwanie na ławkę, głaz czy wzgórze.
+  W spacerze można też stawiać obiekty z biblioteki: podgląd idzie za celownikiem, klik stawia, `R` obraca; wewnątrz
+  budynku biblioteka ogranicza się do wyposażenia wnętrz.
 - **Notatki** — każdemu obiektowi można przypisać tytuł i treść wspomnienia. Obiekt z notatką trafia na
   ścieżkę pamięci, której kolejność można zmieniać.
 - **Spacer pamięci** — kamera prowadzi po przystankach; najpierw próbujesz sobie przypomnieć, potem
