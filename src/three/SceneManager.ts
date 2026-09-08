@@ -2815,8 +2815,9 @@ export class SceneManager {
         const n = w.userData.wallNormal as [number, number];
         const nx = n[0] * cos + n[1] * sin;
         const nz = -n[0] * sin + n[1] * cos;
-        // ściana znika, gdy jej zewnętrzna normalna celuje w kamerę (cos > 0,3)
-        w.visible = nx * dx + nz * dz < 0.3 * Math.hypot(dx, dz);
+        // ściana znika, gdy jej zewnętrzna normalna choć trochę celuje w kamerę (cos > 0,05): przy widoku po przekątnej
+        // druga bliska ściana ma kosinus ~0,15 i przy wyższym progu zasłaniałaby połowę wnętrza
+        w.visible = nx * dx + nz * dz < 0.05 * Math.hypot(dx, dz);
       }
     }
     // we wnętrzu w edytorze chowamy ściany od strony kamery (widok jak do domku dla lalek) i wyższe piętra
