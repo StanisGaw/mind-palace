@@ -147,3 +147,28 @@ export function paintingTexture(variant: number): THREE.CanvasTexture {
   cache.set(v, tex);
   return tex;
 }
+
+let sky: THREE.CanvasTexture | null = null;
+/** Jasny „dzień” za oknem pokoju ładowanego: gradient nieba z chmurami, bez cienia. Jedna tekstura na całą sesję. */
+export function skyTexture(): THREE.CanvasTexture {
+  if (sky) return sky;
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const ctx = c.getContext('2d')!;
+  const grad = ctx.createLinearGradient(0, 0, 0, 128);
+  grad.addColorStop(0, '#9fc4e8');
+  grad.addColorStop(0.7, '#dbe9f4');
+  grad.addColorStop(1, '#b9d29a');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 128, 128);
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
+  for (const [x, y, r] of [[30, 34, 12], [44, 30, 15], [58, 36, 11], [92, 52, 10], [104, 48, 13]]) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  sky = new THREE.CanvasTexture(c);
+  sky.colorSpace = THREE.SRGBColorSpace;
+  return sky;
+}

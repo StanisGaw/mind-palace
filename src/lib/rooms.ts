@@ -342,10 +342,14 @@ export interface FacadeWall {
   half: number;
 }
 
-export function facadeWalls(b: PalaceObject): FacadeWall[] {
-  const spec = SHELLS[b.type];
+export function facadeWalls(b: Pick<PalaceObject, 'type'>): FacadeWall[] {
+  return facadeWallsOf(b.type);
+}
+
+export function facadeWallsOf(type: string): FacadeWall[] {
+  const spec = SHELLS[type];
   if (!spec) return [];
-  if (b.type === 'tower') {
+  if (type === 'tower') {
     const r = 0.8 + 0.05;
     const side = 2 * 0.8 * Math.tan(Math.PI / 12);
     return Array.from({ length: 12 }, (_, i) => {
@@ -353,7 +357,7 @@ export function facadeWalls(b: PalaceObject): FacadeWall[] {
       return { key: `seg${i}`, cx: Math.sin(a) * r, cz: Math.cos(a) * r, nx: Math.sin(a), nz: Math.cos(a), tx: Math.cos(a), tz: -Math.sin(a), half: side / 2 };
     });
   }
-  if (b.type === 'temple') return []; // świątynia nie ma murów
+  if (type === 'temple') return []; // świątynia nie ma murów
   const { w, d } = spec.inner;
   const t = SHELL_WALL_T;
   return [
@@ -362,6 +366,86 @@ export function facadeWalls(b: PalaceObject): FacadeWall[] {
     { key: 'left', cx: spec.cx - w / 2 - t, cz: 0, nx: -1, nz: 0, tx: 0, tz: 1, half: d / 2 },
     { key: 'right', cx: spec.cx + w / 2 + t, cz: 0, nx: 1, nz: 0, tx: 0, tz: 1, half: d / 2 },
   ];
+}
+
+
+/** Okno wbudowane w mur budynku: ściana (klucz z `facadeWallsOf`), `u` wzdłuż niej i wymiary — jednostki modelu. */
+export interface ShellWindow {
+  wall: string;
+  u: number;
+  w: number;
+  h: number;
+  /** Parapet nad podłogą piętra. */
+  sill: number;
+}
+
+/**
+ * Okna elewacji każdego typu budynku — jeden spis dla bryły z zewnątrz, powłoki w miejscu i pokoju ładowanego,
+ * żeby okna w środku odpowiadały tym na zewnątrz. Powtarzane na każdym piętrze.
+ */
+export const SHELL_WINDOWS: Record<string, ShellWindow[]> = {
+  house: [
+    { wall: 'front', u: 0.5, w: 0.4, h: 0.4, sill: 0.65 },
+    { wall: 'back', u: -0.45, w: 0.4, h: 0.4, sill: 0.65 },
+    { wall: 'back', u: 0.45, w: 0.4, h: 0.4, sill: 0.65 },
+    { wall: 'left', u: 0.1, w: 0.4, h: 0.4, sill: 0.65 },
+    { wall: 'right', u: 0.1, w: 0.4, h: 0.4, sill: 0.65 },
+  ],
+  palace: [
+    { wall: 'front', u: -1.05, w: 0.36, h: 0.5, sill: 0.85 },
+    { wall: 'front', u: 1.05, w: 0.36, h: 0.5, sill: 0.85 },
+    { wall: 'back', u: -1.05, w: 0.36, h: 0.5, sill: 0.85 },
+    { wall: 'back', u: 0, w: 0.36, h: 0.5, sill: 0.85 },
+    { wall: 'back', u: 1.05, w: 0.36, h: 0.5, sill: 0.85 },
+    { wall: 'left', u: -0.2, w: 0.36, h: 0.5, sill: 0.85 },
+    { wall: 'right', u: -0.2, w: 0.36, h: 0.5, sill: 0.85 },
+  ],
+  library: [
+    { wall: 'front', u: -1.0, w: 0.34, h: 0.45, sill: 0.775 },
+    { wall: 'front', u: 1.0, w: 0.34, h: 0.45, sill: 0.775 },
+    { wall: 'back', u: -0.9, w: 0.34, h: 0.45, sill: 0.775 },
+    { wall: 'back', u: 0.9, w: 0.34, h: 0.45, sill: 0.775 },
+    { wall: 'left', u: -0.2, w: 0.34, h: 0.45, sill: 0.775 },
+    { wall: 'right', u: -0.2, w: 0.34, h: 0.45, sill: 0.775 },
+  ],
+  tower: [
+    { wall: 'seg1', u: 0, w: 0.22, h: 0.4, sill: 0.55 },
+    { wall: 'seg4', u: 0, w: 0.22, h: 0.4, sill: 0.55 },
+    { wall: 'seg7', u: 0, w: 0.22, h: 0.4, sill: 0.55 },
+    { wall: 'seg10', u: 0, w: 0.22, h: 0.4, sill: 0.55 },
+  ],
+  temple: [],
+};
+
+export interface WallHole {
+  u0: number;
+  u1: number;
+  v0: number;
+  v1: number;
+}
+
+/** Czy dwa otwory na tej samej ścianie nachodzą na siebie (z zapasem 2 cm). */
+export function holesOverlap(a: WallHole, b: WallHole): boolean {
+  return a.u0 < b.u1 + 0.02 && b.u0 < a.u1 + 0.02 && a.v0 < b.v1 + 0.02 && b.v0 < a.v1 + 0.02;
+}
+
+/**
+ * Otwory okien wbudowanych na każdym piętrze budynku (jednostki modelu) — bez tych, które nachodzą na otwory
+ * postawione przez użytkownika (`user`): elewacja z biblioteki ma pierwszeństwo.
+ */
+export function shellWindowHoles(type: string, floors: number, user: Record<string, WallHole[]> = {}): Record<string, (WallHole & { win: ShellWindow; floor: number })[]> {
+  const spec = SHELLS[type];
+  const out: Record<string, (WallHole & { win: ShellWindow; floor: number })[]> = {};
+  if (!spec) return out;
+  for (let k = 0; k < Math.max(1, floors); k++) {
+    for (const win of SHELL_WINDOWS[type] ?? []) {
+      const v0 = spec.floorY + k * spec.inner.h + win.sill;
+      const hole = { u0: win.u - win.w / 2, u1: win.u + win.w / 2, v0, v1: v0 + win.h };
+      if ((user[win.wall] ?? []).some((h) => holesOverlap(h, hole))) continue;
+      (out[win.wall] ??= []).push({ ...hole, win, floor: k });
+    }
+  }
+  return out;
 }
 
 /** Współrzędna `u` punktu lokalnego wzdłuż ściany. Środek ściany ma `u = 0` w układzie `wallGeometry` (x albo z modelu). */
@@ -444,6 +528,12 @@ export function facadeHoles(b: PalaceObject, objects: PalaceObject[]): Record<st
 /** Czy miejsce na ścianie jest wolne od innych elementów elewacji na tym samym piętrze. */
 export function facadeSlotFree(b: PalaceObject, objects: PalaceObject[], hit: FacadeHit, type: string, floor: number, ignoreId?: string): boolean {
   const w = FACADE[type].w;
+  const along = Math.abs(hit.wall.nx) > 0.5 ? b.scale[2] : b.scale[0];
+  // okna wbudowane w mur zajmują miejsce jak elewacja z biblioteki
+  for (const win of SHELL_WINDOWS[b.type] ?? []) {
+    if (win.wall !== hit.wall.key) continue;
+    if (Math.abs(win.u - hit.u) * along < (w + win.w * along) / 2 + 0.3) return false;
+  }
   for (const o of objects) {
     if (!isFacade(o.type) || o.anchorId !== b.id || o.id === ignoreId) continue;
     if (floorOfIn(b, o.position[1]) !== floor) continue;

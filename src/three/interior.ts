@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { RoomSpec } from '../types';
-import { discRects, finishMat, mat, scaleUv, spiralStairs, type Trimesh } from './builders';
-import type { Opening } from '../lib/rooms';
+import { discRects, finishMat, glassMat, mat, scaleUv, spiralStairs, wallGeometry, woodMat, type Trimesh } from './builders';
+import { SHELLS, SHELL_WINDOWS, type Opening, type WallHole } from '../lib/rooms';
+import { skyTexture } from './art';
 
 export interface RoomBox {
   size: [number, number, number];
@@ -61,6 +62,58 @@ const DOOR_W = 1.6;
 const DOOR_H = 2.4;
 const SLAB_T = 0.24; // grubość stropu/sufitu/podłogi
 
+/** Okno pokoju ładowanego w metrach — położenie bierze z elewacji, wymiary są stałe (pokój jest dużo większy od bryły). */
+function roomWindowSize(h: number) {
+  const sill = 0.95;
+  return { w: 1.3, h: Math.max(0.8, Math.min(1.5, h - sill - 0.5)), sill };
+}
+
+/** Otwory okien elewacji na ścianie `key`, w metrach od środka ściany; `along` przelicza `u` bryły na pokój. */
+function roomWindowHoles(type: string, key: string, along: number, size: { w: number; h: number; sill: number }): WallHole[] {
+  return (SHELL_WINDOWS[type] ?? []).filter((x) => x.wall === key).map((x) => ({ u0: x.u * along - size.w / 2, u1: x.u * along + size.w / 2, v0: size.sill, v1: size.sill + size.h }));
+}
+
+let dayMat: THREE.MeshBasicMaterial | null = null;
+/** Jasna płaszczyzna za szybą — nieoświetlona, żeby czytała się jak dzień na zewnątrz. Współdzielona. */
+function dayMaterial() {
+  if (!dayMat) dayMat = new THREE.MeshBasicMaterial({ map: skyTexture() });
+  return dayMat;
+}
+
+/**
+ * Okno pokoju: rama i szczebliny, szyba, parapet wewnętrzny i „dzień” za szybą. Grupa stoi na licu ściany
+ * w punkcie (x, y, z) z lokalnym +Z na zewnątrz (`yaw` z normalnej ściany).
+ */
+function roomWindow(g: THREE.Group, x: number, y: number, z: number, yaw: number, w: number, h: number) {
+  const win = new THREE.Group();
+  win.position.set(x, y, z);
+  win.rotation.y = yaw;
+  const frame = woodMat('#8b6a4f');
+  const t = 0.08;
+  const depth = WALL_T + 0.02;
+  const part = (geo: THREE.BufferGeometry, m: THREE.Material, px: number, py: number, pz: number) => {
+    const mm = new THREE.Mesh(geo, m);
+    mm.position.set(px, py, pz);
+    mm.castShadow = false;
+    mm.receiveShadow = true;
+    win.add(mm);
+    return mm;
+  };
+  part(new THREE.BoxGeometry(t, h, depth), frame, -w / 2 + t / 2, 0, 0);
+  part(new THREE.BoxGeometry(t, h, depth), frame, w / 2 - t / 2, 0, 0);
+  part(new THREE.BoxGeometry(w, t, depth), frame, 0, h / 2 - t / 2, 0);
+  part(new THREE.BoxGeometry(w, t, depth), frame, 0, -h / 2 + t / 2, 0);
+  part(new THREE.BoxGeometry(0.04, h - t * 2, 0.05), frame, 0, 0, 0);
+  part(new THREE.BoxGeometry(w - t * 2, 0.04, 0.05), frame, 0, 0, 0);
+  part(new THREE.BoxGeometry(w - t * 2, h - t * 2, 0.01), glassMat(), 0, 0, 0);
+  part(new THREE.BoxGeometry(w + 0.2, 0.04, 0.22), mat('#c7c0ae', { roughness: 0.9 }), 0, -h / 2 - 0.02, -WALL_T / 2 - 0.06); // parapet
+  // dzień za oknem: płaszczyzna odwrócona do środka, nieco większa od otworu, żeby brzegów nie było widać z ukosa
+  const day = part(new THREE.PlaneGeometry(w + 1.2, h + 1.2), dayMaterial(), 0, 0.2, WALL_T / 2 + 0.35);
+  day.rotation.y = Math.PI;
+  day.receiveShadow = false;
+  g.add(win);
+}
+
 /** Proceduralna powłoka budynku: podłoga, ściany każdej kondygnacji, stropy z otworami nad schodami, sufit. */
 export interface RoomOpts {
   floors: number;
@@ -89,17 +142,35 @@ export function buildRoom(spec: RoomSpec, buildingType: string, opts: RoomOpts):
     return mm;
   };
   const walls: THREE.Mesh[] = [];
-  const wall = (sx: number, sy: number, sz: number, x: number, y: number, z: number, m: THREE.Material, floorIndex: number, normal?: [number, number]) => {
-    const mm = mesh(scaleUv(new THREE.BoxGeometry(sx, sy, sz), Math.max(sx, sz) / WALL_TILE, sy / WALL_TILE), m, x, y, z);
+  /**
+   * Ściana jako bryła z otworami (`holes` w metrach od środka ściany, `v` od jej dołu); `sx` wzdłuż X to ściana
+   * przednia/tylna (u = x), `sz` wzdłuż Z to boczna (u = z). Kolider zostaje pudełkiem — okna są za wysoko, by przejść.
+   */
+  const wall = (sx: number, sy: number, sz: number, x: number, y: number, z: number, m: THREE.Material, floorIndex: number, normal?: [number, number], holes: WallHole[] = []) => {
+    const alongX = sx >= sz;
+    const len = alongX ? sx : sz;
+    const shifted = holes.map((hh) => ({ ...hh, v0: hh.v0 - sy / 2, v1: hh.v1 - sy / 2 }));
+    const geo = scaleUv(wallGeometry(-len / 2, len / 2, -sy / 2, sy / 2, shifted, WALL_T), 1 / WALL_TILE, 1 / WALL_TILE);
+    const mm = mesh(geo, m, x, y, z);
+    if (!alongX) mm.rotation.y = -Math.PI / 2;
     g.add(mm);
     colliders.push({ size: [sx, sy, sz], pos: [x, y, z] });
     mm.userData.floorIndex = floorIndex;
     if (normal) {
       mm.userData.wallNormal = normal;
       walls.push(mm);
+      for (const hh of holes) {
+        const u = (hh.u0 + hh.u1) / 2;
+        const wx = alongX ? x + u : x;
+        const wz = alongX ? z : z + u;
+        roomWindow(g, wx, y - sy / 2 + (hh.v0 + hh.v1) / 2, wz, Math.atan2(normal[0], normal[1]), hh.u1 - hh.u0, hh.v1 - hh.v0);
+      }
     }
     return mm;
   };
+  const shell = SHELLS[buildingType] ?? SHELLS.house;
+  const winSize = roomWindowSize(h);
+  const winsOn = (key: string) => roomWindowHoles(buildingType, key, key === 'left' || key === 'right' ? d / shell.inner.d : w / shell.inner.w, winSize);
 
   const wallMat = finishMat(opts.wallTexture, spec.wall, { roughness: 0.95 });
   // podłoga ma własny materiał (nie z cache), bo może dostać teksturę
@@ -116,14 +187,16 @@ export function buildRoom(spec: RoomSpec, buildingType: string, opts: RoomOpts):
   let exitDoor!: THREE.Mesh;
   for (let k = 0; k < floors; k++) {
     const y0 = k * h;
-    wall(w, h, WALL_T, 0, y0 + h / 2, -d / 2, wallMat, k, [0, -1]); // tylna
-    wall(WALL_T, h, d, -w / 2, y0 + h / 2, 0, wallMat, k, [-1, 0]); // lewa
-    wall(WALL_T, h, d, w / 2, y0 + h / 2, 0, wallMat, k, [1, 0]); // prawa
+    wall(w, h, WALL_T, 0, y0 + h / 2, -d / 2, wallMat, k, [0, -1], winsOn('back')); // tylna
+    wall(WALL_T, h, d, -w / 2, y0 + h / 2, 0, wallMat, k, [-1, 0], winsOn('left')); // lewa
+    wall(WALL_T, h, d, w / 2, y0 + h / 2, 0, wallMat, k, [1, 0], winsOn('right')); // prawa
     if (k === 0) {
-      // parter: przednia ściana z otworem drzwiowym (wyjście na zewnątrz)
+      // parter: przednia ściana z otworem drzwiowym (wyjście na zewnątrz); okna elewacji na kawałkach obok drzwi
       const sideW = (w - DOOR_W) / 2;
-      wall(sideW, h, WALL_T, -(DOOR_W / 2 + sideW / 2), y0 + h / 2, d / 2, wallMat, k, [0, 1]);
-      wall(sideW, h, WALL_T, DOOR_W / 2 + sideW / 2, y0 + h / 2, d / 2, wallMat, k, [0, 1]);
+      const front = winsOn('front');
+      const shift = (cx: number) => front.filter((hh) => hh.u0 > cx - sideW / 2 && hh.u1 < cx + sideW / 2).map((hh) => ({ ...hh, u0: hh.u0 - cx, u1: hh.u1 - cx }));
+      wall(sideW, h, WALL_T, -(DOOR_W / 2 + sideW / 2), y0 + h / 2, d / 2, wallMat, k, [0, 1], shift(-(DOOR_W / 2 + sideW / 2)));
+      wall(sideW, h, WALL_T, DOOR_W / 2 + sideW / 2, y0 + h / 2, d / 2, wallMat, k, [0, 1], shift(DOOR_W / 2 + sideW / 2));
       wall(DOOR_W, h - DOOR_H, WALL_T, 0, y0 + DOOR_H + (h - DOOR_H) / 2, d / 2, wallMat, k, [0, 1]); // nadproże
       g.add(mesh(new THREE.BoxGeometry(DOOR_W + 0.24, DOOR_H + 0.12, 0.1), trimMat, 0, y0 + DOOR_H / 2, d / 2 - 0.02, true));
       g.add(mesh(new THREE.BoxGeometry(DOOR_W, DOOR_H, 0.06), mat('#20302a'), 0, y0 + DOOR_H / 2, d / 2 - 0.06, false));
@@ -134,7 +207,7 @@ export function buildRoom(spec: RoomSpec, buildingType: string, opts: RoomOpts):
       g.add(door);
       exitDoor = door;
     } else {
-      wall(w, h, WALL_T, 0, y0 + h / 2, d / 2, wallMat, k, [0, 1]); // wyższe piętra: pełna ściana przednia
+      wall(w, h, WALL_T, 0, y0 + h / 2, d / 2, wallMat, k, [0, 1], winsOn('front')); // wyższe piętra: pełna ściana przednia
     }
   }
 
@@ -225,6 +298,10 @@ function buildTowerRoom(spec: RoomSpec, opts: RoomOpts): Room {
   const segments = 16;
   const side = 2 * R * Math.tan(Math.PI / segments);
   const doorW = Math.min(DOOR_W, side - 0.3);
+  // okna elewacji wieży (segmenty muru bryły co 30°) trafiają do najbliższego z 16 segmentów pokoju
+  const winSize = roomWindowSize(h);
+  const winSegs = new Set((SHELL_WINDOWS.tower ?? []).map((x) => Math.round((Number(x.wall.slice(3)) * (360 / 12)) / (360 / segments)) % segments));
+  const winHole = (): WallHole[] => [{ u0: -winSize.w / 2, u1: winSize.w / 2, v0: winSize.sill - h / 2, v1: winSize.sill + winSize.h - h / 2 }];
   let exitDoor!: THREE.Mesh;
   for (let k = 0; k < floors; k++) {
     const y0 = k * h;
@@ -238,12 +315,15 @@ function buildTowerRoom(spec: RoomSpec, opts: RoomOpts): Room {
       const lintel = k === 0 && i === 0;
       const sy = lintel ? h - DOOR_H : h;
       const cy = lintel ? y0 + DOOR_H + sy / 2 : y0 + h / 2;
-      const mm = mesh(scaleUv(new THREE.BoxGeometry(side + 0.02, sy, WALL_T), side / WALL_TILE, sy / WALL_TILE), wallMat, x, cy, z);
+      const hasWin = !lintel && winSegs.has(i);
+      const geo = hasWin ? scaleUv(wallGeometry(-(side + 0.02) / 2, (side + 0.02) / 2, -sy / 2, sy / 2, winHole(), WALL_T), 1 / WALL_TILE, 1 / WALL_TILE) : scaleUv(new THREE.BoxGeometry(side + 0.02, sy, WALL_T), side / WALL_TILE, sy / WALL_TILE);
+      const mm = mesh(geo, wallMat, x, cy, z);
       mm.rotation.y = a;
       mm.userData.floorIndex = k;
       mm.userData.wallNormal = [Math.sin(a), Math.cos(a)];
       walls.push(mm);
       g.add(mm);
+      if (hasWin) roomWindow(g, x, y0 + winSize.sill + winSize.h / 2, z, a, winSize.w, winSize.h);
       colliders.push({ size: [side + 0.02, sy, WALL_T], pos: [x, cy, z], quat: q });
       if (lintel) {
         // słupki po bokach drzwi w tym samym segmencie

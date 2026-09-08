@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { buildAnimalBody, type AnimalKind } from './wildlife';
-import { DOOR_OPENING, FACADE, SHELLS, SHELL_WALL_T, WALL_SEGMENT, WALL_THICKNESS, type Opening, type ShellSpec } from '../lib/rooms';
+import { DOOR_OPENING, FACADE, SHELLS, SHELL_WALL_T, WALL_SEGMENT, WALL_THICKNESS, facadeWallsOf, shellWindowHoles, type FacadeWall, type Opening, type ShellSpec, type WallHole } from '../lib/rooms';
 import { subtractRect, type Rect } from './interior';
 import { paintingTexture } from './art';
 import { grainTexture, textureById } from './textures';
@@ -14,9 +14,11 @@ export interface MatOpts {
   flat?: boolean;
   /** Tekstura mnożona przez kolor (słoje drewna, wykończenie podłogi) — klucz cache bierze jej uuid. */
   map?: THREE.Texture;
+  /** Poniżej 1 materiał jest przezroczysty (szyby). */
+  opacity?: number;
 }
 export function mat(color: string, opts: MatOpts = {}) {
-  const key = `${color}|${opts.emissive ?? ''}|${opts.roughness ?? 0.85}|${opts.metalness ?? 0}|${opts.flat ?? true}|${opts.map?.uuid ?? ''}`;
+  const key = `${color}|${opts.emissive ?? ''}|${opts.roughness ?? 0.85}|${opts.metalness ?? 0}|${opts.flat ?? true}|${opts.map?.uuid ?? ''}|${opts.opacity ?? 1}`;
   let m = matCache.get(key);
   if (!m) {
     m = new THREE.MeshStandardMaterial({
@@ -26,6 +28,8 @@ export function mat(color: string, opts: MatOpts = {}) {
       flatShading: opts.flat ?? true,
       emissive: opts.emissive ? new THREE.Color(opts.emissive) : new THREE.Color(0x000000),
       map: opts.map ?? null,
+      transparent: (opts.opacity ?? 1) < 1,
+      opacity: opts.opacity ?? 1,
     });
     matCache.set(key, m);
   }
@@ -35,6 +39,11 @@ export function mat(color: string, opts: MatOpts = {}) {
 /** Drewno ze słojami: jasna tekstura słojów mnożona przez kolor warstwy. */
 export function woodMat(color: string, opts: MatOpts = {}) {
   return mat(color, { ...opts, map: grainTexture() });
+}
+
+/** Szyba: przezroczysta, gładka; jeden współdzielony materiał na kolor palety. */
+export function glassMat() {
+  return mat(C.glass, { roughness: 0.1, metalness: 0.2, flat: false, opacity: 0.35 });
 }
 
 /** Wykończenie powierzchni: tekstura o id `id` (wbudowana albo własna) albo sam kolor, gdy jej brak. */
@@ -246,7 +255,7 @@ export function spiralStairs(g: THREE.Group, spec: SpiralSpec, stepMat: THREE.Ma
  * Ściana powłoki jako jedna bryła z otworami (wytłoczony kształt z dziurami) — bez szwów między słupkami
  * a nadprożem i bez współpłaszczyznowych ścianek. Kształt leży w płaszczyźnie (u, v), grubość wzdłuż lokalnego Z.
  */
-function wallGeometry(u0: number, u1: number, v0: number, v1: number, holes: WallHole[], depth: number): THREE.ExtrudeGeometry {
+export function wallGeometry(u0: number, u1: number, v0: number, v1: number, holes: WallHole[], depth: number): THREE.ExtrudeGeometry {
   const shape = new THREE.Shape();
   shape.moveTo(u0, v0);
   shape.lineTo(u1, v0);
@@ -340,7 +349,8 @@ function shellLeaf(g: THREE.Group, door: { x: number; z: number; w: number; h: n
 }
 
 /** Prostokątna powłoka: podłoga, cztery ściany z drzwiami z przodu, skrzydło, stropy pięter. */
-function shellBox(g: THREE.Group, ctx: BuildCtx, spec: ShellSpec, wallMat: THREE.Material, floorMat: THREE.Material, leafMat: THREE.Material) {
+function shellBox(g: THREE.Group, ctx: BuildCtx, type: string, wallMat: THREE.Material, floorMat: THREE.Material, leafMat: THREE.Material) {
+  const spec = SHELLS[type];
   const { w, d, h } = spec.inner;
   const x0 = spec.cx - w / 2;
   const x1 = spec.cx + w / 2;
@@ -350,7 +360,7 @@ function shellBox(g: THREE.Group, ctx: BuildCtx, spec: ShellSpec, wallMat: THREE
   const floors = Math.max(1, ctx.floors ?? 1);
   const y1 = spec.floorY + floors * h;
   const t = SHELL_WALL_T / 2;
-  const f = ctx.facade ?? {};
+  const f = shellWindows(g, ctx, type);
   const floorFinish = ctx.finish?.floor ? finishMat(ctx.finish.floor, C.stone) : floorMat;
   const lining = ctx.finish?.wall ? finishMat(ctx.finish.wall, C.cream) : undefined;
   shellFloor(g, w, d, spec.cx, y0, spec.cz, floorFinish);
@@ -363,9 +373,48 @@ function shellBox(g: THREE.Group, ctx: BuildCtx, spec: ShellSpec, wallMat: THREE
   shellSlabs(g, ctx, [{ x0, x1, z0, z1 }], y0, h, floorFinish);
 }
 
-/** Dekoracyjne okienko elewacji powtórzone na każdej kondygnacji. */
-function shellDecorWindows(g: THREE.Group, ctx: BuildCtx, spec: ShellSpec, place: (lift: number) => void) {
-  for (let k = 0; k < Math.max(1, ctx.floors ?? 1); k++) place(k * spec.inner.h);
+/**
+ * Okna wbudowane w mur: otwory ze spisu `SHELL_WINDOWS` (bez tych, na które nachodzi elewacja z biblioteki)
+ * dołożone do otworów ścian, a w każdym otworze rama, szczeblina, szyba i parapet. Zwraca otwory per ściana.
+ */
+function shellWindows(g: THREE.Group, ctx: BuildCtx, type: string): Record<string, WallHole[]> {
+  const floors = Math.max(1, ctx.floors ?? 1);
+  const user = ctx.facade ?? {};
+  const builtin = shellWindowHoles(type, floors, user);
+  const walls = new Map(facadeWallsOf(type).map((w) => [w.key, w]));
+  const merged: Record<string, WallHole[]> = {};
+  for (const key of new Set([...Object.keys(user), ...Object.keys(builtin)])) merged[key] = [...(user[key] ?? []), ...(builtin[key] ?? [])];
+  for (const [key, holes] of Object.entries(builtin)) {
+    const wall = walls.get(key);
+    if (!wall) continue;
+    for (const h of holes) shellWindowFrame(g, wall, h);
+  }
+  return merged;
+}
+
+/** Rama okna w otworze muru: cztery listwy, krzyż szczeblin, szyba i parapet zewnętrzny (jednostki modelu). */
+function shellWindowFrame(g: THREE.Group, wall: FacadeWall, h: WallHole) {
+  const u = (h.u0 + h.u1) / 2;
+  const w = h.u1 - h.u0;
+  const hh = h.v1 - h.v0;
+  const win = new THREE.Group();
+  win.position.set(wall.cx + wall.tx * u, (h.v0 + h.v1) / 2, wall.cz + wall.tz * u);
+  win.rotation.y = Math.atan2(wall.nx, wall.nz);
+  const frame = woodMat(C.woodDark);
+  const t = 0.02;
+  const depth = SHELL_WALL_T + 0.02;
+  add(win, box(t, hh, depth), frame, -w / 2 + t / 2, 0, 0);
+  add(win, box(t, hh, depth), frame, w / 2 - t / 2, 0, 0);
+  add(win, box(w, t, depth), frame, 0, hh / 2 - t / 2, 0);
+  add(win, box(w, t, depth), frame, 0, -hh / 2 + t / 2, 0);
+  add(win, box(0.012, hh - t * 2, 0.03), frame, 0, 0, 0);
+  add(win, box(w - t * 2, 0.012, 0.03), frame, 0, 0, 0);
+  const glass = add(win, box(w - t * 2, hh - t * 2, 0.008), glassMat(), 0, 0, 0);
+  glass.castShadow = false;
+  glass.userData.skipCollider = true;
+  add(win, box(w + 0.04, 0.02, 0.06), mat(C.stone), 0, -hh / 2 - 0.01, SHELL_WALL_T / 2 + 0.02); // parapet
+  for (const c of win.children) c.userData.skipCollider = true;
+  g.add(win);
 }
 
 /** Pochylnia wejściowa budynku: przed drzwiami, o szerokości otworu z zapasem. */
@@ -378,15 +427,11 @@ function buildPalace(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.palace;
   add(g, box(4.6, 0.28, 3.6), mat(C.stone), 0, 0.14, 0);
   add(g, box(4.0, 0.16, 3.0), mat(C.cream2), 0, 0.36, 0);
-  shellBox(g, ctx, spec, mat(C.cream), mat(C.stone), mat(C.dark));
+  shellBox(g, ctx, 'palace', mat(C.cream), mat(C.stone), mat(C.dark));
   shellEntryRamp(g, spec, 2.3);
   // portyk
   columns(g, [[-1.15, 1.0], [-0.4, 1.0], [0.4, 1.0], [1.15, 1.0]], 1.7, 0.11, 0.44);
   add(g, box(3.2, 0.22, 0.9), mat(C.cream2), 0, 0.44 + 1.7 + 0.11, 0.75);
-  shellDecorWindows(g, ctx, spec, (lift) => {
-    add(g, box(0.36, 0.5, 0.05), mat(C.domeDark), -1.05, 0.44 + 1.1 + lift, 1.04);
-    add(g, box(0.36, 0.5, 0.05), mat(C.domeDark), 1.05, 0.44 + 1.1 + lift, 1.04);
-  });
   const roof = roofGroup(g, roofLift(ctx, spec));
   add(roof, prism(3.4, 0.6, 0.95), mat(C.cream), 0, 0.44 + 1.92, 0.75);
   add(roof, box(3.46, 0.08, 2.46), mat(C.cream2), 0, 2.34 + 0.04, -0.2); // strop nad salą
@@ -404,7 +449,7 @@ function buildPalace(g: THREE.Group, ctx: BuildCtx) {
 function buildLibrary(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.library;
   add(g, box(4.0, 0.24, 3.2), mat(C.stone), 0, 0.12, 0);
-  shellBox(g, ctx, spec, mat(C.cream), mat(C.stone), mat(C.dark));
+  shellBox(g, ctx, 'library', mat(C.cream), mat(C.stone), mat(C.dark));
   shellEntryRamp(g, spec, 2.3);
   columns(g, [[-1.2, 0.95], [-0.4, 0.95], [0.4, 0.95], [1.2, 0.95]], 1.6, 0.1, 0.24);
   add(g, box(3.4, 0.18, 1.1), mat(C.cream2), 0, 0.24 + 1.6 + 0.09, 0.55);
@@ -412,9 +457,6 @@ function buildLibrary(g: THREE.Group, ctx: BuildCtx) {
   add(roof, box(3.26, 0.1, 2.46), mat(C.cream2), 0, 1.94 + 0.05, -0.2); // strop
   add(roof, prism(3.6, 0.8, 3.1), mat(C.roof), 0, 0.24 + 1.78, -0.05);
   add(g, box(0.9, 0.16, 0.14), mat(C.roofDark), 0, 0.24 + 1.35, 1.07);
-  shellDecorWindows(g, ctx, spec, (lift) => {
-    for (const x of [-1.0, 1.0]) add(g, box(0.34, 0.45, 0.05), mat(C.domeDark), x, 0.24 + 1.0 + lift, 1.04);
-  });
   add(g, box(1.6, 0.1, 0.6), mat(C.stone), 0, 0.05, 1.85);
 }
 
@@ -447,7 +489,7 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
   const floors = Math.max(1, ctx.floors ?? 1);
   const top = spec.floorY + floors * h;
   const door = spec.door!;
-  const f = ctx.facade ?? {};
+  const f = shellWindows(g, ctx, 'tower');
   for (let i = 0; i < 12; i++) {
     const a = (i / 12) * Math.PI * 2;
     const x = Math.sin(a) * r;
@@ -472,23 +514,16 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
   add(roof, cyl(0.9, 0.9, 0.22, 12), mat(C.cream2), 0, 3.9 + 0.11, 0);
   add(roof, cone(0.98, 1.4, 12), mat(C.roof), 0, 4.12 + 0.7, 0);
   add(roof, sphere(0.1), mat(C.domeDark), 0, 5.55, 0);
-  for (let k = 0; k < floors; k++) {
-    for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-      add(g, box(0.22, 0.4, 0.06), mat(C.domeDark), Math.sin(a) * 0.86, spec.floorY + k * h + 0.75, Math.cos(a) * 0.86, [0, a, 0]);
-    }
-  }
 }
 
 function buildHouse(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.house;
   add(g, box(2.4, 0.16, 2.2), mat(C.stone), 0, 0.08, 0);
-  shellBox(g, ctx, spec, mat(C.cream), woodMat(C.wood), mat(C.dark));
+  shellBox(g, ctx, 'house', mat(C.cream), woodMat(C.wood), mat(C.dark));
   shellEntryRamp(g, spec, 1.6);
   const roof = roofGroup(g, roofLift(ctx, spec));
   add(roof, prism(2.3, 0.9, 2.1), mat(C.roof), 0, 1.56, 0);
   add(roof, box(0.3, 0.7, 0.3), mat(C.stoneDark), 0.6, 1.9, -0.4);
-  shellDecorWindows(g, ctx, spec, (lift) => add(g, box(0.4, 0.4, 0.05), mat(C.domeDark), 0.5, 0.16 + 0.85 + lift, 0.95));
 }
 
 function buildGazebo(g: THREE.Group) {
@@ -731,13 +766,7 @@ export interface BuildCtx {
   finish?: { floor?: string; wall?: string };
 }
 
-/** Otwór w ścianie powłoki w układzie ściany: `u` wzdłuż niej (od jej środka), `v` to wysokość w modelu. */
-export interface WallHole {
-  u0: number;
-  u1: number;
-  v0: number;
-  v1: number;
-}
+export type { WallHole };
 
 /**
  * Ścianka działowa: pełne pudełko albo słupki i nadproża wokół otworów na drzwi.
@@ -886,14 +915,8 @@ function buildWindow(g: THREE.Group) {
   add(g, box(w, 0.08, depth), frame, 0, sill + h - 0.04, zc);
   add(g, box(0.04, h - 0.16, 0.05), frame, 0, sill + h / 2, zc);
   add(g, box(w - 0.16, 0.04, 0.05), frame, 0, sill + h / 2, zc);
-  const glass = new THREE.Mesh(box(w - 0.16, h - 0.16, 0.02), mat('#cfe3ef', { roughness: 0.1, metalness: 0.2 }));
-  const gm = (glass.material as THREE.MeshStandardMaterial).clone();
-  gm.transparent = true;
-  gm.opacity = 0.35;
-  glass.material = gm;
-  glass.userData.ownMaterial = true;
-  glass.position.set(0, sill + h / 2, zc);
-  g.add(glass);
+  const glass = add(g, box(w - 0.16, h - 0.16, 0.02), glassMat(), 0, sill + h / 2, zc);
+  glass.castShadow = false;
   add(g, box(w + 0.16, 0.06, 0.16), mat(C.stone), 0, sill - 0.03, 0.08); // parapet zewnętrzny
 }
 
