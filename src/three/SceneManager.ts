@@ -18,11 +18,12 @@ import { buildRoom, type Room } from './interior';
 import { Physics, FOOT_OFFSET, type StaticShape } from './physics';
 import { ROOMS, colliderKind, spawnKind } from '../catalog';
 import { clampToGround, clipSegment, groundExtent, groundPolygon, insideGround } from '../lib/ground';
-import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, buildingOf, buildingOpenings, facadeFloorOk, facadeHoles, facadeSlotFree, facadeSnap, isFacade, doorOffsets, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, type Opening } from '../lib/rooms';
+import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, buildingOf, buildingOpenings, facadeFloorOk, facadeHoles, facadeSlotFree, facadeSnap, isDrawn, isFacade, doorOffsets, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, type Opening } from '../lib/rooms';
 import { getTexture } from './textures';
 import { Wildlife, type SpawnInfo, type WorldInfo } from './wildlife';
 import { Soundscape } from './soundscape';
 import { loadCustomTextures } from '../lib/textureStore';
+import { uid } from '../lib/ids';
 import type { GroundSpec } from '../types';
 
 interface Entry {
@@ -197,6 +198,8 @@ export class SceneManager {
   private wallLabel: CSS2DObject | null = null;
   /** Ostatnio postawiona ścianka w łańcuchu — współliniowy następny odcinek ją wydłuża zamiast tworzyć nowy obiekt. */
   private lastWallId: string | null = null;
+  /** Grupa bieżącego ciągu ścieżki — kolejne odcinki trafiają do niej. */
+  private drawGroupId: string | null = null;
   private placeDown: { x: number; y: number } | null = null;
   private baseLight = { hemi: 1.1, ambient: 0.35, sun: 2.4 };
   private ambienceFog = { color: '#eceeea', near: 40, far: 120 };
@@ -868,7 +871,7 @@ export class SceneManager {
     if (o.colors && Object.keys(o.colors).length) base.colors = o.colors;
     if (o.type === 'wall') return { ...base, scaleX: o.scale[0], openings: doorOffsets(o, p.objects).map((t) => Math.round(t * 100) / 100) };
     if (isInPlace(o)) return { ...base, floors: o.floors ?? 1, slabOpenings: buildingOpenings(o, p.objects), facade: facadeHoles(o, p.objects), finish: o.finish };
-    if (o.type === 'path') return { ...base, scaleX: o.scale[0], finish: o.finish };
+    if (o.type === 'pathway') return { ...base, scaleX: o.scale[0], scaleZ: o.scale[2], finish: o.finish };
     // taras: schodki od podłogi parteru do ziemi
     if (o.type === 'terrace' && b) return { ...base, drop: Math.round((buildingFloorY(b, 0) - b.position[1]) * 100) / 100 };
     if (o.type === 'painting') return { ...base, variant: hashString(o.id) % ART_VARIANTS };
@@ -1274,7 +1277,7 @@ export class SceneManager {
     this.ghostRing.rotation.x = -Math.PI / 2;
     this.scene.add(this.ghostRing);
     this.ghostRot = 0;
-    if (type === 'wall' && !this.ghostIds) {
+    if (isDrawn(type) && !this.ghostIds) {
       // ścianka nie ma sensownego pierścienia — długość pokazuje etykieta przy podglądzie
       this.ghostRing.visible = false;
       useStore.getState().showToast('Kliknij, gdzie ściana ma się zacząć.');
@@ -1283,11 +1286,17 @@ export class SceneManager {
   }
 
   /** Kończy rysowanie ścianki: kasuje początek i etykietę długości. */
+  /** Tryb rysowania odcinków (ścianka albo ścieżka z biblioteki, nie kopia). */
+  private drawing(): boolean {
+    return isDrawn(this.ghostType) && !this.ghostIds;
+  }
+
   private clearWallDraw() {
     this.wallStart = null;
     this.wallLen = 0;
     this.wallStartedOnDown = false;
     this.lastWallId = null;
+    this.drawGroupId = null;
     if (this.wallLabel) {
       this.wallLabel.element.remove();
       this.wallLabel.removeFromParent();
@@ -1296,9 +1305,11 @@ export class SceneManager {
   }
 
   /** Ścianki na edytowanym piętrze (do przyciągania końców i drzwi). */
-  private wallsOnEditFloor(): PalaceObject[] {
+  private wallsOnEditFloor(type = 'wall'): PalaceObject[] {
     const p = this.lastPalace;
     if (!p) return [];
+    // ścieżki leżą tylko na ziemi planszy
+    if (type === 'pathway') return p.objects.filter((o) => o.type === 'pathway');
     const H = floorHeightFor(p);
     const editFloor = useStore.getState().editFloor;
     const active = this.activeBuilding();
@@ -1333,7 +1344,7 @@ export class SceneManager {
     let px = Math.round(x / snap) * snap;
     let pz = Math.round(z / snap) * snap;
     let snapped = false;
-    const walls = this.wallsOnEditFloor();
+    const walls = this.wallsOnEditFloor(this.ghostType);
     // końce innych ścianek: styk bez szczeliny
     let bestD = 0.35;
     for (const w of walls) {
@@ -1391,7 +1402,8 @@ export class SceneManager {
     if (!this.ghost) return;
     const gp = new THREE.Vector3();
     if (!this.groundPoint(gp)) return;
-    const floorY = this.editFloorY();
+    const isPath = this.ghostType === 'pathway';
+    const floorY = isPath ? 0 : this.editFloorY();
     const p = this.snapWallPoint(gp.x, gp.z, this.wallStart);
     this.ghostAnchor = undefined;
     if (!this.wallStart) {
@@ -1420,7 +1432,7 @@ export class SceneManager {
       this.scene.add(this.wallLabel);
     }
     this.wallLabel.element.textContent = `${len.toFixed(1).replace('.', ',')} m`;
-    this.wallLabel.position.set(mid.x, floorY + floorHeightFor(this.lastPalace) + 0.3, mid.z);
+    this.wallLabel.position.set(mid.x, floorY + (isPath ? 0.6 : floorHeightFor(this.lastPalace) + 0.3), mid.z);
   }
 
   /** Pierwsze kliknięcie w trybie ścianki: zapamiętuje początek odcinka. */
@@ -1428,7 +1440,7 @@ export class SceneManager {
     if (!this.ghost) return;
     this.wallStart = this.ghostPos.clone();
     this.wallStartedOnDown = true;
-    useStore.getState().showToast('Kliknij, gdzie ściana ma się skończyć. Shift — kolejna od tego miejsca, Esc — anuluj.');
+    useStore.getState().showToast(`Kliknij, gdzie ${this.ghostType === 'pathway' ? 'ścieżka' : 'ściana'} ma się skończyć. Shift — kolejna od tego miejsca, Esc — anuluj.`);
     this.updateGhost();
   }
 
@@ -1441,10 +1453,21 @@ export class SceneManager {
     }
     if (this.wallLen < 0.5) return;
     const end = new THREE.Vector3(this.wallStart.x + Math.cos(this.ghostRot) * this.wallLen, this.ghostPos.y, this.wallStart.z - Math.sin(this.ghostRot) * this.wallLen);
-    const id = st.addObject('wall', [this.ghostPos.x, this.ghostPos.y, this.ghostPos.z], this.ghostRot, this.activeBuilding()?.id, [this.wallLen / WALL_SEGMENT, 1, 1]);
-    // odcinek w tej samej linii co poprzedni z łańcucha to nadal jedna ścianka
-    const kept = this.lastWallId ? st.mergeWalls([this.lastWallId, id], { undo: false }) : [];
-    this.lastWallId = kept[0] ?? id;
+    if (this.ghostType === 'pathway') {
+      // ścieżka: bez kotwicy i scalania, za to cały ciąg w jednej grupie (od drugiego odcinka)
+      const id = st.addObject('pathway', [this.ghostPos.x, 0, this.ghostPos.z], this.ghostRot, undefined, [this.wallLen / WALL_SEGMENT, 1, 1]);
+      if (this.lastWallId) {
+        this.drawGroupId ??= uid('g');
+        const gid = this.drawGroupId;
+        st.updateObjects([{ id: this.lastWallId, patch: { groupId: gid } }, { id, patch: { groupId: gid } }], { undo: false });
+      }
+      this.lastWallId = id;
+    } else {
+      const id = st.addObject('wall', [this.ghostPos.x, this.ghostPos.y, this.ghostPos.z], this.ghostRot, this.activeBuilding()?.id, [this.wallLen / WALL_SEGMENT, 1, 1]);
+      // odcinek w tej samej linii co poprzedni z łańcucha to nadal jedna ścianka
+      const kept = this.lastWallId ? st.mergeWalls([this.lastWallId, id], { undo: false }) : [];
+      this.lastWallId = kept[0] ?? id;
+    }
     if (keepPlacing) {
       this.wallStart = end;
       this.updateGhost();
@@ -1555,7 +1578,7 @@ export class SceneManager {
   /** Ustawia ducha pod kursorem i sprawdza, czy miejsce jest wolne. */
   private updateGhost() {
     if (!this.ghost || !this.ghostRing) return;
-    if (this.ghostType === 'wall' && !this.ghostIds) return this.updateWallGhost();
+    if (this.drawing()) return this.updateWallGhost();
     if (this.ghostType === 'door') return this.updateDoorGhost();
     if (isFacade(this.ghostType)) return this.updateFacadeGhost();
     const found = this.placementPoint(new Set());
@@ -1630,7 +1653,7 @@ export class SceneManager {
     const st = useStore.getState();
     const type = this.ghostType;
     if (!type) return;
-    if (type === 'wall' && !this.ghostIds) return this.commitWall(keepPlacing);
+    if (isDrawn(type) && !this.ghostIds) return this.commitWall(keepPlacing);
     if (type === 'door' && (this.ghostBlocked || !this.ghostAnchor)) {
       st.showToast(this.ghostAnchor ? 'Tu są już inne drzwi — wybierz inne miejsce w ściance.' : 'Drzwi stawia się w ściance działowej.');
       return;
@@ -2268,7 +2291,7 @@ export class SceneManager {
       this.updateGhost();
       if (ev.button === 2) {
         // prawy przycisk w trakcie rysowania ścianki cofa tylko jej początek
-        if (this.ghostType === 'wall' && !this.ghostIds && this.wallStart) {
+        if (this.drawing() && this.wallStart) {
           this.clearWallDraw();
           this.updateGhost();
         } else useStore.getState().setPlacing(null);
@@ -2276,7 +2299,7 @@ export class SceneManager {
       }
       this.placeDown = { x: ev.clientX, y: ev.clientY };
       // ścianka zaczyna się już przy naciśnięciu, żeby przeciągnięcie działało jak dwa kliknięcia
-      if (this.ghostType === 'wall' && !this.ghostIds && !this.wallStart && (ev.button === 0 || ev.pointerType !== 'mouse')) this.startWall();
+      if (this.drawing() && !this.wallStart && (ev.button === 0 || ev.pointerType !== 'mouse')) this.startWall();
       return;
     }
     if (ev.button === 1 && ev.pointerType === 'mouse') {
@@ -2499,7 +2522,7 @@ export class SceneManager {
       const moved = Math.hypot(ev.clientX - this.placeDown.x, ev.clientY - this.placeDown.y);
       const isTouch = ev.pointerType === 'touch';
       this.placeDown = null;
-      if (this.ghostType === 'wall' && !this.ghostIds) {
+      if (this.drawing()) {
         // puszczenie po kliknięciu, które ustawiło początek, jeszcze nic nie stawia
         const started = this.wallStartedOnDown;
         this.wallStartedOnDown = false;
@@ -2637,7 +2660,7 @@ export class SceneManager {
     ev.preventDefault();
     ev.stopPropagation();
     // obrót ścianki wynika z punktów, obrót drzwi ze ścianki
-    if ((this.ghostType === 'wall' && !this.ghostIds) || isFacade(this.ghostType)) return;
+    if ((this.drawing()) || isFacade(this.ghostType)) return;
     if (this.ghostType === 'door') {
       this.doorFlip = !this.doorFlip;
       this.updateGhost();
@@ -2682,12 +2705,12 @@ export class SceneManager {
       if (ev.code === 'KeyR') {
         ev.preventDefault();
         if (this.ghostType === 'door') this.doorFlip = !this.doorFlip; // zawiasy z drugiej strony
-        else if ((this.ghostType !== 'wall' || this.ghostIds) && !isFacade(this.ghostType)) this.ghostRot += Math.PI / 12;
+        else if (!this.drawing() && !isFacade(this.ghostType)) this.ghostRot += Math.PI / 12;
         this.updateGhost();
         return;
       }
       if (ev.code === 'Escape') {
-        if (this.ghostType === 'wall' && !this.ghostIds && this.wallStart) {
+        if (this.drawing() && this.wallStart) {
           this.clearWallDraw();
           this.updateGhost();
         } else st.setPlacing(null);

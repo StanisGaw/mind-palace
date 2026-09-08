@@ -749,6 +749,8 @@ export interface BuildCtx {
   floorHeight: number;
   /** Skala X obiektu — ścianka buduje się w jednostkach lokalnych, więc wymiary w metrach dzieli przez nią. */
   scaleX?: number;
+  /** Skala Z (szerokość ścieżki) — zaokrąglone końce ścieżki muszą zostać kołami mimo skali. */
+  scaleZ?: number;
   /** Środki otworów drzwiowych wzdłuż ścianki, w metrach świata od jej środka. */
   openings?: number[];
   /** Budynek z wnętrzem w miejscu: liczba kondygnacji i otwory w stropach (lokalne jednostki modelu). */
@@ -804,6 +806,28 @@ function buildWall(g: THREE.Group, ctx: BuildCtx) {
     cursor = x1;
   }
   post(cursor, half);
+}
+
+/** Szerokość bazowa ścieżki (skala Z ją mnoży) i kafel jej nawierzchni w metrach. */
+const PATH_WIDTH = 1.2;
+const PATH_TILE = 1.5;
+
+/**
+ * Ścieżka: płaski pas o długości `WALL_SEGMENT` (skala X wydłuża) z półokrągłymi końcami, żeby kolejne odcinki
+ * łączyły się bez szczelin na zakrętach. Nawierzchnia z `finish.floor` (domyślnie żwir).
+ */
+function buildPath(g: THREE.Group, ctx: BuildCtx) {
+  const sx = Math.max(ctx.scaleX ?? 1, 0.01);
+  const sz = Math.max(ctx.scaleZ ?? 1, 0.01);
+  const m = finishMat(ctx.finish?.floor ?? 'gravel', C.stoneDark, { roughness: 1 });
+  const h = 0.03;
+  const strip = add(g, scaleUv(box(WALL_SEGMENT, h, PATH_WIDTH), (WALL_SEGMENT * sx) / PATH_TILE, (PATH_WIDTH * sz) / PATH_TILE), m, 0, h / 2, 0);
+  strip.castShadow = false;
+  for (const x of [-WALL_SEGMENT / 2, WALL_SEGMENT / 2]) {
+    const cap = add(g, scaleUv(cyl(PATH_WIDTH / 2, PATH_WIDTH / 2, h, 16), (PATH_WIDTH * sz) / PATH_TILE, (PATH_WIDTH * sz) / PATH_TILE), m, x, h / 2, 0);
+    cap.castShadow = false;
+    cap.scale.x = sz / sx; // koło w świecie mimo różnej skali X i Z obiektu
+  }
 }
 
 /**
@@ -1252,6 +1276,7 @@ function buildWaterfall(g: THREE.Group) {
 
 const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   wall: buildWall,
+  pathway: buildPath,
   door: buildDoor,
   window: buildWindow,
   balcony: buildBalcony,

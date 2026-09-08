@@ -4,6 +4,7 @@ import type { Category } from '../types';
 import { useCurrentPalace, useStore } from '../store';
 import { usePref } from '../lib/prefs';
 import { insideGround } from '../lib/ground';
+import { isDrawn } from '../lib/rooms';
 import { I } from './Icons';
 import { RoomPresets } from './RoomPresets';
 
@@ -83,7 +84,7 @@ function Library({ q }: { q: string }) {
     <button
       key={item.id}
       className={'item-row' + (placing?.type === item.id && !placing.ids ? ' placing' : '')}
-      title={placing?.type === item.id && !placing.ids ? (item.id === 'wall' ? 'Kliknij początek i koniec ścianki (Esc anuluje)' : 'Kliknij scenę, aby postawić (Esc anuluje)') : item.description}
+      title={placing?.type === item.id && !placing.ids ? (isDrawn(item.id) ? `Kliknij początek i koniec ${item.id === 'wall' ? 'ścianki' : 'ścieżki'} (Esc anuluje)` : 'Kliknij scenę, aby postawić (Esc anuluje)') : item.description}
       onClick={() => {
         if (viewMode !== 'editor') {
           addObject(item.id);
@@ -103,7 +104,7 @@ function Library({ q }: { q: string }) {
         <div className="name">{item.name}</div>
         <div className="sub">{item.description}</div>
       </span>
-      <span className="add">{placing?.type === item.id && !placing.ids ? (item.id === 'wall' ? 'Początek i koniec' : 'Kliknij scenę') : '+ Dodaj'}</span>
+      <span className="add">{placing?.type === item.id && !placing.ids ? (isDrawn(item.id) ? 'Początek i koniec' : 'Kliknij scenę') : '+ Dodaj'}</span>
     </button>
   );
 

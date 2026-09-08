@@ -98,6 +98,7 @@ export const CATALOG: CatalogItem[] = [
   { id: 'window', name: 'Okno', category: 'structure', emoji: '🪟', description: 'W murze budynku — szyba widoczna z obu stron.', footprint: 0.6, collider: 'none', boardOnly: true },
   { id: 'balcony', name: 'Balkon', category: 'structure', emoji: '🏗️', description: 'Na piętrze budynku — z wyjściem przez mur.', footprint: 0.9, collider: 'trimesh', boardOnly: true },
   { id: 'terrace', name: 'Taras', category: 'structure', emoji: '🪜', description: 'Przy parterze budynku — z wyjściem i schodkami.', footprint: 1.3, collider: 'trimesh', boardOnly: true },
+  { id: 'pathway', name: 'Ścieżka', category: 'structure', emoji: '🛤️', description: 'Kliknij początek i koniec — żwir, kamień albo deski po ziemi.', footprint: 1.0, collider: 'none', maxScale: 12, boardOnly: true },
   { id: 'stairs', name: 'Schody', category: 'structure', emoji: '🪜', description: 'Prowadzą na wyższe piętro.', footprint: 0.8, collider: 'trimesh', maxScale: 2 },
 ];
 

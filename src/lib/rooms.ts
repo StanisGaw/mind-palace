@@ -90,6 +90,11 @@ export const DOOR_OPENING = { w: 1.16, h: 2.18 };
 /** Najmniejszy odstęp między osiami dwóch drzwi w tej samej ściance. */
 export const DOOR_SLOT = DOOR_OPENING.w + 0.1;
 
+/** Typy rysowane dwoma kliknięciami (początek i koniec): ścianka i ścieżka. Długość = `scale[0] × WALL_SEGMENT`. */
+export function isDrawn(type: string): boolean {
+  return type === 'wall' || type === 'pathway';
+}
+
 export function wallLength(wall: Pick<PalaceObject, 'scale'>): number {
   return wall.scale[0] * WALL_SEGMENT;
 }

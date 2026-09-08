@@ -9,7 +9,7 @@ import { SceneManager } from '../three/SceneManager';
 import { I } from './Icons';
 import { catalogItem } from '../catalog';
 import { COARSE_Q, useMediaQuery } from '../lib/media';
-import { maxFloorsOf } from '../lib/rooms';
+import { isDrawn, maxFloorsOf } from '../lib/rooms';
 import { ReviewOverlay } from './ReviewOverlay';
 import { Tip } from './Tip';
 
@@ -232,7 +232,7 @@ export function Viewport() {
       {viewMode === 'editor' && isTouch && placing && (
         <div className="hud placing-bar">
           <span className="placing-label">{placing.ids ? 'Kopia' : catalogItem(placing.type).name}</span>
-          {placing.type !== 'wall' && (
+          {!isDrawn(placing.type) && (
             <button onClick={() => mgrRef.current?.rotateGhost()} title="Obróć podgląd o 15°">
               <I.Rotate width={14} height={14} /> Obróć
             </button>

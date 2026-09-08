@@ -4,7 +4,7 @@ import { describeDue, isDue } from '../lib/srs';
 import { useCurrentPalace, useStore } from '../store';
 import { usePref } from '../lib/prefs';
 import type { Vec3 } from '../types';
-import { SHELLS, WALL_SEGMENT, isFacade, isInPlace, maxFloorsOf, wallChains } from '../lib/rooms';
+import { SHELLS, WALL_SEGMENT, isDrawn, isFacade, isInPlace, maxFloorsOf, wallChains } from '../lib/rooms';
 import { MATERIAL_LABELS, WOOD_ROLES, WOOD_SHADES, paletteOf, trimColors, type MaterialRole } from '../lib/materials';
 import { rolesOf } from '../three/builders';
 import { TexturePicker } from './TexturePicker';
@@ -600,9 +600,9 @@ function Inspector({ id }: { id: string }) {
           </button>
         </div>
       )}
-      {obj.type === 'wall' && (
+      {isDrawn(obj.type) && (
         <div className="field">
-          <label>Długość (zmienia ją skala X)</label>
+          <label>Długość (zmienia ją skala X{obj.type === 'pathway' ? ', szerokość — skala Z' : ''})</label>
           <div className="row">
             <span className="val">{(obj.scale[0] * WALL_SEGMENT).toFixed(1).replace('.', ',')} m</span>
           </div>
@@ -624,7 +624,7 @@ function Inspector({ id }: { id: string }) {
         </div>
       </div>
       {inPlace && <FinishField id={id} finish={obj.finish} kinds={{ floor: 'Podłoga wnętrza', wall: 'Ściany wnętrza' }} />}
-      {obj.type === 'path' && <FinishField id={id} finish={obj.finish} kinds={{ floor: 'Nawierzchnia' }} />}
+      {obj.type === 'pathway' && <FinishField id={id} finish={obj.finish} kinds={{ floor: 'Nawierzchnia' }} />}
       <MaterialsField id={id} type={obj.type} colors={obj.colors} />
       {obj.type !== 'door' && !isFacade(obj.type) && <ScaleField id={id} scale={obj.scale} max={item.maxScale ?? 10} />}
       {obj.type !== 'door' && !isFacade(obj.type) && <RotationField id={id} rotation={obj.rotation} />}
