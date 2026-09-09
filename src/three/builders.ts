@@ -369,10 +369,13 @@ function shellWallZ(g: THREE.Group, z0: number, z1: number, y0: number, y1: numb
 /** Stropy między kondygnacjami budynku: pudełka omijające otwory nad schodami; po nich też stawia się obiekty. */
 function shellSlabs(g: THREE.Group, ctx: BuildCtx, base: Rect[], floorY: number, H: number, m: THREE.Material, extraHoles: Rect[][] = []) {
   const floors = Math.max(1, ctx.floors ?? 1);
-  for (let k = 1; k < floors; k++) {
+  // przy piwnicy strop parteru (k = 0) też jest stropem z otworem, a nie litą podłogą
+  const from = ctx.basement ? 0 : 1;
+  for (let k = from; k < floors; k++) {
+    const idx = k - from;
     let rects: Rect[] = base.map((r) => ({ ...r }));
-    for (const op of ctx.slabOpenings?.[k - 1] ?? []) rects = subtractRect(rects, { x0: op.cx - op.hx, x1: op.cx + op.hx, z0: op.cz - op.hz, z1: op.cz + op.hz });
-    for (const hole of extraHoles[k - 1] ?? []) rects = subtractRect(rects, hole);
+    for (const op of ctx.slabOpenings?.[idx] ?? []) rects = subtractRect(rects, { x0: op.cx - op.hx, x1: op.cx + op.hx, z0: op.cz - op.hz, z1: op.cz + op.hz });
+    for (const hole of extraHoles[idx] ?? []) rects = subtractRect(rects, hole);
     for (const r of rects) {
       if (r.x1 - r.x0 < 0.01 || r.z1 - r.z0 < 0.01) continue;
       const slab = add(g, scaleUv(box(r.x1 - r.x0, 0.04, r.z1 - r.z0), r.x1 - r.x0, r.z1 - r.z0, r.x0, r.z0), m, (r.x0 + r.x1) / 2, floorY + k * H - 0.02, (r.z0 + r.z1) / 2);
@@ -414,18 +417,20 @@ function shellBox(g: THREE.Group, ctx: BuildCtx, type: string, wallMat: THREE.Ma
   const y0 = spec.floorY;
   const floors = Math.max(1, ctx.floors ?? 1);
   const y1 = spec.floorY + floors * h;
+  // piwnica: mur i wnętrze schodzą o kondygnację poniżej podłogi parteru
+  const yBase = ctx.basement ? y0 - h : y0;
   const t = SHELL_WALL_T / 2;
   const f = shellWindows(g, ctx, type);
   const floorFinish = ctx.finish?.floor ? finishMat(ctx.finish.floor, C.stone) : floorMat;
   const lining = ctx.finish?.wall ? finishMat(ctx.finish.wall, C.cream) : undefined;
   // elewacja: faktura mnożona przez kolor muru, żeby paleta materiałów dalej działała
   const outer = ctx.finish?.facade ? finishMat(ctx.finish.facade, C.cream, { tint: true }) : wallMat;
-  shellFloor(g, w, d, spec.cx, y0, spec.cz, floorFinish);
+  shellFloor(g, w, d, spec.cx, yBase, spec.cz, floorFinish);
   const doorHole: WallHole[] = spec.door ? [{ u0: spec.door.x - spec.door.w / 2, u1: spec.door.x + spec.door.w / 2, v0: y0 - 0.02, v1: y0 + spec.door.h }] : [];
-  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z0 - t, outer, [0, -1], f.back ?? [], lining); // tylna
-  shellWallX(g, x0 - t, x1 + t, y0 - 0.01, y1, z1 + t, outer, [0, 1], [...doorHole, ...(f.front ?? [])], lining); // przednia
-  shellWallZ(g, z0, z1, y0 - 0.01, y1, x0 - t, outer, [-1, 0], f.left ?? [], lining);
-  shellWallZ(g, z0, z1, y0 - 0.01, y1, x1 + t, outer, [1, 0], f.right ?? [], lining);
+  shellWallX(g, x0 - t, x1 + t, yBase - 0.01, y1, z0 - t, outer, [0, -1], f.back ?? [], lining); // tylna
+  shellWallX(g, x0 - t, x1 + t, yBase - 0.01, y1, z1 + t, outer, [0, 1], [...doorHole, ...(f.front ?? [])], lining); // przednia
+  shellWallZ(g, z0, z1, yBase - 0.01, y1, x0 - t, outer, [-1, 0], f.left ?? [], lining);
+  shellWallZ(g, z0, z1, yBase - 0.01, y1, x1 + t, outer, [1, 0], f.right ?? [], lining);
   if (spec.door) shellLeaf(g, spec.door, y0, leafMat);
   shellSlabs(g, ctx, [{ x0, x1, z0, z1 }], y0, h, floorFinish);
 }
@@ -547,7 +552,8 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
   const floorFinish = finishMat(ctx.finish?.floor, C.stone);
   const lining = ctx.finish?.wall ? finishMat(ctx.finish.wall, C.cream) : undefined;
   const outer = finishMat(ctx.finish?.facade, C.cream, { tint: true });
-  const floor = add(g, scaleUv(cyl(r - 0.06, r - 0.06, 0.04, 12), 2 * r, 2 * r), floorFinish, 0, spec.floorY - 0.01, 0);
+  const yBase = ctx.basement ? spec.floorY - spec.inner.h : spec.floorY;
+  const floor = add(g, scaleUv(cyl(r - 0.06, r - 0.06, 0.04, 12), 2 * r, 2 * r), floorFinish, 0, yBase - 0.01, 0);
   floor.userData.floorSurface = true;
   // mur z dwunastu segmentów o wysokości wszystkich kondygnacji; przedni ma otwór drzwi
   const side = 2 * r * Math.tan(Math.PI / 12);
@@ -562,9 +568,9 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
     const z = Math.cos(a) * r;
     const holes: WallHole[] = [...(f[`seg${i}`] ?? [])];
     if (i === 0) holes.push({ u0: -door.w / 2, u1: door.w / 2, v0: spec.floorY - 0.02, v1: spec.floorY + door.h });
-    const seg = add(g, wallGeometry(-side / 2 - 0.01, side / 2 + 0.01, spec.floorY - 0.01, top, holes, 0.1), outer, x, 0, z, [0, a, 0]);
+    const seg = add(g, wallGeometry(-side / 2 - 0.01, side / 2 + 0.01, yBase - 0.01, top, holes, 0.1), outer, x, 0, z, [0, a, 0]);
     seg.userData.wallNormal = [Math.sin(a), Math.cos(a)];
-    if (lining) shellLining(g, wallGeometry(-side / 2 - 0.01, side / 2 + 0.01, spec.floorY - 0.01, top, holes, LINING_T), lining, Math.sin(a) * (r - 0.05 - LINING_T / 2 - 0.002), Math.cos(a) * (r - 0.05 - LINING_T / 2 - 0.002), a, [Math.sin(a), Math.cos(a)]);
+    if (lining) shellLining(g, wallGeometry(-side / 2 - 0.01, side / 2 + 0.01, yBase - 0.01, top, holes, LINING_T), lining, Math.sin(a) * (r - 0.05 - LINING_T / 2 - 0.002), Math.cos(a) * (r - 0.05 - LINING_T / 2 - 0.002), a, [Math.sin(a), Math.cos(a)]);
   }
   shellLeaf(g, door, spec.floorY, mat(C.dark));
   shellEntryRamp(g, spec, r + 0.7);
@@ -576,9 +582,11 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
   const rm = (r - 0.08 + (r - 0.58)) / 2;
   const turn = Math.min(Math.PI * 1.5, Math.max(Math.PI / 2, h / (Math.tan(Math.PI / 6) * rm)));
   const steps = Math.max(8, Math.round((turn * rm * sy) / 0.3)); // stopień ~0,3 m w metrach świata
-  for (let k = 1; k < floors; k++) {
+  // przy piwnicy pierwszy bieg zaczyna się poziom niżej i strop parteru też dostaje wycięcie nad nim
+  const fromK = ctx.basement ? 0 : 1;
+  for (let k = fromK; k < floors; k++) {
     const { sector } = spiralStairs(g, { cx: 0, cz: 0, r: r - 0.08, inner: r - 0.58, y0: spec.floorY + (k - 1) * h, height: h, start: Math.PI / 2 + (k - 1) * turn, turn, steps, headroom: 2.2 / sy }, mat(C.stoneDark));
-    const holes = (ctx.slabOpenings?.[k - 1] ?? []).map((op) => ({ x0: op.cx - op.hx, x1: op.cx + op.hx, z0: op.cz - op.hz, z1: op.cz + op.hz }));
+    const holes = (ctx.slabOpenings?.[k - fromK] ?? []).map((op) => ({ x0: op.cx - op.hx, x1: op.cx + op.hx, z0: op.cz - op.hz, z1: op.cz + op.hz }));
     const slab = add(g, discSlabGeometry(r - 0.05, sector, holes, 0.04), floorFinish, 0, spec.floorY + k * h - 0.04, 0);
     slab.userData.floorSurface = true;
     slab.userData.slab = k;
@@ -1068,6 +1076,8 @@ export interface BuildCtx {
   /** Budynek z wnętrzem w miejscu: liczba kondygnacji i otwory w stropach (lokalne jednostki modelu). */
   floors?: number;
   slabOpenings?: Opening[][];
+  /** Kondygnacja pod ziemią (poziom −1): mur schodzi niżej, a strop parteru dostaje otwór nad schodami. */
+  basement?: boolean;
   /** Skala Y budynku — schody wbudowane liczą wysokość stopnia i prześwit w metrach świata. */
   scaleY?: number;
   /** Otwory elewacji (okna, balkony, tarasy) na ścianach powłoki: klucz ściany → otwory w jej układzie (u wzdłuż, v wysokość). */

@@ -5,7 +5,7 @@ import { uid } from './lib/ids';
 import { yawRotation } from './lib/transform';
 import { getPref, setPref } from './lib/prefs';
 import { chainOf, collectSubtree, loadData, makeInteriorPalace, makePalace, rootOf, saveData } from './lib/storage';
-import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingLamps, orphanStairs, orphanStairsIn, buildingFloorY, buildingOf, maxFloorsOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt, worldXZ, isFacade } from './lib/rooms';
+import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingLamps, floorBaseOf, orphanStairs, orphanStairsIn, buildingFloorY, buildingOf, maxFloorsOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt, worldXZ, isFacade } from './lib/rooms';
 import { captureSet, furnitureSet, instantiateSet } from './lib/sets';
 import { findStairsIn, findStairsSpot, roomOfSpec } from './lib/layout';
 import { isDrawnGround, tileAt, tilesFromShape } from './lib/ground';
@@ -78,7 +78,9 @@ interface State {
   setActiveBuilding(id: string | null): void;
   setBuildingFloors(id: string, n: number): void;
   /** Stawia schody z biblioteki w wolnym miejscu przy murze budynku (albo pokazuje, że go nie ma). */
-  addStairsTo(id: string): void;
+  addStairsTo(id: string, floor?: number): void;
+  /** Włącza albo wyłącza kondygnację pod ziemią (poziom −1). */
+  setBasement(id: string, on: boolean): void;
   /** To samo dla wnętrza ładowanego osobno. */
   addStairsToRoom(): void;
   setInteriorMode(id: string, mode: 'inplace' | 'nested'): void;
@@ -492,7 +494,8 @@ export const useStore = create<State>((set, get) => ({
     const p = get().palace();
     const active = p.objects.find((o) => o.id === get().activeBuildingId);
     const floors = p.interior?.floors ?? active?.floors ?? 1;
-    const clamped = Math.min(floors - 1, Math.max(0, Math.round(n)));
+    const low = active && !p.interior ? floorBaseOf(active) : 0;
+    const clamped = Math.min(floors - 1, Math.max(low, Math.round(n)));
     if (get().editFloor !== clamped) set({ editFloor: clamped });
   },
   setActiveBuilding(id) {
@@ -541,11 +544,11 @@ export const useStore = create<State>((set, get) => ({
       get().addStairsTo(id);
     }
   },
-  addStairsTo(id) {
+  addStairsTo(id, floor = 0) {
     const p = get().palace();
     const b = p.objects.find((o) => o.id === id);
     if (!b) return;
-    const spot = findStairsSpot(b, p.objects);
+    const spot = findStairsSpot(b, p.objects, floor);
     if (!spot) {
       get().showToast('Nie ma miejsca na schody przy żadnej ścianie — zrób miejsce i postaw „Schody" z Konstrukcji.');
       return;
@@ -553,6 +556,46 @@ export const useStore = create<State>((set, get) => ({
     // schody dokładamy bez osobnego wpisu cofania — jedno Ctrl+Z ma cofnąć piętro razem z nimi
     addStairsObject(get, spot.position, spot.rotationY, id);
   },
+  setBasement(id, on) {
+    const p = get().palace();
+    const b = p.objects.find((o) => o.id === id);
+    if (!b || !isInPlace(b) || !!b.basement === on) return;
+    if (!on) {
+      const below = p.objects.filter((o) => buildingOf(p.objects, o)?.id === id && floorOfIn(b, o.position[1]) < 0);
+      if (below.some((o) => o.type !== 'ceiling_lamp' && o.type !== 'stairs')) {
+        get().showToast('W piwnicy stoją obiekty — najpierw je przenieś albo usuń.');
+        return;
+      }
+      const gone = new Set(below.map((o) => o.id));
+      get().setPalace((pl) => {
+        const o = pl.objects.find((x) => x.id === id);
+        if (o) delete o.basement;
+        for (const sid of gone) dropChildrenOf(pl, sid);
+        pl.objects = pl.objects.filter((x) => !gone.has(x.id));
+        pl.path = pl.path.filter((x) => !gone.has(x));
+      });
+      if (get().editFloor < 0) set({ editFloor: 0 });
+      set({ selectedIds: get().selectedIds.filter((x) => !gone.has(x)) });
+      return;
+    }
+    // piwnica od razu z lampami i biegiem z parteru — bez schodów byłaby nieosiągalna
+    const withBasement = { ...b, basement: true };
+    const spot = b.type === 'tower' ? null : findStairsSpot(withBasement, p.objects.map((o) => (o.id === id ? withBasement : o)), -1);
+    if (!spot && b.type !== 'tower') {
+      get().showToast('Nie ma miejsca na schody do piwnicy — zrób miejsce przy ścianie parteru.');
+      return;
+    }
+    get().setPalace((pl) => {
+      const o = pl.objects.find((x) => x.id === id);
+      if (!o) return;
+      o.basement = true;
+      pl.objects.push(...buildingLamps(o, [-1], uid));
+      if (spot) pl.objects.push({ id: uid(), type: 'stairs', name: catalogItem('stairs').name, position: spot.position, rotation: yawRotation(spot.rotationY), scale: [1, 1, 1], anchorId: id });
+    });
+    get().setActiveBuilding(id);
+    set({ editFloor: -1 });
+  },
+
   setInteriorMode(id, mode) {
     const p = get().palace();
     const b = p.objects.find((o) => o.id === id);

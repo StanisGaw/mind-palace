@@ -507,9 +507,11 @@ function ActiveBuildingSection() {
   const editFloor = useStore((s) => s.editFloor);
   const setEditFloor = useStore((s) => s.setEditFloor);
   const setBuildingFloors = useStore((s) => s.setBuildingFloors);
+  const setBasement = useStore((s) => s.setBasement);
   const b = palace.objects.find((o) => o.id === activeBuildingId);
   if (!b || b.interiorMode !== 'inplace') return null;
   const floors = b.floors ?? 1;
+  const low = b.basement ? 1 : 0; // ile pozycji poniżej parteru pokazuje wybierak piętra
   return (
     <div className="env-section">
       <span className="env-title">Piętra: {b.name}</span>
@@ -525,9 +527,14 @@ function ActiveBuildingSection() {
         </div>
       </label>
       <div className="shape-row">
-        {Array.from({ length: floors }, (_, i) => (
+        <button className={'shape-btn' + (b.basement ? ' on' : '')} onClick={() => setBasement(b.id, !b.basement)}>
+          {b.basement ? 'Bez piwnicy' : '+ Piwnica'}
+        </button>
+      </div>
+      <div className="shape-row">
+        {Array.from({ length: floors + low }, (_, n) => n - low).map((i) => (
           <button key={i} className={'shape-btn' + (editFloor === i ? ' on' : '')} onClick={() => setEditFloor(i)}>
-            {i === 0 ? 'Parter' : `Piętro ${i}`}
+            {i < 0 ? 'Piwnica' : i === 0 ? 'Parter' : `Piętro ${i}`}
           </button>
         ))}
       </div>

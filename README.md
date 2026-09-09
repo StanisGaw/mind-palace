@@ -86,6 +86,11 @@ npm run build        # produkcyjny build do dist/
   dokłada, więc w jednym wnętrzu można wydzielić salon, kuchnię i gabinet jak w lofcie. „Zapisz zaznaczenie jako
   zestaw" zachowuje własne rozmieszczenie (`localStorage`, klucz `mneme.sets.v1`); dawne układy pokoi z poprzedniej
   wersji przeliczają się na zestawy przy pierwszym wczytaniu.
+- **Piwnica** — budynek z wnętrzem w miejscu może dostać kondygnację pod ziemią (poziom −1). Przycisk
+  „+ Piwnica" pogłębia bryłę o jedną kondygnację, dokłada lampy i bieg schodów z parteru, a w płycie świata
+  wycina otwór pod wnętrzem budynku (`basementHoles`), żeby dało się tam zejść. Piwnica nie ma okien ani
+  elewacji, a wybieraki piętra dostają pozycję „Piwnica". Wyłączenie działa jak usunięcie piętra: blokuje je
+  własne wyposażenie stojące na dole, a lampy i schody znikają same.
 - **Elewacja** — budynek z wnętrzem w miejscu ma osobne pole „Elewacja" obok podłogi i ścian wnętrza:
   tynk, cegła, cegła klinkierowa, mur kamienny, cios kamienny, płyty kamienne, deski pionowe, ciemne deski,
   beton, marmur i własne obrazy. Faktura jest mnożona przez kolor warstwy muru, więc paleta materiałów dalej

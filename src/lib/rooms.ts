@@ -1,4 +1,5 @@
 import { ROOMS, catalogItem } from '../catalog';
+import type { Rect } from './rects';
 import type { Palace, PalaceObject, RoomSpec, Vec3 } from '../types';
 
 /** Najwyższe piętro, jakie można ustawić budynkowi. */
@@ -300,10 +301,20 @@ export function buildingFloorY(b: PalaceObject, k: number): number {
   return b.position[1] + spec.floorY * b.scale[1] + k * buildingFloorHeight(b);
 }
 
-/** Piętro budynku, na którym stoi obiekt o wysokości `y` (świat). */
+/** Najniższe piętro budynku: −1 dla budynku z piwnicą, inaczej parter. */
+export function floorBaseOf(b: Pick<PalaceObject, 'basement'>): number {
+  return b.basement ? -1 : 0;
+}
+
+/**
+ * Piętro budynku, na którym stoi obiekt o wysokości `y` (świat). Zapas pod linią podłogi jest większy niż
+ * w `floorOf`, bo obiekty zakotwiczone w budynku nie jadą w górę razem z jego skalą — po powiększeniu bryły
+ * potrafią zostać kilkanaście centymetrów niżej i bez zapasu wpadałyby piętro niżej (albo do piwnicy).
+ */
 export function floorOfIn(b: PalaceObject, y: number): number {
-  const k = floorOf(y - buildingFloorY(b, 0), buildingFloorHeight(b));
-  return Math.min(Math.max(0, k), Math.max(1, b.floors ?? 1) - 1);
+  const H = buildingFloorHeight(b);
+  const k = Math.floor((y - buildingFloorY(b, 0) + Math.min(0.4, H * 0.15)) / H);
+  return Math.min(Math.max(floorBaseOf(b), k), Math.max(1, b.floors ?? 1) - 1);
 }
 
 /** Budynek z wnętrzem w miejscu, w którym stoi obiekt (przez łańcuch kotwic), albo `undefined`. */
@@ -339,14 +350,21 @@ export function worldXZ(b: PalaceObject, lx: number, lz: number): [number, numbe
 }
 
 /**
- * Schody, które po zejściu do `floors` kondygnacji prowadziłyby w sufit. Piętro liczymy z surowej wysokości,
- * nie przez `floorOfIn` — ten przycina wynik do bieżącej liczby pięter, więc po zmianie dawałby złą odpowiedź.
- * Wieża ma bieg wbudowany w mur i żadnych schodów-obiektów, więc nic nie zwraca.
+ * Schody, które po zmianie budynku wisiałyby w powietrzu: prowadziłyby w sufit (piętro docelowe poza budynkiem)
+ * albo stały na piętrze, którego już nie ma (zasypana piwnica). Piętro liczymy z surowej wysokości, nie przez
+ * `floorOfIn` — ten przycina wynik do bieżącego zakresu, więc po zmianie dawałby złą odpowiedź. `lowest` to
+ * najniższe piętro po zmianie (0 albo −1). Wieża ma bieg wbudowany w mur i żadnych schodów-obiektów.
  */
-export function orphanStairs(objects: PalaceObject[], b: PalaceObject, floors: number): string[] {
+export function orphanStairs(objects: PalaceObject[], b: PalaceObject, floors: number, lowest = floorBaseOf(b)): string[] {
   const H = buildingFloorHeight(b);
   const base = buildingFloorY(b, 0);
-  return objects.filter((o) => o.type === 'stairs' && buildingOf(objects, o)?.id === b.id && floorOf(o.position[1] - base, H) + 1 > floors - 1).map((o) => o.id);
+  return objects
+    .filter((o) => {
+      if (o.type !== 'stairs' || buildingOf(objects, o)?.id !== b.id) return false;
+      const floor = floorOf(o.position[1] - base, H);
+      return floor < lowest || floor + 1 > floors - 1;
+    })
+    .map((o) => o.id);
 }
 
 /** To samo dla pokoju ładowanego osobno: schody stoją na piętrze liczonym od podłogi parteru w zerze. */
@@ -376,8 +394,38 @@ export function buildingOpenings(b: PalaceObject, objects: PalaceObject[]): Open
     list.push({ cx, cz, hx, hz });
     byFloor.set(floor, list);
   }
+  // indeks 0 to strop nad najniższym piętrem: przy piwnicy jest nim strop parteru
+  const base = floorBaseOf(b);
   const out: Opening[][] = [];
-  for (let i = 0; i < Math.max(1, b.floors ?? 1) - 1; i++) out.push(byFloor.get(i) ?? []);
+  for (let i = base; i < Math.max(1, b.floors ?? 1) - 1; i++) out.push(byFloor.get(i) ?? []);
+  return out;
+}
+
+/**
+ * Otwory w płycie świata pod budynkami z piwnicą: obrys wnętrza w rzucie (prostokąt opisany na obróconym
+ * wnętrzu). Bez nich gracz schodzący do piwnicy uderzyłby w kolider płyty, a przez klatkę schodową
+ * widać byłoby jej wierzch zamiast piwnicy.
+ */
+export function basementHoles(objects: PalaceObject[]): Rect[] {
+  const out: Rect[] = [];
+  for (const b of objects) {
+    if (!b.basement || !isInPlace(b)) continue;
+    const spec = SHELLS[b.type] ?? SHELLS.house;
+    const hw = spec.inner.w / 2;
+    const hd = spec.inner.d / 2;
+    const corners = [
+      worldXZ(b, spec.cx - hw, spec.cz - hd),
+      worldXZ(b, spec.cx + hw, spec.cz - hd),
+      worldXZ(b, spec.cx + hw, spec.cz + hd),
+      worldXZ(b, spec.cx - hw, spec.cz + hd),
+    ];
+    out.push({
+      x0: Math.min(...corners.map((c) => c[0])),
+      x1: Math.max(...corners.map((c) => c[0])),
+      z0: Math.min(...corners.map((c) => c[1])),
+      z1: Math.max(...corners.map((c) => c[1])),
+    });
+  }
   return out;
 }
 
@@ -575,6 +623,7 @@ export function facadeSnap(b: PalaceObject, type: string, x: number, z: number):
 
 /** Czy typ elewacji wolno postawić na tym piętrze. */
 export function facadeFloorOk(type: string, floor: number): boolean {
+  if (floor < 0) return false; // piwnica nie ma elewacji: jest pod ziemią
   const spec = FACADE[type];
   return !!spec && floor >= spec.minFloor && floor <= spec.maxFloor;
 }

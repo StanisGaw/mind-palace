@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SHELLS, buildingFloorHeight, buildingFloorY, buildingOpenings, orphanStairs, orphanStairsIn, stairOpenings } from './rooms';
+import { SHELLS, basementHoles, buildingFloorHeight, buildingFloorY, buildingOpenings, facadeFloorOk, floorBaseOf, floorOfIn, orphanStairs, orphanStairsIn, stairOpenings } from './rooms';
 import { findStairsSpot } from './layout';
 import { ROOMS } from '../catalog';
 import type { PalaceObject, Vec3 } from '../types';
@@ -89,5 +89,60 @@ describe('schody w pokoju ładowanym osobno', () => {
   it('bieg prowadzący na istniejące piętro zostaje', () => {
     expect(orphanStairsIn([mk(0, 's')], H, 2)).toEqual([]);
     expect(orphanStairsIn([mk(1, 'g')], H, 2)).toEqual(['g']);
+  });
+});
+
+describe('piwnica (poziom −1)', () => {
+  const dom = (basement: boolean) => ({ ...building('house', 1), ...(basement ? { basement: true } : {}) }) as PalaceObject;
+
+  it('piętro poniżej parteru istnieje tylko z piwnicą', () => {
+    const bez = dom(false);
+    const z = dom(true);
+    const y = buildingFloorY(z, -1) + 0.1;
+    expect(floorBaseOf(bez)).toBe(0);
+    expect(floorBaseOf(z)).toBe(-1);
+    expect(floorOfIn(bez, y), 'bez piwnicy wszystko ląduje na parterze').toBe(0);
+    expect(floorOfIn(z, y)).toBe(-1);
+  });
+
+  it('schody z piwnicy robią otwór w stropie parteru', () => {
+    const b = dom(true);
+    const s: PalaceObject = { id: 's', type: 'stairs', name: 'Schody', position: [1, buildingFloorY(b, -1), 1], rotation: [0, 0, 0], scale: [1, 1, 1], anchorId: b.id };
+    const openings = buildingOpenings(b, [b, s]);
+    expect(openings, 'jeden strop: nad piwnicą').toHaveLength(1);
+    expect(openings[0], 'otwór nad biegiem').toHaveLength(1);
+    // ten sam budynek bez piwnicy nie ma stropów do wycinania
+    expect(buildingOpenings(dom(false), [dom(false), s])).toEqual([]);
+  });
+
+  it('wyłączenie piwnicy kasuje bieg prowadzący z poziomu −1', () => {
+    const b = dom(true);
+    const s: PalaceObject = { id: 's', type: 'stairs', name: 'Schody', position: [1, buildingFloorY(b, -1), 1], rotation: [0, 0, 0], scale: [1, 1, 1], anchorId: b.id };
+    // po wyłączeniu piwnicy obiekt spod ziemi liczy się jako parter, więc bieg prowadziłby w sufit
+    expect(orphanStairs([dom(false), s], dom(false), 1)).toEqual(['s']);
+  });
+
+  it('elewacji nie da się postawić pod ziemią', () => {
+    for (const type of ['window', 'balcony', 'terrace']) {
+      expect(facadeFloorOk(type, -1), type).toBe(false);
+      expect(facadeFloorOk(type, 0) || facadeFloorOk(type, 1), `${type} gdzieś nad ziemią`).toBe(true);
+    }
+  });
+
+  it('płyta świata dostaje otwór wielkości wnętrza tylko pod budynkiem z piwnicą', () => {
+    const b = dom(true);
+    expect(basementHoles([dom(false)])).toEqual([]);
+    const [h] = basementHoles([b]);
+    const spec = SHELLS.house;
+    expect(h.x1 - h.x0).toBeCloseTo(spec.inner.w * b.scale[0], 6);
+    expect(h.z1 - h.z0).toBeCloseTo(spec.inner.d * b.scale[2], 6);
+  });
+
+  it('obrócony budynek dostaje otwór opisany na wnętrzu', () => {
+    const b = { ...dom(true), rotation: [0, Math.PI / 4, 0] } as PalaceObject;
+    const spec = SHELLS.house;
+    const [h] = basementHoles([b]);
+    const przekatna = (spec.inner.w * b.scale[0] + spec.inner.d * b.scale[2]) / Math.SQRT2;
+    expect(h.x1 - h.x0).toBeCloseTo(przekatna, 4);
   });
 });

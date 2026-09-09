@@ -31,7 +31,8 @@ export interface PalaceObject {
   anchorId?: string; // obiekt, na którym stoi ten obiekt (rusza się razem z nim)
   groupId?: string; // grupa: kliknięcie zaznacza wszystkich członków, ruszają się i giną razem
   interiorMode?: 'inplace'; // budynek: wnętrze w tej samej scenie (brak = osobny pałac-wnętrze)
-  floors?: number; // budynek z wnętrzem w miejscu: liczba kondygnacji (1–4)
+  floors?: number; // budynek z wnętrzem w miejscu: liczba kondygnacji nad ziemią (1–4)
+  basement?: boolean; // budynek z wnętrzem w miejscu: kondygnacja pod ziemią (poziom −1), bez okien i elewacji
   colors?: Record<string, string>; // nadpisane kolory warstw materiałów (rola → #rrggbb), patrz `lib/materials.ts`
   finish?: { floor?: string; wall?: string; facade?: string }; // tekstury budynku w miejscu (podłoga, ściana wewnątrz, elewacja); dla ścieżki `floor` to nawierzchnia
   shellVersion?: 2 | 3 | 4 | 5; // 2: piętra podwyższają bryłę (stała wysokość kondygnacji); 3: szersza i wyższa wieża; 4: większe wnętrza domku, pałacu i biblioteki; 5: wnętrza o czterokrotnym polu; brak = stary podział bryły

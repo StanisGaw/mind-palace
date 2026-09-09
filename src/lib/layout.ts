@@ -463,11 +463,11 @@ export function layoutProblems(room: RoomShape, objects: PalaceObject[], floors:
  * a do jego dołu musi dać się dojść od wejścia. Z pasujących miejsc wybieramy to najbliżej ściany
  * (schody pośrodku pokoju przeszkadzałyby). Zwraca pozycję i obrót w świecie albo `null`.
  */
-export function findStairsSpot(b: PalaceObject, objects: PalaceObject[]): { position: Vec3; rotationY: number } | null {
+export function findStairsSpot(b: PalaceObject, objects: PalaceObject[], floor = 0): { position: Vec3; rotationY: number } | null {
   if (!isInPlace(b) || b.type === 'tower') return null;
   const inside = objects.filter((o) => o.id !== b.id && buildingOf(objects, o)?.id === b.id);
-  const ground = inside.filter((o) => floorOfIn(b, o.position[1]) === 0);
-  return findStairsIn(roomOfBuilding(b, objects), ground, objects, buildingFloorY(b, 0));
+  const here = inside.filter((o) => floorOfIn(b, o.position[1]) === floor);
+  return findStairsIn(roomOfBuilding(b, objects), here, objects, buildingFloorY(b, floor));
 }
 
 /** To samo dla pokoju ładowanego osobno (albo dowolnego kształtu): `ground` to obiekty stojące na parterze. */

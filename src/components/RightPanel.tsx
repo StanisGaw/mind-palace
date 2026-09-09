@@ -429,6 +429,7 @@ function Inspector({ id }: { id: string }) {
   const groupSize = obj.groupId ? palace.objects.filter((o) => o.groupId === obj.groupId).length : 0;
   const setInteriorMode = useStore((s) => s.setInteriorMode);
   const setBuildingFloors = useStore((s) => s.setBuildingFloors);
+  const setBasement = useStore((s) => s.setBasement);
   const setActiveBuilding = useStore((s) => s.setActiveBuilding);
   const setEditFloor = useStore((s) => s.setEditFloor);
   const activeBuildingId = useStore((s) => s.activeBuildingId);
@@ -513,11 +514,16 @@ function Inspector({ id }: { id: string }) {
               + Więcej
             </button>
           </div>
-          {activeBuildingId === id && (obj.floors ?? 1) > 1 && (
+          <div className="shape-row">
+            <button className={'shape-btn' + (obj.basement ? ' on' : '')} onClick={() => setBasement(id, !obj.basement)}>
+              {obj.basement ? 'Bez piwnicy' : '+ Piwnica'}
+            </button>
+          </div>
+          {activeBuildingId === id && ((obj.floors ?? 1) > 1 || obj.basement) && (
             <div className="shape-row">
-              {Array.from({ length: obj.floors ?? 1 }, (_, i) => (
+              {Array.from({ length: (obj.floors ?? 1) + (obj.basement ? 1 : 0) }, (_, n) => n - (obj.basement ? 1 : 0)).map((i) => (
                 <button key={i} className={'shape-btn' + (editFloor === i ? ' on' : '')} onClick={() => setEditFloor(i)}>
-                  {i === 0 ? 'Parter' : `Piętro ${i}`}
+                  {i < 0 ? 'Piwnica' : i === 0 ? 'Parter' : `Piętro ${i}`}
                 </button>
               ))}
             </div>

@@ -18,9 +18,10 @@ import { buildRoom, type Room } from './interior';
 import { Physics, FOOT_OFFSET, type StaticShape } from './physics';
 import { ROOMS, colliderKind, spawnKind } from '../catalog';
 import { GROUND_TILE, clampToGround, clipSegment, groundBounds, groundExtent, groundOutlines, groundPolygon, groundRects, insideGround, isDrawnGround, tileAt } from '../lib/ground';
-import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, buildingOf, buildingOpenings, facadeFloorOk, facadeHoles, facadeSlotFree, facadeSnap, isDrawn, isFacade, doorOffsets, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, localXZ, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, SHELLS, TOWER_R, type Opening } from '../lib/rooms';
+import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, buildingOf, buildingOpenings, facadeFloorOk, facadeHoles, facadeSlotFree, facadeSnap, basementHoles, isDrawn, isFacade, doorOffsets, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, localXZ, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, SHELLS, TOWER_R, type Opening } from '../lib/rooms';
 import { SET_WALL_GAP, furnitureSet, instantiateSet } from '../lib/sets';
 import { boxLocal, boxPoint, insideRoom, placementBlock, roomOfBuilding, roomOfSpec, type RoomShape } from '../lib/layout';
+import { subtractRect, type Rect } from '../lib/rects';
 import { getTexture } from './textures';
 import { Wildlife, type SpawnInfo, type WorldInfo } from './wildlife';
 import { Soundscape } from './soundscape';
@@ -439,7 +440,7 @@ export class SceneManager {
   }
 
   // ---------- teren ----------
-  private buildGround(spec: GroundSpec) {
+  private buildGround(spec: GroundSpec, holes: Rect[] = []) {
     if (this.ground) {
       this.scene.remove(this.ground, this.slab, this.grid);
       this.ground.geometry.dispose();
@@ -454,7 +455,9 @@ export class SceneManager {
     const amb = AMBIENCES.find((a) => a.id === (this.lastPalace?.settings.ambience ?? 'garden')) ?? AMBIENCES[0];
 
     // UV takie same jak w `ShapeGeometry` (współrzędne świata), żeby `applyGroundTexture` działało tak samo
-    const topGeo = drawn ? rectsGeometry(rects) : new THREE.ShapeGeometry(new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, z))));
+    const topGeo = drawn
+      ? rectsGeometry(holes.reduce((acc, h) => subtractRect(acc, h), rects))
+      : new THREE.ShapeGeometry(shapeWithHoles(poly, holes));
     topGeo.rotateX(-Math.PI / 2);
     this.ground = new THREE.Mesh(topGeo, new THREE.MeshStandardMaterial({ color: amb.ground, roughness: 1 }));
     this.ground.receiveShadow = true;
@@ -462,7 +465,7 @@ export class SceneManager {
     this.scene.add(this.ground);
 
     // bok płyty: dla narysowanej planszy pionowe ścianki tylko wzdłuż krawędzi bez sąsiada
-    const slabGeo = drawn ? skirtGeometry(groundOutlines(spec), 0.6) : rotatedExtrude(poly, 0.6);
+    const slabGeo = drawn ? skirtGeometry(groundOutlines(spec), 0.6) : rotatedExtrude(poly, holes, 0.6);
     this.slab = new THREE.Mesh(slabGeo, new THREE.MeshStandardMaterial({ color: '#b7bba9', roughness: 1, side: THREE.DoubleSide }));
     this.slab.position.y = -0.01;
     this.slab.receiveShadow = true;
@@ -781,9 +784,11 @@ export class SceneManager {
     this.slab.visible = true;
     // klucz musi objąć narysowane kafle, inaczej dorysowany kawałek planszy nie przebudowałby płyty ani kolizji
     const g = p.settings.ground;
-    const groundKey = `${g.shape}|${g.width}|${g.depth}|${(g.tiles ?? []).map((t) => t.join(':')).sort().join(',')}`;
+    const holes = basementHoles(p.objects);
+    const holeKey = holes.map((h) => [h.x0, h.x1, h.z0, h.z1].map((v) => v.toFixed(2)).join(':')).sort().join(',');
+    const groundKey = `${g.shape}|${g.width}|${g.depth}|${(g.tiles ?? []).map((t) => t.join(':')).sort().join(',')}|${holeKey}`;
     if (this.lastGroundKey !== groundKey) {
-      this.buildGround(p.settings.ground);
+      this.buildGround(p.settings.ground, holes);
       this.lastGroundKey = groundKey;
       this.lastTextureKey = '';
       this.physicsDirty = true; // zmieniony kształt płyty to inne kolidery pod nogami
@@ -963,7 +968,7 @@ export class SceneManager {
     const base: Partial<BuildCtx> = { floorHeight };
     if (o.colors && Object.keys(o.colors).length) base.colors = o.colors;
     if (o.type === 'wall') return { ...base, scaleX: o.scale[0], openings: doorOffsets(o, p.objects).map((t) => Math.round(t * 100) / 100) };
-    if (isInPlace(o)) return { ...base, floors: o.floors ?? 1, scaleY: Math.round(o.scale[1] * 100) / 100, slabOpenings: buildingOpenings(o, p.objects), facade: facadeHoles(o, p.objects), finish: o.finish };
+    if (isInPlace(o)) return { ...base, floors: o.floors ?? 1, basement: !!o.basement, scaleY: Math.round(o.scale[1] * 100) / 100, slabOpenings: buildingOpenings(o, p.objects), facade: facadeHoles(o, p.objects), finish: o.finish };
     if (o.type === 'pathway') return { ...base, scaleX: o.scale[0], scaleZ: o.scale[2], finish: o.finish };
     // taras: schodki od podłogi parteru do ziemi
     if (o.type === 'terrace' && b) return { ...base, drop: Math.round((buildingFloorY(b, 0) - b.position[1]) * 100) / 100 };
@@ -1206,8 +1211,10 @@ export class SceneManager {
     if (p.interior) {
       ph.setRoom(this.room?.colliders ?? null, this.room?.trimeshes ?? []);
     } else {
-      if (isDrawnGround(p.settings.ground)) ph.setGroundParts(groundRects(p.settings.ground), 0.6);
-      else ph.setGroundShape(groundPolygon(p.settings.ground), 0.6);
+      const holes = basementHoles(p.objects);
+      if (isDrawnGround(p.settings.ground) || holes.length > 0) {
+        ph.setGroundParts(holes.reduce((acc, h) => subtractRect(acc, h), groundRects(p.settings.ground)), 0.6);
+      } else ph.setGroundShape(groundPolygon(p.settings.ground), 0.6);
       ph.setTerrain(this.terrain?.mesh ?? null);
     }
     for (const [id, e] of this.entries) {
@@ -3782,9 +3789,25 @@ function skirtGeometry(rings: [number, number][][], depth: number): THREE.Buffer
 }
 
 /** Bok płyty o obrysie wypukłym — jak dotąd, przez wyciągnięcie kształtu w dół. */
-function rotatedExtrude(poly: [number, number][], depth: number): THREE.BufferGeometry {
-  const shape = new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, z)));
+function rotatedExtrude(poly: [number, number][], holes: Rect[], depth: number): THREE.BufferGeometry {
+  const shape = shapeWithHoles(poly, holes);
   const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false });
   geo.rotateX(Math.PI / 2); // wyciągnięcie idzie wzdłuż +Z, po obrocie schodzi w dół
   return geo;
+}
+
+/** Obrys planszy z prostokątnymi dziurami (piwnice) jako kształt do wyciągnięcia i triangulacji. */
+function shapeWithHoles(poly: [number, number][], holes: Rect[]): THREE.Shape {
+  const shape = new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, z)));
+  for (const h of holes) {
+    const path = new THREE.Path();
+    // dziura obiegana w drugą stronę niż obrys, inaczej triangulacja jej nie wytnie
+    path.moveTo(h.x0, h.z0);
+    path.lineTo(h.x0, h.z1);
+    path.lineTo(h.x1, h.z1);
+    path.lineTo(h.x1, h.z0);
+    path.closePath();
+    shape.holes.push(path);
+  }
+  return shape;
 }
