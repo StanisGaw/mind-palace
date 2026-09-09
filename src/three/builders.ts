@@ -961,6 +961,166 @@ function buildPlane(g: THREE.Group) {
   add(prop, cyl(0.09, 0.09, 0.1, 8), metal, 0, 0, 0, [Math.PI / 2, 0, 0]);
 }
 
+// ---------- wierzchowce (przód −Z, jak samolot; ruchome części mają `userData.rig`) ----------
+
+/** Pivot ruchomej części: scena znajduje go po nazwie i rusza nim w jeździe, a po niej przywraca tę pozę. */
+function rigPivot(parent: THREE.Object3D, name: string, x: number, y: number, z: number): THREE.Group {
+  const p = new THREE.Group();
+  p.position.set(x, y, z);
+  p.userData.rig = name;
+  parent.add(p);
+  return p;
+}
+
+/** Srokaty koń pod siodłem: biała maść z brązowymi łatami, kłąb na 1,6 m. Nogi, szyja i ogon to pivoty. */
+function buildHorse(g: THREE.Group) {
+  const white = mat('#f1ebe0', { roughness: 0.9 });
+  const brown = mat('#7a4a2c', { roughness: 0.9 });
+  const dark = mat('#2a2622');
+  const leather = mat('#5b3a22', { roughness: 0.6 });
+  const blanket = mat('#8a3b3b', { roughness: 0.95 });
+  const metal = mat(C.metal);
+
+  // tułów: beczka wzdłuż Z, pierś z przodu i zad z tyłu; łaty to nieco większe bryły w drugim kolorze
+  add(g, cyl(0.4, 0.4, 1.3, 12), white, 0, 1.22, 0.05, [Math.PI / 2, 0, 0]);
+  add(g, box(0.62, 0.62, 0.55), brown, 0, 1.2, -0.5);
+  add(g, box(0.66, 0.6, 0.6), brown, 0, 1.22, 0.55);
+  add(g, box(0.5, 0.2, 0.9), brown, 0, 1.55, 0.05); // łata na grzbiecie
+  add(g, box(0.4, 0.3, 0.9), white, 0, 0.9, 0.05); // jasny brzuch
+
+  // szyja i głowa: pivot u nasady, szyja pochylona do przodu, głowa z pyskiem, uszami i grzywą
+  const neck = rigPivot(g, 'head', 0, 1.42, -0.62);
+  add(neck, box(0.3, 0.9, 0.36), brown, 0, 0.36, -0.22, [0.55, 0, 0]);
+  add(neck, box(0.26, 0.32, 0.56), brown, 0, 0.82, -0.6);
+  add(neck, box(0.2, 0.22, 0.3), white, 0, 0.74, -0.98); // biała strzałka na pysku
+  add(neck, box(0.22, 0.1, 0.16), dark, 0, 0.66, -1.06); // chrapy
+  for (const s of [-1, 1]) {
+    add(neck, cone(0.05, 0.18, 5), brown, s * 0.1, 1.04, -0.5, [-0.2, 0, s * 0.25]);
+    add(neck, box(0.05, 0.05, 0.05), dark, s * 0.14, 0.9, -0.62);
+  }
+  for (let i = 0; i < 5; i++) add(neck, box(0.12, 0.2, 0.14), dark, 0, 0.5 + i * 0.13, -0.02 - i * 0.12, [0.55, 0, 0]); // grzywa
+  add(neck, box(0.16, 0.24, 0.12), dark, 0, 1.0, -0.5); // grzywka
+  // wodze: od pyska do łęku siodła
+  add(neck, cyl(0.012, 0.012, 1.1, 5), leather, 0.16, 0.55, -0.2, [0.9, 0, 0]);
+  add(neck, cyl(0.012, 0.012, 1.1, 5), leather, -0.16, 0.55, -0.2, [0.9, 0, 0]);
+
+  // nogi: pivot w stawie barkowym i biodrowym, kopyto na wysokości 0
+  const legs: [string, number, number, THREE.Material][] = [
+    ['legFL', -0.22, -0.45, white],
+    ['legFR', 0.22, -0.45, brown],
+    ['legBL', -0.24, 0.5, brown],
+    ['legBR', 0.24, 0.5, white],
+  ];
+  for (const [name, x, z, m] of legs) {
+    const leg = rigPivot(g, name, x, 1.05, z);
+    add(leg, box(0.17, 0.52, 0.2), m, 0, -0.24, 0);
+    add(leg, box(0.12, 0.5, 0.13), white, 0, -0.74, 0);
+    add(leg, box(0.15, 0.1, 0.17), dark, 0, -1.0, 0);
+  }
+
+  // ogon
+  const tail = rigPivot(g, 'tail', 0, 1.38, 0.82);
+  add(tail, box(0.14, 0.72, 0.16), dark, 0, -0.3, 0.1, [-0.35, 0, 0]);
+
+  // siodło z derką, łękiem i strzemionami; popręg pod brzuchem
+  add(g, box(0.72, 0.06, 0.7), blanket, 0, 1.6, -0.02);
+  add(g, box(0.42, 0.12, 0.58), leather, 0, 1.68, -0.02);
+  add(g, box(0.36, 0.14, 0.1), leather, 0, 1.79, -0.28); // łęk przedni
+  add(g, box(0.4, 0.16, 0.1), leather, 0, 1.8, 0.24); // łęk tylny
+  add(g, box(0.86, 0.05, 0.08), leather, 0, 0.9, -0.02);
+  for (const s of [-1, 1]) {
+    add(g, box(0.04, 0.5, 0.06), leather, s * 0.4, 1.4, -0.02);
+    add(g, box(0.14, 0.12, 0.05), metal, s * 0.4, 1.12, -0.02);
+  }
+}
+
+/**
+ * Smok wierzchowy: to samo ciało co dziki smok z `wildlife.ts`, półtora raza większe i osiodłane. Materiały ciała nie są
+ * w cache `mat()` — trafiają do `userData.ownMaterials`, żeby `disposeObject` je zwolnił.
+ */
+function buildDragonMount(g: THREE.Group) {
+  const p = buildAnimalBody('dragon');
+  p.group.scale.setScalar(1.5);
+  p.group.position.y = 1.62; // pazury sięgają −1,08 w ciele smoka, więc po powiększeniu stają na ziemi
+  g.add(p.group);
+  g.userData.ownMaterials = p.ownMaterials ?? [];
+  for (const w of p.wings) {
+    w.userData.rig = w.position.x < 0 ? 'wingL' : 'wingR';
+    w.rotation.z = w.position.x < 0 ? -1.1 : 1.1; // na postoju skrzydła złożone nad grzbietem
+  }
+  const legNames = ['legFL', 'legFR', 'legBL', 'legBR'];
+  p.legs.forEach((l, i) => (l.userData.rig = legNames[i] ?? `leg${i}`));
+  if (p.tail) p.tail.userData.rig = 'tail';
+
+  // siodło między nasadami skrzydeł, popręg wokół tułowia, uchwyt dla jeźdźca
+  const leather = mat('#5b3a22', { roughness: 0.6 });
+  const blanket = mat('#7a1f2e', { roughness: 0.95 });
+  add(g, box(1.1, 0.08, 1.2), blanket, 0, 2.3, 0.3);
+  add(g, box(0.64, 0.16, 0.9), leather, 0, 2.4, 0.3);
+  add(g, box(0.56, 0.22, 0.12), leather, 0, 2.54, -0.12);
+  add(g, box(0.6, 0.26, 0.12), leather, 0, 2.56, 0.72);
+  add(g, box(1.5, 0.08, 0.14), leather, 0, 1.5, 0.3);
+  for (const s of [-1, 1]) add(g, box(0.06, 0.9, 0.14), leather, s * 0.72, 1.92, 0.3);
+  add(g, cyl(0.03, 0.03, 0.46, 6), mat(C.metal), 0, 2.68, -0.16, [0, 0, Math.PI / 2]);
+}
+
+/**
+ * Czerw pustynny: głowa w pivocie (w spoczynku uniesiona, w jeździe wyprostowana), trójdzielna paszcza
+ * z zębami, dziesięć segmentów ciała, które w spoczynku łukiem znikają w ziemi, a w jeździe ciągną się
+ * śladem głowy. Początek układu leży na gruncie pod środkiem głowy; promień głowy 1,4 m.
+ */
+function buildSandworm(g: THREE.Group) {
+  const R = 1.4;
+  const skin = mat('#b8562e', { roughness: 0.95 });
+  const ridge = mat('#8f3d22', { roughness: 0.95 });
+  const maw = mat('#4a1410', { roughness: 0.9 });
+  const teeth = mat('#e9dcc4', { roughness: 0.5 });
+  const leather = mat('#5b3a22', { roughness: 0.6 });
+
+  // głowa: walec wzdłuż Z zwężony do przodu, prążki jako cieńsze pierścienie
+  const head = rigPivot(g, 'head', 0, R, 0);
+  head.rotation.x = 0.9; // spoczynek: nos w górę, jak czerw wyłaniający się z piasku
+  add(head, cyl(R * 0.82, R, 4, 14), skin, 0, 0, -1.2, [Math.PI / 2, 0, 0]);
+  for (let i = 0; i < 6; i++) add(head, cyl(R * (0.86 + i * 0.024), R * (0.86 + i * 0.024), 0.14, 14), ridge, 0, 0, -2.9 + i * 0.62, [Math.PI / 2, 0, 0]);
+  // gardziel i trzy płaty paszczy rozłożone co 120°; każdy otwiera się obrotem wokół własnej osi X
+  add(head, cyl(R * 0.7, R * 0.3, 1.6, 12), maw, 0, 0, -3.5, [Math.PI / 2, 0, 0]);
+  const petals: [string, number][] = [
+    ['jawT', 0],
+    ['jawL', (2 * Math.PI) / 3],
+    ['jawR', (4 * Math.PI) / 3],
+  ];
+  for (const [name, a] of petals) {
+    const wrap = new THREE.Group();
+    wrap.rotation.z = a;
+    wrap.position.z = -3.15;
+    head.add(wrap);
+    const jaw = rigPivot(wrap, name, 0, R * 0.8, 0);
+    jaw.rotation.x = 0.35; // lekko rozchylone
+    add(jaw, box(1.4, 0.24, 1.7), skin, 0, 0.05, -0.85);
+    add(jaw, box(1.1, 0.1, 1.5), maw, 0, -0.1, -0.85);
+    for (let t = 0; t < 4; t++) for (const s of [-0.35, 0.35]) add(jaw, cone(0.07, 0.3, 4), teeth, s + (t % 2) * 0.12, -0.25, -0.3 - t * 0.38, [Math.PI, 0, 0]);
+  }
+  // siodło z uchwytami na grzbiecie głowy
+  add(head, box(0.9, 0.1, 1.2), leather, 0, R * 0.98, -0.5);
+  add(head, box(0.5, 0.16, 0.8), leather, 0, R * 1.05, -0.5);
+  add(head, cyl(0.03, 0.03, 0.6, 6), mat(C.metal), 0, R * 1.05 + 0.3, -0.95, [0, 0, Math.PI / 2]);
+
+  // segmenty: coraz cieńsze walce z prążkami; szerszy koniec (+Z pivotu) patrzy w stronę głowy.
+  // Spoczynek: łuk za głową schodzący w ziemię — od trzeciego segmentu ciało jest pod powierzchnią
+  const segLen = 3;
+  let prev = new THREE.Vector3(0, R, 0.4);
+  for (let i = 0; i < 10; i++) {
+    const r = R - i * 0.05;
+    const center = new THREE.Vector3(0, R - i * 0.9 - i * i * 0.05, 2.2 + i * segLen);
+    const seg = rigPivot(g, `seg${i}`, center.x, center.y, center.z);
+    seg.userData.radius = r;
+    add(seg, cyl(r, r - 0.05, segLen, 14), skin, 0, 0, 0, [Math.PI / 2, 0, 0]);
+    for (let k = -1; k <= 1; k++) add(seg, cyl(r + 0.03, r + 0.03, 0.14, 14), ridge, 0, 0, k * 0.95, [Math.PI / 2, 0, 0]);
+    seg.lookAt(prev);
+    prev = center;
+  }
+}
+
 function buildTree(g: THREE.Group) {
   add(g, cyl(0.12, 0.18, 1.2, 8), woodMat(C.woodDark), 0, 0.6, 0);
   add(g, dodeca(0.85, 0), mat(C.leaf), 0, 1.75, 0);
@@ -1879,6 +2039,9 @@ const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   signpost: buildSignpost,
   well: buildWell,
   plane: buildPlane,
+  horse: buildHorse,
+  dragon: buildDragonMount,
+  sandworm: buildSandworm,
   tree: buildTree,
   cypress: buildCypress,
   bush: buildBush,
@@ -1958,9 +2121,9 @@ export const GATE_SPAWN: [number, number, number] = [0, 0, 1.8];
  */
 export const MOUNT_ANCHORS: Record<MountId, { seat: [number, number, number]; exit: [number, number, number] }> = {
   plane: { seat: [0, 1.66, 0.16], exit: [-1.9, 0, 1.4] },
-  dragon: { seat: [0, 2.9, 0.3], exit: [2.4, 0, 0.6] },
-  horse: { seat: [0, 2.35, 0.05], exit: [1.1, 0, 0.2] },
-  sandworm: { seat: [0, 4.3, 0.9], exit: [3.2, 0, 1.0] },
+  dragon: { seat: [0, 3.15, 0.3], exit: [2.4, 0, 0.5] },
+  horse: { seat: [0, 2.4, 0.0], exit: [1.1, 0, 0.2] },
+  sandworm: { seat: [0, 3.75, -0.5], exit: [3.4, 0, 1.0] },
 };
 
 /**
@@ -2012,6 +2175,8 @@ export const EMITTER_ANCHORS: Record<string, [number, number, number]> = {
   volcano: [0, 3.7, 0],
   waterfall: [0, 0.35, 0.6],
   campfire: [0, 0.7, 0],
+  dragon: [0, 1.95, -4.35], // pysk smoka wierzchowego (ciało ×1,5)
+  sandworm: [0, 0.4, 0.5],
 };
 
 export function buildModel(type: string, ctx?: Partial<BuildCtx>): THREE.Group {
@@ -2049,5 +2214,8 @@ export function disposeObject(o: THREE.Object3D) {
     if (m.geometry) m.geometry.dispose();
     // materiały są współdzielone (cache) — nie usuwamy; wyjątek: własne klony (szyba okna)
     if (m.userData.ownMaterial && m.material) (m.material as THREE.Material).dispose();
+    // ciało smoka wierzchowego ma własne materiały (spoza cache) zebrane na korzeniu modelu
+    const own = c.userData.ownMaterials as THREE.Material[] | undefined;
+    if (own) for (const mm of own) mm.dispose();
   });
 }

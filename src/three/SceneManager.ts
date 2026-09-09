@@ -4149,13 +4149,15 @@ export class SceneManager {
     if (prop) prop.rotation.z = (prop.rotation.z + (1.5 + s.speed * 1.6) * dt) % (Math.PI * 2);
 
     if (spec.hover) {
-      // smok: na ziemi skrzydła ledwo drgają, w powietrzu machają tym szybciej, im więcej gazu
-      r.anim += dt * (s.onGround ? 1.5 : 4 + s.throttle * 5);
-      const flap = Math.sin(r.anim) * (s.onGround ? 0.08 : 0.5);
-      const wl = rig.get('wingL');
-      const wr = rig.get('wingR');
-      if (wl) wl.rotation.z = -flap;
-      if (wr) wr.rotation.z = flap;
+      // smok: na ziemi skrzydła wracają do złożonych, w powietrzu machają tym szybciej, im więcej gazu
+      r.anim += dt * (4 + s.throttle * 5);
+      const flap = Math.sin(r.anim) * 0.5;
+      for (const [name, sign] of [['wingL', -1], ['wingR', 1]] as [string, number][]) {
+        const wing = rig.get(name);
+        if (!wing) continue;
+        const rest = (wing.userData.rest as number[])[5];
+        wing.rotation.z = damp(wing.rotation.z, s.onGround ? rest : sign * flap, s.onGround ? 3 : 8, dt);
+      }
       const tail = rig.get('tail');
       if (tail) {
         tail.rotation.y = Math.sin(r.anim * 0.45) * 0.18;
