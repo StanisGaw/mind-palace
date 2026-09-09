@@ -34,6 +34,7 @@ export function Viewport() {
   const topView = useStore((s) => s.topView);
   const doorPrompt = useStore((s) => s.doorPrompt);
   const flying = useStore((s) => s.flying);
+  const descent = useStore((s) => s.descent);
   const padSeen = useStore((s) => s.padSeen);
   const setSettings = useStore((s) => s.setSettings);
   const palace = useCurrentPalace();
@@ -219,8 +220,19 @@ export function Viewport() {
             <span>
               <I.Plane width={12} height={12} />{' '}
               {padSeen
-                ? 'R2/L2 — gaz · lewa gałka — nos i przechył · L1/R1 — kierunek · prawa gałka — rozglądanie · ▢ — wysiądź'
-                : 'Shift/Ctrl — gaz · W/S — nos · A/D — przechył · Q/E — kierunek · mysz — rozglądanie · F — wysiądź'}
+                ? 'R2/L2 — gaz · lewa gałka — nos i przechył · L1/R1 — kierunek · prawa gałka — rozglądanie · ▢ — wysiądź lub skok'
+                : 'Shift/Ctrl — gaz · W/S — nos · A/D — przechył · Q/E — kierunek · mysz — rozglądanie · F — wysiądź lub skok'}
+            </span>
+          ) : descent ? (
+            <span>
+              <I.Plane width={12} height={12} />{' '}
+              {descent === 'fall'
+                ? padSeen
+                  ? '✕ — spadochron · lewa gałka — ster · prawa gałka — rozglądanie'
+                  : 'Spacja — spadochron · WASD — ster · mysz — rozglądanie'
+                : padSeen
+                  ? 'Lewa gałka — ster · prawa gałka — rozglądanie'
+                  : 'WASD — ster · mysz — rozglądanie'}
             </span>
           ) : (
             <span>
@@ -284,7 +296,7 @@ export function Viewport() {
           <div className="crosshair" />
           {!isTouch && <FpLockHint />}
           {isTouch && <Joystick onChange={(x, y) => { if (mgrRef.current) mgrRef.current.joystick = { x, y }; }} />}
-          {isTouch && !flying && (
+          {isTouch && !flying && descent !== 'chute' && (
             <button
               className="jump-btn"
               onPointerDown={(e) => {
@@ -292,7 +304,7 @@ export function Viewport() {
                 mgrRef.current?.jump();
               }}
             >
-              Skok
+              {descent === 'fall' ? 'Spadochron' : 'Skok'}
             </button>
           )}
           {isTouch && flying && (
