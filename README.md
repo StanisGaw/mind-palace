@@ -105,6 +105,11 @@ npm run build        # produkcyjny build do dist/
   książki nie leżą na biurku, a to, co wisi (obraz, lustro, zegar, zasłony), nie zasłania okna — także okna
   postawionego z biblioteki. Podgląd robi się czerwony, klik nie stawia obiektu, a przeciągnięty mebel spada
   na podłogę swojego piętra.
+- **Skok ze spadochronem** — `F`/▢ w powietrzu wyrzuca pilota z kokpitu (tylko nad planszą, co najmniej
+  5 m nad ziemią). Spadek swobodny do 28 m/s, `Spacja`/✕ otwiera czaszę (`buildParachute`, zaczepiona w rigu),
+  która przez 0,8 s łapie powietrze i sprowadza opadanie do 3,2 m/s; poniżej 20 m otwiera się sama. Na czaszy
+  steruje się jak w spacerze, z tą samą granicą planszy. Samolot bez pilota krąży z lekkim gazem nad planszą
+  (nie wylatuje poza nią), ląduje i parkuje sam (`parkPlane`), a lądowanie gracza oddaje go fizyce (`land`).
 - **Pad** — zwykły kontroler (DualSense, Xbox) przez Gamepad API: lewa gałka chodzi, prawa rozgląda, krzyżyk
   skacze, kwadrat i kółko otwierają drzwi albo wysadzają z samolotu, spusty biegną. W locie te same spusty dają
   płynny gaz (analogowe, więc obroty rosną proporcjonalnie do nacisku), lewa gałka to ster wysokości i przechył,
