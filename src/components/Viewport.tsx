@@ -7,6 +7,7 @@ import type { Scenery, SoundLevels, Weather } from '../types';
 import { useCurrentPalace, useStore } from '../store';
 import { SceneManager, activeScene } from '../three/SceneManager';
 import { QUALITY_LABELS, type Quality } from '../lib/quality';
+import { MOUNT_SPECS } from '../lib/ride';
 import { usePref } from '../lib/prefs';
 import { I } from './Icons';
 import { catalogItem } from '../catalog';
@@ -33,7 +34,8 @@ export function Viewport() {
   const vrActive = useStore((s) => s.vrActive);
   const topView = useStore((s) => s.topView);
   const doorPrompt = useStore((s) => s.doorPrompt);
-  const flying = useStore((s) => s.flying);
+  const riding = useStore((s) => s.riding);
+  const mount = riding ? MOUNT_SPECS[riding] : null;
   const descent = useStore((s) => s.descent);
   const padSeen = useStore((s) => s.padSeen);
   const setSettings = useStore((s) => s.setSettings);
@@ -216,12 +218,9 @@ export function Viewport() {
             <span>Del: usuń obiekt</span>
           </>
         ) : viewMode === 'fp' ? (
-          flying ? (
+          mount ? (
             <span>
-              <I.Plane width={12} height={12} />{' '}
-              {padSeen
-                ? 'R2/L2 — gaz · lewa gałka — nos i przechył · L1/R1 — kierunek · prawa gałka — rozglądanie · ▢ — wysiądź lub skok'
-                : 'Shift/Ctrl — gaz · W/S — nos · A/D — przechył · Q/E — kierunek · mysz — rozglądanie · F — wysiądź lub skok'}
+              {riding === 'plane' ? <I.Plane width={12} height={12} /> : <I.Saddle width={12} height={12} />} {padSeen ? mount.labels.hintPad : mount.labels.hintKeys}
             </span>
           ) : descent ? (
             <span>
@@ -286,7 +285,12 @@ export function Viewport() {
           className="door-prompt"
           onClick={() => mgrRef.current?.useDoor()}
         >
-          {doorPrompt.kind === 'board' || doorPrompt.kind === 'leave' ? <I.Plane width={15} height={15} /> : <I.Door width={15} height={15} />} {doorPrompt.label}{' '}
+          {doorPrompt.kind === 'board' || doorPrompt.kind === 'leave' ? (
+            (doorPrompt.objectId ? palace.objects.find((o) => o.id === doorPrompt.objectId)?.type : undefined) === 'plane' ? <I.Plane width={15} height={15} /> : <I.Saddle width={15} height={15} />
+          ) : (
+            <I.Door width={15} height={15} />
+          )}{' '}
+          {doorPrompt.label}{' '}
           {!isTouch && <kbd>F</kbd>}
         </button>
       )}
@@ -296,7 +300,7 @@ export function Viewport() {
           <div className="crosshair" />
           {!isTouch && <FpLockHint />}
           {isTouch && <Joystick onChange={(x, y) => { if (mgrRef.current) mgrRef.current.joystick = { x, y }; }} />}
-          {isTouch && !flying && descent !== 'chute' && (
+          {isTouch && (!mount || mount.labels.action) && descent !== 'chute' && (
             <button
               className="jump-btn"
               onPointerDown={(e) => {
@@ -304,10 +308,10 @@ export function Viewport() {
                 mgrRef.current?.jump();
               }}
             >
-              {descent === 'fall' ? 'Spadochron' : 'Skok'}
+              {descent === 'fall' ? 'Spadochron' : (mount?.labels.action ?? 'Skok')}
             </button>
           )}
-          {isTouch && flying && (
+          {isTouch && mount && (mount.kind === 'air' || mount.leap) && (
             <div className="throttle-btns">
               <button
                 onPointerDown={(e) => {
