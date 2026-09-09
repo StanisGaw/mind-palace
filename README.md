@@ -106,8 +106,10 @@ npm run build        # produkcyjny build do dist/
   postawionego z biblioteki. Podgląd robi się czerwony, klik nie stawia obiektu, a przeciągnięty mebel spada
   na podłogę swojego piętra.
 - **Pad** — zwykły kontroler (DualSense, Xbox) przez Gamepad API: lewa gałka chodzi, prawa rozgląda, krzyżyk
-  skacze, kwadrat i kółko otwierają drzwi albo wysadzają z samolotu, spusty biegną, a w locie krzyżak zmienia gaz.
-  Działa w spacerze i w trybie stereo; kontrolery gogli mają osobną ścieżkę (`readXrInput`).
+  skacze, kwadrat i kółko otwierają drzwi albo wysadzają z samolotu, spusty biegną. W locie te same spusty dają
+  płynny gaz (analogowe, więc obroty rosną proporcjonalnie do nacisku), lewa gałka to ster wysokości i przechył,
+  L1/R1 ster kierunku, a krzyżak zmienia gaz skokowo. Zauważenie pada przełącza pasek podpowiedzi z klawiszy
+  na przyciski. Działa w spacerze i w trybie stereo; kontrolery gogli mają osobną ścieżkę (`readXrInput`).
 - **Krajobraz** — proceduralny pierścień terenu wokół planszy (łąki, góry, wybrzeże, pustynia) z losowanym
   ukształtowaniem oraz kategoria „Krajobraz" w bibliotece: góra, wulkan z dymem, głaz, wzgórze, staw, wodospad.
 - **Pogoda i pora dnia** — niezależne ustawienia: cztery klimaty i sześć rodzajów pogody (chmury, deszcz,
