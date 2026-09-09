@@ -2,7 +2,7 @@ import type { AppData, FurnitureSet, GroundSpec, Palace, PalaceObject, PalaceSet
 import { catalogItem, ROOMS } from '../catalog';
 import { uid } from './ids';
 import { hashString } from '../three/noise';
-import { FLOOR_MAX, SHELLS, attachLegacyDoors, buildingOf, facadeSnap, isFacade, localXZ, roomLamps, worldXZ } from './rooms';
+import { FLOOR_MAX, SHELLS, attachLegacyDoors, buildingOf, facadeSnap, isFacade, localXZ, mergePathObjects, roomLamps, worldXZ } from './rooms';
 import { yawRotation } from './transform';
 import { isDrawnGround, tileAt } from './ground';
 import { asSet } from './setStore';
@@ -195,14 +195,18 @@ export function normalizePalace(p: Partial<Palace>): Palace {
       scale: toScale((o as { scale?: unknown }).scale),
     };
   });
+  // dawne drzwi-segmenty dostają własną ściankę (drzwi żyją teraz w ściance przez `anchorId`)
+  const withDoors = attachLegacyDoors([...(needsWindowMigration ? [...migratedObjects, ...migrateWindows(rawInterior!.buildingType ?? 'house')] : migratedObjects), ...lampObjects], uid);
+  // ścieżki z poprzednich sesji też mają się posklejać; scalanie jest idempotentne, więc pasuje do migracji
+  const merged = mergePathObjects(withDoors, () => uid('g'));
+  const alive = new Set(merged.objects.map((o) => o.id));
   return {
     ...base,
     ...p,
     id: p.id ?? base.id,
     interior,
-    // dawne drzwi-segmenty dostają własną ściankę (drzwi żyją teraz w ściance przez `anchorId`)
-    objects: attachLegacyDoors([...(needsWindowMigration ? [...migratedObjects, ...migrateWindows(rawInterior!.buildingType ?? 'house')] : migratedObjects), ...lampObjects], uid),
-    path: Array.isArray(p.path) ? p.path.filter((id) => ids.has(id)) : [],
+    objects: merged.objects,
+    path: Array.isArray(p.path) ? p.path.filter((id) => ids.has(id) && alive.has(id)) : [],
     // ziarno starych pałaców wyliczamy z id, żeby teren nie zmieniał się przy każdym otwarciu
     settings: normalizeSettings(p.settings, p.id ?? base.id),
   };

@@ -38,6 +38,7 @@ function MultiInspector({ ids }: { ids: string[] }) {
   const groupSelected = useStore((s) => s.groupSelected);
   const ungroupSelected = useStore((s) => s.ungroupSelected);
   const selectOnly = useStore((s) => s.selectOnly);
+  const mergePaths = useStore((s) => s.mergePaths);
   const n = ids.length;
   const [columns, setColumns] = useState(Math.ceil(Math.sqrt(n)));
   const [gapX, setGapX] = useState(2);
@@ -121,6 +122,18 @@ function MultiInspector({ ids }: { ids: string[] }) {
             }}
           >
             Scal ścianki
+          </button>
+        )}
+        {chosen.some((o) => o.type === 'pathway') && (
+          <button
+            className="btn small"
+            title="Ścieżki w jednej linii, o tej samej szerokości i nawierzchni, staną się jednym obiektem; stykające się ciągi dostaną wspólną grupę"
+            onClick={() => {
+              const count = mergePaths();
+              showToast(count > 0 ? `Scalono ${count} ${plural(count, 'odcinek', 'odcinki', 'odcinków')} ścieżki.` : 'Nie ma czego scalać — ścieżki już są uporządkowane.');
+            }}
+          >
+            Scal ścieżki
           </button>
         )}
         <button

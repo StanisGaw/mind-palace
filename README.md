@@ -35,7 +35,10 @@ npm run build        # produkcyjny build do dist/
 - **Plansza i nawierzchnia** — kształt płyty (prostokąt, koło, sześciokąt), jej wymiary, kilkanaście
   proceduralnych nawierzchni (trawa, żwir, kostka, kamienie polne, kora…) oraz własne obrazy jako
   tekstura. Zestawy otoczenia można zapisywać i wczytywać jako „krajobrazy". **Ścieżki** rysuje się
-  odcinek po odcinku jak ścianki — z własną nawierzchnią i szerokością, cały ciąg jako jedna grupa.
+  odcinek po odcinku jak ścianki — z własną nawierzchnią i szerokością. Odcinki w jednej linii, o zgodnej
+  szerokości i nawierzchni, scalają się w jeden obiekt (nakładające się kawałki znikają), a ciągi stykające się
+  końcami dostają wspólną grupę — także wtedy, gdy powstały w różnych sesjach; stare zapisy scalają się przy
+  wczytaniu. Odcinek z notatką nigdy nie znika po cichu.
 - **Materiały i kolory** — każdy obiekt pokazuje w panelu swoje warstwy materiału (drewno, kamień,
   tkanina, dach…) z wyborem koloru i gotowymi odcieniami drewna (dąb, sosna, orzech, wiśnia, heban,
   bielone); warstwy drewniane mają słoje. Wnętrza mają tekstury podłogi (parkiet, panele, marmur,

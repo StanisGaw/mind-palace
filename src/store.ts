@@ -5,7 +5,7 @@ import { uid } from './lib/ids';
 import { yawRotation } from './lib/transform';
 import { getPref, setPref } from './lib/prefs';
 import { chainOf, collectSubtree, loadData, makeInteriorPalace, makePalace, rootOf, saveData } from './lib/storage';
-import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingLamps, floorBaseOf, orphanStairs, orphanStairsIn, buildingFloorY, buildingOf, maxFloorsOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt, worldXZ, isFacade } from './lib/rooms';
+import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingLamps, floorBaseOf, mergePathObjects, orphanStairs, orphanStairsIn, buildingFloorY, buildingOf, maxFloorsOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt, worldXZ, isFacade } from './lib/rooms';
 import { captureSet, furnitureSet, instantiateSet } from './lib/sets';
 import { findStairsIn, findStairsSpot, roomOfSpec } from './lib/layout';
 import { isDrawnGround, tileAt, tilesFromShape } from './lib/ground';
@@ -95,6 +95,8 @@ interface State {
   dropToGround(id: string): void;
   /** Scala współliniowe, stykające się ścianki spośród podanych; zwraca id ścianek, które zostały. */
   mergeWalls(ids: string[], opts?: { undo?: boolean }): string[];
+  /** Scala współliniowe ścieżki i nadaje wspólną grupę ciągom stykającym się końcami. Zwraca liczbę usuniętych. */
+  mergePaths(opts?: { undo?: boolean }): number;
   setPlacing(p: { type: string; ids?: string[]; setId?: string } | null): void;
   setGroundBrush(v: boolean): void;
   /** Dokłada albo wymazuje kafle planszy; nie pozwala usunąć kafla, na którym coś stoi. */
@@ -929,6 +931,24 @@ export const useStore = create<State>((set, get) => ({
     const goneAll = new Set(chains.flatMap((c) => c.slice(1).map((w) => w.id)));
     set({ selectedIds: get().selectedIds.filter((id) => !goneAll.has(id)) });
     return kept;
+  },
+
+  mergePaths(opts) {
+    const p = get().palace();
+    const before = p.objects;
+    const { objects, gone } = mergePathObjects(before, () => uid('g'));
+    const changed = gone.length > 0 || objects.some((o, i) => o !== before[i]);
+    if (!changed) return 0;
+    const dead = new Set(gone);
+    get().setPalace(
+      (pl) => {
+        pl.objects = objects;
+        pl.path = pl.path.filter((x) => !dead.has(x));
+      },
+      { undo: opts?.undo },
+    );
+    if (dead.size > 0) set({ selectedIds: get().selectedIds.filter((x) => !dead.has(x)) });
+    return gone.length;
   },
 
   duplicateObject(id) {

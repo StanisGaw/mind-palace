@@ -1566,14 +1566,10 @@ export class SceneManager {
     if (this.wallLen < 0.5) return;
     const end = new THREE.Vector3(this.wallStart.x + Math.cos(this.ghostRot) * this.wallLen, this.ghostPos.y, this.wallStart.z - Math.sin(this.ghostRot) * this.wallLen);
     if (this.ghostType === 'pathway') {
-      // ścieżka: bez kotwicy i scalania, za to cały ciąg w jednej grupie (od drugiego odcinka)
+      // ścieżka nie ma kotwicy; scalanie obejmuje wszystkie ścieżki na planszy, także te z poprzednich sesji
       const id = st.addObject('pathway', [this.ghostPos.x, 0, this.ghostPos.z], this.ghostRot, undefined, [this.wallLen / WALL_SEGMENT, 1, 1]);
-      if (this.lastWallId) {
-        this.drawGroupId ??= uid('g');
-        const gid = this.drawGroupId;
-        st.updateObjects([{ id: this.lastWallId, patch: { groupId: gid } }, { id, patch: { groupId: gid } }], { undo: false });
-      }
-      this.lastWallId = id;
+      st.mergePaths({ undo: false });
+      this.lastWallId = st.palace().objects.some((o) => o.id === id) ? id : null;
     } else {
       const id = st.addObject('wall', [this.ghostPos.x, this.ghostPos.y, this.ghostPos.z], this.ghostRot, this.placeBuilding()?.b.id, [this.wallLen / WALL_SEGMENT, 1, 1]);
       // odcinek w tej samej linii co poprzedni z łańcucha to nadal jedna ścianka

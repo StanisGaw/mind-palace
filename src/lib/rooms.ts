@@ -171,8 +171,8 @@ export function attachLegacyDoors(objects: PalaceObject[], makeId: () => string)
   return added.length ? [...objects, ...added] : objects;
 }
 
-/** Czy dwie ścianki leżą w jednej linii (kąt ±1°, oś w odległości < 5 cm) i stykają się albo nachodzą. */
-export function collinearWalls(a: PalaceObject, b: PalaceObject): boolean {
+/** Czy dwa odcinki leżą w jednej linii (kąt ±1°, oś w odległości < 5 cm) i stykają się albo nachodzą. */
+export function collinearSegments(a: PalaceObject, b: PalaceObject): boolean {
   const d = (((a.rotation[1] - b.rotation[1]) % Math.PI) + Math.PI) % Math.PI;
   if (Math.min(d, Math.PI - d) > 0.02) return false;
   const { t, dist } = wallOffsetOf(a, b.position[0], b.position[2]);
@@ -180,20 +180,89 @@ export function collinearWalls(a: PalaceObject, b: PalaceObject): boolean {
   return Math.abs(t) <= (wallLength(a) + wallLength(b)) / 2 + 0.05;
 }
 
-/** Składowe spójne relacji „współliniowe i stykające się” — każda to łańcuch do scalenia. */
-export function wallChains(walls: PalaceObject[]): PalaceObject[][] {
-  const left = [...walls];
+/** Dawna nazwa dla ścianek — zostaje, bo tak czyta się w miejscach, gdzie chodzi wyłącznie o mury działowe. */
+export const collinearWalls = collinearSegments;
+
+/**
+ * Czy dwie ścieżki wolno scalić w jedną: muszą leżeć w jednej linii, mieć tę samą szerokość i nawierzchnię
+ * (inaczej scalenie zmieniłoby wygląd) i nie nieść notatki — obiekt ze wspomnieniem nigdy nie znika po cichu.
+ */
+export function mergeablePaths(a: PalaceObject, b: PalaceObject): boolean {
+  if (a.note || b.note) return false;
+  if (Math.abs(a.scale[2] - b.scale[2]) > 0.01) return false;
+  if ((a.finish?.floor ?? '') !== (b.finish?.floor ?? '')) return false;
+  return collinearSegments(a, b);
+}
+
+/** Składowe spójne relacji `same` — każda to łańcuch do scalenia. */
+export function segmentChains(list: PalaceObject[], same: (a: PalaceObject, b: PalaceObject) => boolean): PalaceObject[][] {
+  const left = [...list];
   const out: PalaceObject[][] = [];
   while (left.length) {
     const chain = [left.shift()!];
     for (let i = 0; i < chain.length; i++) {
       for (let j = left.length - 1; j >= 0; j--) {
-        if (collinearWalls(chain[i], left[j])) chain.push(left.splice(j, 1)[0]);
+        if (same(chain[i], left[j])) chain.push(left.splice(j, 1)[0]);
       }
     }
     out.push(chain);
   }
   return out;
+}
+
+/** Składowe spójne relacji „współliniowe i stykające się” — każda to łańcuch do scalenia. */
+export function wallChains(walls: PalaceObject[]): PalaceObject[][] {
+  return segmentChains(walls, collinearSegments);
+}
+
+/** Końce odcinka w rzucie z góry. */
+function segmentEnds(o: PalaceObject): [[number, number], [number, number]] {
+  const half = wallLength(o) / 2;
+  return [wallPointAt(o, -half), wallPointAt(o, half)];
+}
+
+/**
+ * Scala ścieżki i porządkuje ich grupy. Współliniowe, stykające się odcinki o tej samej szerokości
+ * i nawierzchni stają się jednym obiektem (nakładające się kawałki znikają), a wszystkie ciągi stykające się
+ * końcami dostają wspólne `groupId` — niezależnie od tego, w której sesji powstały. Czysta funkcja: korzysta
+ * z niej i akcja magazynu, i migracja przy wczytaniu.
+ */
+export function mergePathObjects(objects: PalaceObject[], makeId: () => string = () => `g${Math.random().toString(36).slice(2)}`): { objects: PalaceObject[]; gone: string[] } {
+  const paths = objects.filter((o) => o.type === 'pathway');
+  const gone = new Set<string>();
+  const patch = new Map<string, Partial<PalaceObject>>();
+  const keptOf = new Map<string, string>();
+  for (const chain of segmentChains(paths.filter((o) => !o.note), mergeablePaths)) {
+    if (chain.length < 2) continue;
+    patch.set(chain[0].id, mergedWall(chain));
+    for (const o of chain.slice(1)) {
+      gone.add(o.id);
+      keptOf.set(o.id, chain[0].id); // to, co stało na scalonym odcinku, przechodzi na ten, który został
+    }
+  }
+  let next = objects
+    .filter((o) => !gone.has(o.id))
+    .map((o) => {
+      const merged = patch.has(o.id) ? { ...o, ...patch.get(o.id) } : o;
+      return merged.anchorId && keptOf.has(merged.anchorId) ? { ...merged, anchorId: keptOf.get(merged.anchorId) } : merged;
+    });
+
+  // ciągi: składowe spójne relacji „koniec przy końcu”, wspólne `groupId` dla każdej z nich
+  const left = next.filter((o) => o.type === 'pathway');
+  const near = (a: PalaceObject, b: PalaceObject) => {
+    const [a0, a1] = segmentEnds(a);
+    const [b0, b1] = segmentEnds(b);
+    return [a0, a1].some(([x, z]) => [b0, b1].some(([px, pz]) => Math.hypot(px - x, pz - z) < 0.25));
+  };
+  const groups = new Map<string, string>();
+  for (const chain of segmentChains(left, near)) {
+    if (chain.length < 2) continue;
+    // zachowujemy grupę, którą ciąg już ma — dzięki temu ponowne scalanie niczego nie zmienia
+    const gid = chain.find((o) => o.groupId)?.groupId ?? makeId();
+    for (const o of chain) groups.set(o.id, gid);
+  }
+  next = next.map((o) => (groups.has(o.id) && o.groupId !== groups.get(o.id) ? { ...o, groupId: groups.get(o.id) } : o));
+  return { objects: next, gone: [...gone] };
 }
 
 /** Jedna ścianka w miejsce łańcucha: skrajne końce wyznaczają środek i długość, obrót z pierwszej. */
