@@ -23,6 +23,8 @@ import { SET_WALL_GAP, furnitureSet, instantiateSet } from '../lib/sets';
 import { boxLocal, boxPoint, insideRoom, placementBlock, roomOfBuilding, roomOfSpec, type RoomShape } from '../lib/layout';
 import { clipPolygon, rectPolygon, subtractRect, type Rect } from '../lib/rects';
 import { getTexture, setMaxAnisotropy } from './textures';
+import { nextScale, qualitySpec, type Quality, type QualitySpec } from '../lib/quality';
+import { getPref } from '../lib/prefs';
 import { Wildlife, type SpawnInfo, type WorldInfo } from './wildlife';
 import { Soundscape } from './soundscape';
 import { loadCustomTextures } from '../lib/textureStore';
@@ -107,6 +109,21 @@ const UP = new THREE.Vector3(0, 1, 0);
 const tmpYaw = new THREE.Vector3();
 
 /** Klucz trybu stawiania: typ z biblioteki, zestaw mebli albo szablon kopii konkretnych obiektów. */
+/** Co wiadomo o sprzęcie: dotyk oznacza telefon albo tablet, rdzenie są jedyną miarą mocy w przeglądarce. */
+/** Jedyna aktywna scena. Panel jakości obrazu nie ma innej drogi do renderera — jakość to
+ *  ustawienie urządzenia (`lib/prefs`), a nie dana pałacu, więc nie idzie przez store. */
+let active: SceneManager | null = null;
+export function activeScene(): SceneManager | null {
+  return active;
+}
+
+function deviceEnv() {
+  return {
+    touch: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches,
+    cores: navigator.hardwareConcurrency ?? 4,
+  };
+}
+
 function placingKey(p: { type: string; ids?: string[]; setId?: string } | null | undefined): string {
   return p ? `${p.type}|${p.setId ?? ''}|${(p.ids ?? []).join(',')}` : '';
 }
@@ -258,6 +275,12 @@ export class SceneManager {
   private pointer = new THREE.Vector2();
   private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private ro: ResizeObserver;
+  private quality: Quality;
+  private qspec: QualitySpec;
+  /** Mnożnik rozdzielczości dobierany automatycznie do czasu klatki; 1 = pełny `qspec.pixelRatio`. */
+  private renderScale = 1;
+  private frameMs = 16;
+  private scaleHold = 0;
   private disposed = false;
 
   // interakcja edytora
@@ -310,9 +333,6 @@ export class SceneManager {
   constructor(container: HTMLElement) {
     this.container = container;
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.NoToneMapping;
     renderer.xr.enabled = true;
     renderer.domElement.style.display = 'block';
@@ -321,6 +341,9 @@ export class SceneManager {
     this.renderer = renderer;
     // wzory na podłodze i stropie oglądane pod ostrym kątem mienią się bez filtrowania anizotropowego
     setMaxAnisotropy(renderer.capabilities.getMaxAnisotropy());
+    this.quality = getPref<Quality>('quality', 'auto');
+    this.qspec = qualitySpec(this.quality, deviceEnv());
+    this.applyQuality();
 
     this.labelRenderer = new CSS2DRenderer();
     this.labelRenderer.domElement.className = 'labels-layer';
@@ -399,7 +422,7 @@ export class SceneManager {
     this.sun = new THREE.DirectionalLight('#fff6e6', 2.4);
     this.sun.position.set(12, 20, 8);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(this.qspec.shadowMap || 1024, this.qspec.shadowMap || 1024);
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.02;
     this.scene.add(this.sun);
@@ -436,6 +459,7 @@ export class SceneManager {
     container.addEventListener('contextmenu', this.onContextMenu);
     container.addEventListener('wheel', this.onWheel, { capture: true, passive: false });
 
+    active = this;
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(container);
     this.resize();
@@ -3162,6 +3186,19 @@ export class SceneManager {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const presenting = this.renderer.xr.isPresenting;
 
+    // Automat rozdzielczości: żaden preset nie zgadnie, że sześć domów w deszczu kosztuje
+    // wielokrotnie więcej niż pusta plansza. W VR nie ruszamy — bufor należy do gogli.
+    this.frameMs += (dt * 1000 - this.frameMs) * 0.1;
+    if (!presenting && --this.scaleHold <= 0) {
+      const s = nextScale(this.renderScale, this.frameMs, this.qspec.minScale);
+      this.scaleHold = 60; // sama zmiana rozmiaru bufora kosztuje klatkę, więc nie częściej niż co sekundę
+      if (s !== this.renderScale) {
+        this.renderScale = s;
+        this.applyQuality();
+        this.resize();
+      }
+    }
+
     if (this.doorAnims.length > 0) {
       for (const a of this.doorAnims) {
         a.t = Math.min(a.t + dt, a.dur);
@@ -3798,6 +3835,45 @@ export class SceneManager {
     this.camera.quaternion.multiply(tmpQ.setFromAxisAngle(zee, -orient));
   }
 
+  /**
+   * Preset jakości w scenie. Mnożnik pikseli i mapa cienia to dwie rzeczy, które na telefonie
+   * decydują o płynności; zmiana rodzaju cienia wymaga przekompilowania materiałów.
+   */
+  private applyQuality() {
+    const q = this.qspec;
+    const cap = Math.min(window.devicePixelRatio, q.pixelRatio);
+    this.renderer.setPixelRatio(cap * this.renderScale);
+    const type = q.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    const recompile = this.renderer.shadowMap.enabled !== q.shadowMap > 0 || this.renderer.shadowMap.type !== type;
+    this.renderer.shadowMap.enabled = q.shadowMap > 0;
+    this.renderer.shadowMap.type = type;
+    if (this.sun && q.shadowMap > 0 && this.sun.shadow.mapSize.x !== q.shadowMap) {
+      this.sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null;
+    }
+    if (recompile && this.scene) {
+      this.scene.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        if (Array.isArray(m)) for (const one of m) one.needsUpdate = true;
+        else if (m) m.needsUpdate = true;
+      });
+    }
+  }
+
+  setQuality(q: Quality) {
+    this.quality = q;
+    this.qspec = qualitySpec(q, deviceEnv());
+    this.renderScale = 1;
+    this.scaleHold = 120;
+    this.applyQuality();
+    this.resize();
+  }
+
+  getQuality(): Quality {
+    return this.quality;
+  }
+
   resize() {
     const w = this.container.clientWidth || 1;
     const h = this.container.clientHeight || 1;
@@ -3814,6 +3890,7 @@ export class SceneManager {
 
   dispose() {
     this.disposed = true;
+    if (active === this) active = null;
     this.unsub();
     this.renderer.setAnimationLoop(null);
     this.exitVR();
