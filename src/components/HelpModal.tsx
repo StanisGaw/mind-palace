@@ -106,6 +106,11 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
           <li>Przełączanie <b>Z oczu</b> ↔ <b>VR</b> nie odsyła na punkt startu — zostajesz tam, gdzie stałeś. Na punkt startu trafiasz tylko, wchodząc do świata z edytora.</li>
           <li>Do <b>samolotu</b> wsiądziesz także w trybie stereo. W goglach nie: tam wysokość głowy podaje headset, więc nie usiadłbyś na fotelu, tylko stanął nad nim.</li>
         </ul>
+        <h3>Nowy pałac</h3>
+        <ul>
+          <li>Przycisk z nazwą pałacu u góry (na telefonie: menu) rozwija listę pałaców i „Nowy pałac”. W oknie podajesz nazwę i wybierasz zawartość.</li>
+          <li><b>Pusta plansza</b> to sama łąka 40 × 40 m. <b>Wioska w dolinie</b> to gotowa osada na planszy 80 × 80 m: brama, droga przez rynek ze studnią prosto do dworu, aleja cyprysów, biblioteka, wieża widokowa, kapliczka, trzy chaty, staw z altaną, sad, obozowisko przy lesie, a dookoła las, wzgórza, wodospad i góry. Do wszystkich budynków da się wejść — wystarczy dopisywać wspomnienia.</li>
+        </ul>
         <h3>Zapis i przenoszenie</h3>
         <p>Wszystko zapisuje się automatycznie w tej przeglądarce (localStorage). <b>Eksportuj</b> tworzy plik JSON, a <b>Importuj</b> wczytuje go na innym urządzeniu.</p>
       </div>

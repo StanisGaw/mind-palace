@@ -139,6 +139,12 @@ npm run build        # produkcyjny build do dist/
   Pad działa równolegle z kontrolerami (prawa gałka obraca skokowo tą samą funkcją `snapTurn`). Przełączenie
   spaceru na VR i z powrotem zachowuje pozycję gracza — punkt startu wyznacza wyłącznie wejście z edytora.
   Do samolotu można wsiąść w trybie stereo, w goglach nie (`canBoard`): tam wysokość głowy podaje headset.
+- **Nowy pałac** — okno z nazwą i wyborem zawartości (`lib/templates.ts`): **Pusta plansza** (łąka 40 × 40 m)
+  albo **Wioska w dolinie** — gotowa kompozycja na planszy 80 × 80 m: brama, droga przez rynek ze studnią
+  do dworu, aleja cyprysów, biblioteka, wieża widokowa, kapliczka, trzy chaty przy drodze, staw z altaną,
+  sad z ulem, obozowisko przy lesie oraz las, wzgórza, wodospad i góry postawione poza planszą. Budynki
+  powstają tak samo jak z biblioteki (wnętrze w tej samej scenie, lampy na każdej kondygnacji), a układ
+  jest deterministyczny — ta sama wioska przy każdym utworzeniu.
 - **Zapis** — automatycznie w `localStorage` (wiele pałaców). **Eksport/Import** — plik JSON, dołącza
   własne zestawy mebli; import pliku pyta osobno o pałac (dodaj / zastąp / pomiń) i o zestawy
   (importuj / pomiń). Pliki sprzed zestawów wczytują się dalej — ich układy pokoi zamieniają się w zestawy.
@@ -173,6 +179,7 @@ src/
   catalog.ts          katalog elementów (budynki, przedmioty, rośliny, klimaty)
   store.ts            stan aplikacji (zustand): pałace, obiekty, ścieżka, powtórki, undo/redo
   lib/storage.ts      localStorage, eksport/import JSON
+  lib/templates.ts    zawartość nowego pałacu: pusta plansza i wioska w dolinie
   lib/srs.ts          spaced repetition
   lib/review.ts       spłaszczanie trasy spaceru (schodzi do wnętrz)
   lib/ground.ts       kształt planszy: obrys, przycinanie, granice chodzenia
