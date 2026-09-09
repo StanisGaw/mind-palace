@@ -301,6 +301,10 @@ export class SceneManager {
   private pad = { x: 0, y: 0 };
   private padHeld = new Set<number>();
   private padSprint = false;
+  /** Spusty pada w locie: dodatni dodaje gazu, ujemny ujmuje. Analogowe, więc gaz jest płynny. */
+  private padThrottle = 0;
+  /** L1/R1 w locie: ster kierunku. Prawa gałka zostaje przy rozglądaniu się po kokpicie. */
+  private padYaw = 0;
   private padSeen = false;
   /** Dotyk: po postawieniu zostań w trybie stawiania (odpowiednik Shift). */
   stickyPlacing = false;
@@ -3473,11 +3477,14 @@ export class SceneManager {
       this.pad.x = 0;
       this.pad.y = 0;
       this.padSprint = false;
+      this.padThrottle = 0;
+      this.padYaw = 0;
       this.padHeld.clear();
       return;
     }
     if (!this.padSeen) {
       this.padSeen = true;
+      useStore.getState().setPadSeen();
       useStore.getState().showToast('Pad podłączony: lewa gałka chodzi, prawa rozgląda, ✕ skacze, ▢ otwiera drzwi.');
     }
     // martwa strefa liczona proporcjonalnie, żeby zaraz za nią ruch zaczynał się od zera, a nie skokiem
@@ -3497,11 +3504,20 @@ export class SceneManager {
       this.padHeld.add(i);
       return true;
     };
+    // spusty są analogowe: w locie dają płynny gaz, na piechotę wystarczy sam fakt wciśnięcia
+    const trigger = (i: number) => {
+      const b = gp.buttons[i];
+      if (!b) return 0;
+      const v = b.value > 0 ? b.value : b.pressed ? 1 : 0;
+      return v < 0.08 ? 0 : v;
+    };
+    this.padThrottle = trigger(7) - trigger(6);
+    this.padYaw = (down(5) ? 1 : 0) - (down(4) ? 1 : 0);
     this.padSprint = down(6) || down(7) || down(10);
     const jump = edge(0);
     const useA = edge(2);
     const useB = edge(1);
-    if (jump) this.jump();
+    if (jump && !this.flight) this.jump(); // w kokpicie nie ma z czego skakać
     if (useA || useB) {
       if (this.flight) this.leavePlane();
       else this.useDoor();
@@ -3598,7 +3614,11 @@ export class SceneManager {
     st.setFlying(true);
     st.setDoorPrompt(null);
     st.setPlacing(null);
-    st.showToast('Shift — gaz, Ctrl — wolniej, W/S — nos, A/D — przechył, Q/E — kierunek. Wyląduj i naciśnij F, żeby wysiąść.');
+    st.showToast(
+      this.padSeen
+        ? 'R2 — gaz, L2 — wolniej, lewa gałka — nos i przechył, L1/R1 — kierunek. Wyląduj i naciśnij ▢, żeby wysiąść.'
+        : 'Shift — gaz, Ctrl — wolniej, W/S — nos, A/D — przechył, Q/E — kierunek. Wyląduj i naciśnij F, żeby wysiąść.',
+    );
     this.applyLighting();
   }
 
@@ -3679,13 +3699,13 @@ export class SceneManager {
     const clamp = THREE.MathUtils.clamp;
     const damp = THREE.MathUtils.damp;
 
-    const thr = (k.has('ShiftLeft') || k.has('ShiftRight') ? 1 : 0) - (k.has('ControlLeft') || k.has('ControlRight') ? 1 : 0);
+    const thr = clamp((k.has('ShiftLeft') || k.has('ShiftRight') ? 1 : 0) - (k.has('ControlLeft') || k.has('ControlRight') ? 1 : 0) + this.padThrottle, -1, 1);
     f.throttle = clamp(f.throttle + thr * dt * 0.5, 0, 1);
     f.speed = damp(f.speed, f.throttle * PLANE_MAX_SPEED, 0.5, dt);
 
     const pitchIn = clamp((k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) - (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) + this.joystick.y + this.pad.y, -1, 1);
     const rollIn = clamp((k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) + this.joystick.x + this.pad.x, -1, 1);
-    const yawIn = (k.has('KeyE') ? 1 : 0) - (k.has('KeyQ') ? 1 : 0);
+    const yawIn = clamp((k.has('KeyE') ? 1 : 0) - (k.has('KeyQ') ? 1 : 0) + this.padYaw, -1, 1);
     // stery działają tym mocniej, im większy opływ — przy postoju maszyna nie reaguje
     const auth = clamp(f.speed / PLANE_TAKEOFF, 0, 1);
 
