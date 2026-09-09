@@ -321,7 +321,10 @@ export class SceneManager {
     this.labelRenderer.domElement.className = 'labels-layer';
     container.appendChild(this.labelRenderer.domElement);
 
-    this.camera = new THREE.PerspectiveCamera(38, 1, 0.1, 400);
+    // bliska płaszczyzna 0,25 zamiast 0,1: przy 400 m dalekiej to 2,5 raza lepsza precyzja bufora głębi.
+    // Na telefonie bufor bywa 16-bitowy i przy 0,1 sąsiednie płaszczyzny (podłoga i cokół, mur i okładzina)
+    // migotały pasami. Kapsuła gracza ma 0,32 promienia, a orbita w edytorze 3 m minimum, więc nic się nie obcina
+    this.camera = new THREE.PerspectiveCamera(38, 1, 0.25, 400);
     // YXZ: w kokpicie rozglądamy się odchyleniem i pochyleniem naraz; poza lotem odchylenie jest zerowe
     this.camera.rotation.order = 'YXZ';
     this.camera.position.set(0, EYE, 0);

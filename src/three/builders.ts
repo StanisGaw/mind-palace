@@ -341,11 +341,13 @@ export function wallGeometry(u0: number, u1: number, v0: number, v1: number, hol
 function shellWallX(g: THREE.Group, x0: number, x1: number, y0: number, y1: number, z: number, m: THREE.Material, normal: [number, number], holes: WallHole[], lining?: THREE.Material) {
   const mesh = add(g, wallGeometry(x0, x1, y0, y1, holes, SHELL_WALL_T), m, 0, 0, z);
   mesh.userData.wallNormal = normal;
-  if (lining) shellLining(g, wallGeometry(x0, x1, y0, y1, holes, LINING_T), lining, 0, z - normal[1] * (SHELL_WALL_T / 2 + LINING_T / 2 + 0.002), 0, normal);
+  if (lining) shellLining(g, wallGeometry(x0, x1, y0, y1, holes, LINING_T), lining, 0, z - normal[1] * (SHELL_WALL_T / 2 + LINING_T / 2 + LINING_GAP), 0, normal);
   return mesh;
 }
 
 const LINING_T = 0.01;
+/** Odsunięcie okładziny od lica muru. Dwa milimetry ginęły w precyzji bufora głębi na telefonie. */
+const LINING_GAP = 0.006;
 /**
  * Okładzina wewnętrzna ściany powłoki (tapeta, boazeria): cienka bryła z tymi samymi otworami tuż przy licu
  * od środka — jedna bryła ściany nie może mieć innej faktury na zewnątrz i wewnątrz. Chowa się razem ze ścianą.
@@ -362,7 +364,7 @@ function shellLining(g: THREE.Group, geo: THREE.BufferGeometry, m: THREE.Materia
 function shellWallZ(g: THREE.Group, z0: number, z1: number, y0: number, y1: number, x: number, m: THREE.Material, normal: [number, number], holes: WallHole[], lining?: THREE.Material) {
   const mesh = add(g, wallGeometry(z0, z1, y0, y1, holes, SHELL_WALL_T), m, x, 0, 0, [0, -Math.PI / 2, 0]);
   mesh.userData.wallNormal = normal;
-  if (lining) shellLining(g, wallGeometry(z0, z1, y0, y1, holes, LINING_T), lining, x - normal[0] * (SHELL_WALL_T / 2 + LINING_T / 2 + 0.002), 0, -Math.PI / 2, normal);
+  if (lining) shellLining(g, wallGeometry(z0, z1, y0, y1, holes, LINING_T), lining, x - normal[0] * (SHELL_WALL_T / 2 + LINING_T / 2 + LINING_GAP), 0, -Math.PI / 2, normal);
   return mesh;
 }
 
