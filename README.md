@@ -160,6 +160,14 @@ npm run build        # produkcyjny build do dist/
 
 Dopisz `?physdebug=1` do adresu, aby zobaczyć bryły kolizji jako linie.
 
+## Zgłaszanie zepsutych kafli
+
+Niewidzialną ścianę albo inny błąd w konkretnym miejscu zgłasza się w edytorze: sekcja **Zepsute kafle**
+w Otoczeniu, przycisk „Zgłoś zepsuty kafel", potem kliknięcie w miejsce w scenie. Zgłoszenie zawiera dokładny
+punkt, kafel siatki metrowej i migawkę obiektów w promieniu 6 m (typ, pozycja, obrót, skala); zapisuje się
+w pałacu pod kluczem `brokenTiles` (więc wchodzi też do eksportu JSON) i od razu kopiuje do schowka jako JSON.
+Czerwony kwadrat w scenie znaczy zgłoszone miejsce — kliknięcie w niego w trybie zgłaszania usuwa zgłoszenie.
+
 ## Testy
 
 ```bash

@@ -43,6 +43,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
           <li><kbd>M</kbd> pokazuje uchwyt: <b>strzałki</b> przesuwają, <b>pierścień</b> obraca w poziomie. Przechył w przód i na boki ustawisz suwakami w prawym panelu.</li>
           <li><b>Grupy</b>: zaznacz kilka obiektów i kliknij „Grupuj” — odtąd klik w dowolny z nich zaznacza całość, a przesuwanie, duplikowanie i usuwanie działają na wszystkie. Dwuklik wybiera jeden element (np. do notatki), „Rozgrupuj” rozdziela. Współliniowe ścianki scala „Scal ścianki”.</li>
           <li>W prawym panelu skalujesz osobno szerokość, wysokość i głębokość; kłódka trzyma proporcje.</li>
+          <li><b>Zepsute kafle</b> (sekcja w Otoczeniu): gdy w spacerze trafisz na niewidzialną ścianę albo inny błąd, w edytorze kliknij „Zgłoś zepsuty kafel", a potem to miejsce w scenie. Zgłoszenie — dokładny punkt, kafel siatki 1 × 1 m i obiekty w promieniu 6 m — zapisuje się w pałacu (także w eksporcie JSON) i trafia do schowka, żeby dało się je wkleić do rozmowy o błędzie. Czerwony kwadrat pokazuje zgłoszone miejsce; kliknięcie w niego usuwa zgłoszenie, <kbd>Esc</kbd> kończy zgłaszanie.</li>
         </ul>
         <h3>Plansza, nawierzchnia i krajobrazy</h3>
         <ul>
