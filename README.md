@@ -48,12 +48,22 @@ npm run build        # produkcyjny build do dist/
   ożywają w trybie chodzenia: pies podbiega i siada, kot ucieka, wiewiórka wspina się na drzewo,
   wilk warczy z dystansu, smok krąży, przelatuje nad głową i zionie ogniem. Świetliki, owady i motyle to roje
   cząstek krążące wokół znacznika (słoik, ul, kępa kwiatów).
-- **Samolot** — obiekt z biblioteki (Przedmioty). W spacerze podejdź do kokpitu i naciśnij `F`, żeby wsiąść:
-  kamera siada w otwartym kokpicie (tablica z zegarami, drążek, wiatrochron, kręcące się śmigło), a myszą
-  rozglądasz się po kabinie. `Shift`/`Ctrl` — gaz, `W`/`S` — ster wysokości, `A`/`D` — przechył (przechył
-  zakręca), `Q`/`E` — ster kierunku. Powyżej prędkości startowej maszyna odrywa się od ziemi; latasz nad
-  planszą i okolicznym terenem (w locie mgła cofa się, żeby było widać krajobraz). Wysiadka (`F`) wymaga
-  postoju na planszy — samolot zostaje tam, gdzie stanął.
+- **Pojazdy i wierzchowce** — kategoria **Pojazdy** w bibliotece: samolot, smok wierzchowy, koń i czerw
+  pustynny. W spacerze podejdź do siodła albo kabiny i naciśnij `F`, żeby wsiąść; myszą rozglądasz się
+  z siodła. Zsiadasz (`F`) po zatrzymaniu na planszy — wierzchowiec zostaje tam, gdzie stanął. Jeździsz
+  i latasz nad planszą i okolicznym terenem (w locie mgła cofa się, żeby było widać krajobraz).
+  - **Samolot** — otwarty kokpit (tablica z zegarami, drążek, wiatrochron, kręcące się śmigło).
+    `Shift`/`Ctrl` — gaz, `W`/`S` — ster wysokości, `A`/`D` — przechył (przechył zakręca), `Q`/`E` — ster
+    kierunku. Powyżej prędkości startowej maszyna odrywa się od ziemi.
+  - **Smok wierzchowy** — to samo ciało co dziki smok, osiodłane. Steruje się jak samolot, ale przy gazie
+    unosi się pionowo i zawisa w miejscu; `Spacja` albo kliknięcie — zionie ogniem.
+  - **Koń** — srokaty, pod siodłem. `W` — stęp, `Shift` — galop, `S` — cofanie, `A`/`D` — skręt także
+    w miejscu, `Spacja` — skok. Trzyma się gruntu, więc wjeżdża na wzgórza wokół planszy.
+  - **Czerw pustynny** — zaparkowany stoi z głową uniesioną z ziemi, w jeździe prostuje głowę i ciągnie
+    za sobą segmenty ciała śladem głowy. `Shift`/`Ctrl` — powolny rozpęd i hamowanie, `A`/`D` — skręt
+    szerokim łukiem, `Spacja` — wyskok z piasku łukiem z rozwartą paszczą. Suwak wielkości robi z niego
+    olbrzyma.
+  Dynamika jazdy i lotu to czyste funkcje w `lib/ride.ts` (`stepAir`, `stepGround`) z testami.
 - **Elewacja i dekoracje** — budynki mają wbudowane okna z szybami, te same na bryle, w powłoce
   w miejscu i w pokoju ładowanym (z widokiem „dnia” za szybą). Okno, balkon i taras z biblioteki
   stawia się na murze budynku z wnętrzem w miejscu (mur dostaje otwór; balkon na piętrze, taras przy
@@ -105,11 +115,11 @@ npm run build        # produkcyjny build do dist/
   książki nie leżą na biurku, a to, co wisi (obraz, lustro, zegar, zasłony), nie zasłania okna — także okna
   postawionego z biblioteki. Podgląd robi się czerwony, klik nie stawia obiektu, a przeciągnięty mebel spada
   na podłogę swojego piętra.
-- **Skok ze spadochronem** — `F`/▢ w powietrzu wyrzuca pilota z kokpitu (tylko nad planszą, co najmniej
+- **Skok ze spadochronem** — `F`/▢ w powietrzu wyrzuca pilota z kokpitu samolotu albo z siodła smoka (tylko nad planszą, co najmniej
   5 m nad ziemią). Spadek swobodny do 28 m/s, `Spacja`/✕ otwiera czaszę (`buildParachute`, zaczepiona w rigu),
   która przez 0,8 s łapie powietrze i sprowadza opadanie do 3,2 m/s; poniżej 20 m otwiera się sama. Na czaszy
-  steruje się jak w spacerze, z tą samą granicą planszy. Samolot bez pilota krąży z lekkim gazem nad planszą
-  (nie wylatuje poza nią), ląduje i parkuje sam (`parkPlane`), a lądowanie gracza oddaje go fizyce (`land`).
+  steruje się jak w spacerze, z tą samą granicą planszy. Maszyna bez pilota krąży z lekkim gazem nad planszą
+  (nie wylatuje poza nią), ląduje i parkuje sam (`parkMount`), a lądowanie gracza oddaje go fizyce (`land`).
 - **Pad** — zwykły kontroler (DualSense, Xbox) przez Gamepad API: lewa gałka chodzi, prawa rozgląda, krzyżyk
   skacze, kwadrat i kółko otwierają drzwi albo wysadzają z samolotu, spusty biegną. W locie te same spusty dają
   płynny gaz (analogowe, więc obroty rosną proporcjonalnie do nacisku), lewa gałka to ster wysokości i przechył,
@@ -172,7 +182,7 @@ Dopisz `?physdebug=1` do adresu, aby zobaczyć bryły kolizji jako linie.
 ## Testy
 
 ```bash
-npm test          # vitest: zestawy i układy, piętra i schody, plansza z kafli (src/lib/*.test.ts)
+npm test          # vitest: zestawy i układy, piętra i schody, plansza z kafli, jazda i lot (src/lib/*.test.ts)
 ```
 
 Testy sprawdzają geometrię w metrach: czy schody mieszczą się w pokoju razem z podejściem i podestem,
@@ -194,11 +204,12 @@ src/
   lib/ground.ts       kształt planszy: obrys, przycinanie, granice chodzenia
   lib/prefs.ts        preferencje interfejsu (zwinięte i ukryte kategorie, jakość obrazu)
   lib/quality.ts      presety jakości obrazu i automat rozdzielczości
+  lib/ride.ts         wierzchowce: tabela pojazdów, dynamika lotu i jazdy po ziemi, ślad czerwia
   lib/landscapes.ts   zapisane zestawy otoczenia
   lib/textureStore.ts własne tekstury nawierzchni
   three/textures.ts   proceduralne nawierzchnie
   three/wildlife.ts   zwierzęta: modele, zachowania, animacja
-  three/builders.ts   proceduralne modele low-poly + kotwice drzwi i emiterów
+  three/builders.ts   proceduralne modele low-poly + kotwice drzwi, siodeł i emiterów
   three/interior.ts   proceduralne wnętrza budynków
   three/terrain.ts    pierścień krajobrazu (heightmapa z szumu)
   three/merge.ts      scalanie siatek modelu po materiale (mniej wywołań rysowania)
