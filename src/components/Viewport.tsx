@@ -300,7 +300,7 @@ export function Viewport() {
           <div className="crosshair" />
           {!isTouch && <FpLockHint />}
           {isTouch && <Joystick onChange={(x, y) => { if (mgrRef.current) mgrRef.current.joystick = { x, y }; }} />}
-          {isTouch && (!mount || mount.labels.action) && descent !== 'chute' && (
+          {isTouch && (!mount || (mount.labels.action && mount.kind !== 'air' && !mount.leap)) && descent !== 'chute' && (
             <button
               className="jump-btn"
               onPointerDown={(e) => {
@@ -313,6 +313,17 @@ export function Viewport() {
           )}
           {isTouch && mount && (mount.kind === 'air' || mount.leap) && (
             <div className="throttle-btns">
+              {mount.labels.action && (
+                <button
+                  className="action"
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    mgrRef.current?.jump();
+                  }}
+                >
+                  {mount.labels.action}
+                </button>
+              )}
               <button
                 onPointerDown={(e) => {
                   e.stopPropagation();

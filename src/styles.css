@@ -355,6 +355,7 @@ input, textarea, select { outline: none; }
 .throttle-btns { position: absolute; right: 28px; bottom: 40px; z-index: 6; display: flex; flex-direction: column; gap: 8px; }
 .throttle-btns button { width: 78px; height: 52px; border-radius: 14px; background: rgba(255,255,255,0.35); border: 1px solid rgba(255,255,255,0.7); color: var(--text); font-size: 13px; font-weight: 600; touch-action: none; backdrop-filter: blur(4px); }
 .throttle-btns button:active { background: rgba(47,90,60,0.55); color: #fff; }
+.throttle-btns button.action { height: 64px; border-radius: 50%; background: rgba(47,90,60,0.28); }
 .app.phone:not(.landscape) .throttle-btns { right: 22px; bottom: 74px; }
 .app.phone:not(.landscape) .jump-btn { right: 22px; bottom: 74px; width: 68px; height: 68px; }
 

@@ -72,7 +72,6 @@ function Library({ q }: { q: string }) {
   const cats: Category[] = indoor
     ? (['structure', 'furniture', ...CATEGORY_ORDER.filter((c) => !['building', 'landscape', 'special', 'furniture', 'structure'].includes(c))] as Category[])
     : (['building', ...CATEGORY_ORDER.filter((c) => c !== 'building')] as Category[]);
-  const active = cats.includes(category as Category) ? (category as Category) : 'all';
   const filtered = useMemo(
     () =>
       CATALOG.filter(
@@ -86,8 +85,10 @@ function Library({ q }: { q: string }) {
       ),
     [q, isInterior, insideInPlace],
   );
-  // chip kategorii tylko wtedy, gdy ma co pokazać — we wnętrzu Pojazdy czy Krajobraz są puste
+  // chip kategorii tylko wtedy, gdy ma co pokazać — we wnętrzu Pojazdy czy Krajobraz są puste;
+  // zapamiętana kategoria bez pozycji wraca do „Wszystkie”, żeby lista nie została pusta bez podświetlonego chipa
   const chips = cats.filter((cat) => filtered.some((c) => c.category === cat));
+  const active = chips.includes(category as Category) ? (category as Category) : 'all';
   const shownCats = active === 'all' ? cats : [active];
 
   const row = (item: (typeof CATALOG)[number]) => (
