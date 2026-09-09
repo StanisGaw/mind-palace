@@ -79,6 +79,8 @@ interface Tween {
 }
 
 const EYE = 1.6;
+/** Odległość (m) między graczem a celem orbity przy przejściu spacer ↔ edytor; obie strony muszą używać tej samej wartości. */
+const EDITOR_LOOK_AHEAD = 4;
 // lot samolotem: prędkości w m/s
 const PLANE_MAX_SPEED = 24;
 const PLANE_TAKEOFF = 11; // poniżej tej prędkości samolot toczy się po ziemi i nie reaguje na ster wysokości
@@ -2168,13 +2170,28 @@ export class SceneManager {
     this.physics?.teleport(tmpV3.set(pose.x, 0, pose.z));
   }
 
+  /**
+   * Spacer zaczyna się tam, gdzie patrzył edytor: pod celem orbity, twarzą w kierunku spojrzenia kamery.
+   * Dzięki temu przełączanie trybów nie przenosi gracza z powrotem do bramy; punkt startu (spawnPose)
+   * służy tylko poleceniom kamery „wyśrodkuj”/„resetuj” i wysiadce z samolotu.
+   */
   private editorToFp() {
-    this.placeRig(this.spawnPose());
+    const target = this.tween?.toTarget ?? this.orbit.target;
+    const dx = target.x - this.camera.position.x;
+    const dz = target.z - this.camera.position.z;
+    const len = Math.hypot(dx, dz);
+    // rig patrzy wzdłuż (0,0,-1) obróconego o yaw, więc kierunek (dx,dz) daje yaw = atan2(-dx, -dz)
+    const yaw = len > 1e-3 ? Math.atan2(-dx, -dz) : this.yaw;
+    // fpToEditor stawia cel orbity EDITOR_LOOK_AHEAD przed graczem, więc cofamy się o tyle samo:
+    // dzięki temu wielokrotne przełączanie trybów nie przesuwa gracza do przodu
+    const back = len > 1e-3 ? EDITOR_LOOK_AHEAD / len : 0;
+    const [x, z] = this.clampXZ(target.x - dx * back, target.z - dz * back);
+    this.placeRig({ x, z, yaw });
   }
 
   private fpToEditor() {
     const fwd = tmpV.set(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
-    const target = this.rig.position.clone().add(fwd.multiplyScalar(4)).setY(0.5);
+    const target = this.rig.position.clone().add(fwd.multiplyScalar(EDITOR_LOOK_AHEAD)).setY(0.5);
     const camPos = target.clone().add(new THREE.Vector3(-fwd.x, 0, -fwd.z).normalize().multiplyScalar(11)).setY(9);
     this.rig.position.set(0, 0, 0);
     this.rig.rotation.set(0, 0, 0);
