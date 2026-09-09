@@ -12,7 +12,9 @@ export interface TextureDef {
   draw: (ctx: CanvasRenderingContext2D, size: number) => void;
 }
 
-const SIZE = 256;
+// 512 zamiast 256: cegła na fasadzie i deski na podłodze ogląda się z pół metra, a wzór jest rysowany
+// proceduralnie raz — kosztuje tylko pamięć (12 wzorów po ~1,3 MB z mipmapami).
+const SIZE = 512;
 
 function fill(ctx: CanvasRenderingContext2D, size: number, color: string) {
   ctx.fillStyle = color;

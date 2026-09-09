@@ -88,11 +88,17 @@ for (const role of MATERIAL_ROLES) {
   });
 }
 
+/** Poniżej tej największej rozpiętości bryłka nie rzuca cienia: przy słońcu wysoko cień świecznika
+ *  czy talerza jest mniejszy od piksela mapy cienia, a każda taka siatka to drugie wywołanie rysowania. */
+const SHADOW_MIN = 0.35;
+
 function add(group: THREE.Group, geo: THREE.BufferGeometry, material: THREE.Material, x = 0, y = 0, z = 0, rot?: [number, number, number]) {
   const m = new THREE.Mesh(geo, material);
   m.position.set(x, y, z);
   if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
-  m.castShadow = true;
+  if (!geo.boundingBox) geo.computeBoundingBox();
+  const bb = geo.boundingBox!;
+  m.castShadow = Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z) >= SHADOW_MIN;
   m.receiveShadow = true;
   group.add(m);
   return m;
