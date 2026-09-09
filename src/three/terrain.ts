@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { GroundSpec, Scenery } from '../types';
 import { groundExtent, outsideDistance } from '../lib/ground';
+import { pointInPolygon } from '../lib/rects';
 import { sceneryPreset } from '../catalog';
 import { Noise2D, smoothstep } from './noise';
 
@@ -9,8 +10,10 @@ export interface Terrain {
   mesh: THREE.Mesh;
   water: THREE.Mesh | null;
   size: number; // długość boku pierścienia terenu
-  /** Wysokość terenu w punkcie (interpolacja dwuliniowa). */
+  /** Wysokość terenu w punkcie (interpolacja dwuliniowa). Nie zna wycięć — pyta o ukształtowanie, nie o siatkę. */
   heightAt(x: number, z: number): number;
+  /** Podmienia otwory (piwnice) bez liczenia szumu od nowa: przelicza sam indeks siatki i taflę wody. */
+  setHoles(holes: [number, number][][]): void;
   dispose(): void;
 }
 
@@ -82,7 +85,9 @@ export function buildTerrain(ground: GroundSpec, scenery: Scenery, seed: number,
   }
   pos.needsUpdate = true;
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  if (holes.length > 0) cutHoles(geo, holes);
+  // pełny indeks trzymamy z boku: podmiana otworów przelicza tylko jego, bez ponownego liczenia szumu
+  const baseIndex = new Uint32Array(geo.getIndex()!.array as ArrayLike<number>);
+  cutHoles(geo, baseIndex, holes);
   geo.computeVertexNormals();
 
   const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }));
@@ -93,9 +98,12 @@ export function buildTerrain(ground: GroundSpec, scenery: Scenery, seed: number,
   const group = new THREE.Group();
   group.add(mesh);
 
+  let waterY: number | null = preset.water;
   let water: THREE.Mesh | null = null;
   if (preset.water !== null) {
-    const wgeo = new THREE.PlaneGeometry(size, size);
+    // tafla wody sięga tak samo daleko jak teren, więc bez wycięcia zamykałaby piwnicę od góry
+    // (przy scenerii „wybrzeże" leży 0,9 m pod zerem). Kształt z dziurami tnie ją dokładnie, bez oczek siatki.
+    const wgeo = new THREE.ShapeGeometry(waterShape(size, holes));
     wgeo.rotateX(-Math.PI / 2);
     water = new THREE.Mesh(wgeo, new THREE.MeshStandardMaterial({ color: '#a9d3e6', roughness: 0.25, metalness: 0.05, transparent: true, opacity: 0.86 }));
     water.position.y = preset.water;
@@ -124,6 +132,14 @@ export function buildTerrain(ground: GroundSpec, scenery: Scenery, seed: number,
     water,
     size,
     heightAt,
+    setHoles(next) {
+      cutHoles(geo, baseIndex, next);
+      geo.computeVertexNormals();
+      if (!water || waterY === null) return;
+      water.geometry.dispose();
+      water.geometry = new THREE.ShapeGeometry(waterShape(size, next));
+      water.geometry.rotateX(-Math.PI / 2);
+    },
     dispose() {
       geo.dispose();
       (mesh.material as THREE.Material).dispose();
@@ -136,31 +152,40 @@ export function buildTerrain(ground: GroundSpec, scenery: Scenery, seed: number,
   };
 }
 
-/** Czy punkt leży w wielokącie (parzystość przecięć półprostej). */
-function inPolygon(poly: [number, number][], x: number, z: number): boolean {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, zi] = poly[i];
-    const [xj, zj] = poly[j];
-    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
-  }
-  return inside;
-}
-
-/** Usuwa z siatki trójkąty, których środek wpada w któryś z obrysów — razem z ich kolizją. */
-function cutHoles(geo: THREE.BufferGeometry, holes: [number, number][][]) {
-  const idx = geo.getIndex();
+/** Zostawia w siatce tylko te trójkąty pełnego indeksu, których środek nie wpada w żaden obrys — razem z kolizją. */
+function cutHoles(geo: THREE.BufferGeometry, baseIndex: Uint32Array, holes: [number, number][][]) {
   const pos = geo.attributes.position as THREE.BufferAttribute;
-  if (!idx) return;
+  if (holes.length === 0) {
+    geo.setIndex(Array.from(baseIndex));
+    return;
+  }
   const kept: number[] = [];
-  for (let t = 0; t < idx.count; t += 3) {
-    const a = idx.getX(t);
-    const b = idx.getX(t + 1);
-    const c = idx.getX(t + 2);
+  for (let t = 0; t < baseIndex.length; t += 3) {
+    const a = baseIndex[t];
+    const b = baseIndex[t + 1];
+    const c = baseIndex[t + 2];
     const cx = (pos.getX(a) + pos.getX(b) + pos.getX(c)) / 3;
     const cz = (pos.getZ(a) + pos.getZ(b) + pos.getZ(c)) / 3;
-    if (holes.some((h) => inPolygon(h, cx, cz))) continue;
+    if (holes.some((h) => pointInPolygon(h, cx, cz))) continue;
     kept.push(a, b, c);
   }
   geo.setIndex(kept);
+}
+
+/**
+ * Kwadrat tafli wody z otworami piwnic. Druga współrzędna idzie z odwrotnym znakiem, bo obrót o −90°
+ * wokół X odwzorowuje ją na świat jako −y — bez tego dziura wypadłaby po przeciwnej stronie sceny.
+ */
+function waterShape(size: number, holes: [number, number][][]): THREE.Shape {
+  const h = size / 2;
+  const shape = new THREE.Shape([
+    new THREE.Vector2(-h, -h),
+    new THREE.Vector2(h, -h),
+    new THREE.Vector2(h, h),
+    new THREE.Vector2(-h, h),
+  ]);
+  for (const ring of holes) {
+    shape.holes.push(new THREE.Path(ring.map(([x, z]) => new THREE.Vector2(x, -z))));
+  }
+  return shape;
 }

@@ -171,6 +171,7 @@ export class SceneManager {
   private cachedWorld: WorldInfo | null = null;
   private terrain: Terrain | null = null;
   private terrainKey = '';
+  private terrainHoleKey = '';
   private room: Room | null = null;
   private roomKey = '';
   private lastEditFloor = 0;
@@ -533,13 +534,13 @@ export class SceneManager {
     this.applyLighting();
   }
 
-  private rebuildTerrain(p: Palace) {
+  private rebuildTerrain(p: Palace, holes: [number, number][][]) {
     if (this.terrain) {
       this.scene.remove(this.terrain.group);
       this.terrain.dispose();
       this.terrain = null;
     }
-    this.terrain = buildTerrain(p.settings.ground, p.settings.scenery, p.settings.seed, basementQuads(p.objects));
+    this.terrain = buildTerrain(p.settings.ground, p.settings.scenery, p.settings.seed, holes);
     if (this.terrain) this.scene.add(this.terrain.group);
   }
 
@@ -825,14 +826,18 @@ export class SceneManager {
       this.lastTextureKey = '';
       this.physicsDirty = true; // zmieniony kształt płyty to inne kolidery pod nogami
     }
-    // teren zależy od obrysu planszy, nie od otworów pod piwnicami — inaczej przeciąganie budynku przebudowywałoby go co klatkę
-    // teren zależy też od piwnic: leży kilkanaście centymetrów pod zerem, czyli w środku każdej z nich,
-    // i bez wycięcia zamykałby je niewidzialną pokrywą. Klucz otworów jest zaokrąglony, więc przeciąganie
-    // budynku przebudowuje go najwyżej co ćwierć metra
-    const terrainKey = `${p.settings.scenery}|${p.settings.seed}|${shapeKey}|${holeKey}`;
+    // teren leży kilkanaście centymetrów pod zerem, czyli w środku każdej piwnicy, i bez wycięcia zamykałby ją
+    // niewidzialną pokrywą. Same otwory podmieniamy bez liczenia szumu od nowa — inaczej przeciąganie budynku
+    // z piwnicą przebudowywałoby cały pierścień terenu
+    const terrainKey = `${p.settings.scenery}|${p.settings.seed}|${shapeKey}`;
     if (terrainKey !== this.terrainKey) {
       this.terrainKey = terrainKey;
-      this.rebuildTerrain(p);
+      this.terrainHoleKey = holeKey;
+      this.rebuildTerrain(p, outlines);
+    } else if (holeKey !== this.terrainHoleKey) {
+      this.terrainHoleKey = holeKey;
+      this.terrain?.setHoles(outlines);
+      this.physicsDirty = true; // wycięty teren to inna siatka kolizji pod nogami
     }
     if (this.terrain) this.terrain.group.visible = true;
     const envKey = `out|${p.settings.ambience}|${p.settings.weather}|${shapeKey}`;
