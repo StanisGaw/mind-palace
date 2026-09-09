@@ -52,7 +52,7 @@ interface Entry {
   /** Pivot skrzydła drzwi (obiekty typu `door` i budynki z wnętrzem w miejscu) — obraca go `toggleDoor`. */
   doorPivot?: THREE.Group;
   /** Ruchome części wierzchowca po nazwie z `userData.rig` (śmigło, skrzydła, nogi, segmenty) — scena rusza nimi w jeździe. */
-  rig: Map<string, THREE.Object3D>;
+  parts: Map<string, THREE.Object3D>;
   /** Budynek z wnętrzem w tej samej scenie: dach do schowania, stropy pięter i ściany do chowania od strony kamery. */
   inplace: boolean;
   roof: THREE.Object3D | null;
@@ -105,7 +105,7 @@ interface Ride {
   /** Faza animacji liczona czasem (skrzydła w zawisie, ogon) — `state.phase` rośnie tylko z drogą. */
   anim: number;
 }
-/** Zeskok z samolotu: spadek swobodny, potem spadochron. `pos` to stopy gracza. */
+/** Zeskok z siodła: spadek swobodny, potem spadochron. `pos` to stopy gracza. */
 interface Descent {
   pos: THREE.Vector3;
   vel: THREE.Vector3;
@@ -348,7 +348,7 @@ export class SceneManager {
   private ride: Ride | null = null;
   /** Wejścia jazdy zbierane między klatkami (skok i ogień to zdarzenia, reszta liczona z klawiszy co klatkę). */
   private rideInput: RideInput = { ...IDLE_INPUT };
-  private rideEnv: RideEnv = { groundAt: (x, z) => this.groundHeightAt(x, z), radius: 24 };
+  private rideEnv: RideEnv = { groundAt: (x, z) => this.groundHeightAt(x, z), radius: 24, scale: 1 };
   private descent: Descent | null = null;
   /** Czasza spadochronu, budowana przy pierwszym otwarciu; między skokami tylko ukryta. */
   private chute: THREE.Group | null = null;
@@ -1018,7 +1018,7 @@ export class SceneManager {
         group.traverse((c) => (c.userData.objectId = o.id));
         this.scene.add(group);
         const item = catalogItem(o.type);
-        e = { id: o.id, type: o.type, group, model, height: modelHeight(model), footprint: item.footprint, label: null, labelEl: null, labelKey: '', panel: null, panelKey: '', transformKey: '', emitter: null, buildKey: key, inplace: isInPlace(o), roof: null, slabs: [], walls: [], lights: [], rig: new Map() };
+        e = { id: o.id, type: o.type, group, model, height: modelHeight(model), footprint: item.footprint, label: null, labelEl: null, labelKey: '', panel: null, panelKey: '', transformKey: '', emitter: null, buildKey: key, inplace: isInPlace(o), roof: null, slabs: [], walls: [], lights: [], parts: new Map() };
         model.traverse((c) => {
           const l = c as THREE.PointLight;
           if (!l.isPointLight) return;
@@ -1030,7 +1030,7 @@ export class SceneManager {
         if (isMount(o.type)) {
           model.traverse((c) => {
             if (typeof c.userData.rig !== 'string') return;
-            e!.rig.set(c.userData.rig, c);
+            e!.parts.set(c.userData.rig, c);
             // poza jazdą część wraca do pozy z budowy (uniesiona głowa czerwia, złożone skrzydła)
             c.userData.rest ??= [c.position.x, c.position.y, c.position.z, c.rotation.x, c.rotation.y, c.rotation.z];
           });
@@ -3696,7 +3696,7 @@ export class SceneManager {
     const useB = edge(1);
     // w kokpicie ✕ nic nie robi; na koniu i czerwiu skacze; w spadku otwiera spadochron
     if (jump && (!this.riding || MOUNT_SPECS[this.ride!.mount].kind === 'ground')) this.jump();
-    if (edge(3) && this.riding) this.rideInput.fire = true; // △ — smok zionie ogniem
+    if (edge(3) && this.riding && MOUNT_SPECS[this.ride!.mount].hover) this.rideInput.fire = true; // △ — smok zionie ogniem
     if (useA || useB) {
       if (this.riding) this.leaveMount();
       else this.useDoor();
@@ -3765,8 +3765,7 @@ export class SceneManager {
     let bestD = Infinity;
     for (const e of this.entries.values()) {
       if (!isMount(e.type) || !e.group.visible) continue;
-      const a = MOUNT_ANCHORS[e.type].seat;
-      const seat = e.group.localToWorld(tmpV.set(a[0], a[1], a[2]));
+      const seat = this.seatWorld(e, e.type, tmpV);
       const d = Math.hypot(seat.x - this.rig.position.x, seat.z - this.rig.position.z);
       const reach = MOUNT_SPECS[e.type].reach * Math.max(1, hs(e));
       if (d < reach && d < bestD) {
@@ -3777,6 +3776,13 @@ export class SceneManager {
     return best;
   }
 
+  /** Siodło w świecie: z modelu albo z ruchomej części (głowa czerwia unosi jeźdźca, prostując się). */
+  private seatWorld(e: Entry, mount: MountId, out: THREE.Vector3): THREE.Vector3 {
+    const a = MOUNT_ANCHORS[mount];
+    const node = (a.seatPart && e.parts.get(a.seatPart)) || e.group;
+    return node.localToWorld(out.set(a.seat[0], a.seat[1], a.seat[2]));
+  }
+
   /** Wysokość gruntu pod punktem: płyta jest płaska, poza nią liczy się ukształtowanie terenu. */
   private groundHeightAt(x: number, z: number): number {
     if (this.walkArea && insideGround(this.walkArea, x, z)) return 0;
@@ -3784,12 +3790,12 @@ export class SceneManager {
   }
 
   /** Zasięg jazdy i lotu: pierścień terenu, a bez krajobrazu okolica planszy. */
-  private flightRadius(): number {
+  private rideRadius(): number {
     if (this.terrain) return this.terrain.size / 2 - 6;
     return (this.walkArea ? groundExtent(this.walkArea) : 24) * 2;
   }
 
-  boardMount(id: string) {
+  private boardMount(id: string) {
     if (this.descent) return;
     const e = this.entries.get(id);
     const o = this.lastPalace?.objects.find((x) => x.id === id);
@@ -3798,6 +3804,9 @@ export class SceneManager {
     const p = e.group.position;
     this.ride = { id, mount: e.type, state: newRideState(p.x, p.y, p.z, o.rotation[1]), trail: [], anim: 0 };
     if (spec.leap) this.resetTrail(e, this.ride);
+    // plansza nie zmienia się w trakcie jazdy, więc zacisk maszyny bez pilota powstaje raz
+    const area = this.walkArea;
+    this.rideEnv.clampToBoard = area ? (x, z) => clampToGround(area, x, z, 0) : undefined;
     // bryła kolizji zostałaby na miejscu postoju — na czas jazdy znika, a po zsiadnięciu wraca z nowej pozycji
     this.physics?.removeStatic(id);
     this.yaw = 0;
@@ -3909,7 +3918,7 @@ export class SceneManager {
 
   /** Poza jazdą ruchome części wracają do pozy z budowy; kłęby ognia i piasku gasną. */
   private restRig(e: Entry) {
-    for (const c of e.rig.values()) {
+    for (const c of e.parts.values()) {
       const rest = c.userData.rest as number[] | undefined;
       if (!rest) continue;
       c.position.set(rest[0], rest[1], rest[2]);
@@ -3942,8 +3951,7 @@ export class SceneManager {
       return false;
     }
     s.pilot = false;
-    const a = MOUNT_ANCHORS[r.mount].seat;
-    const seat = e.group.localToWorld(tmpV.set(a[0], a[1], a[2]));
+    const seat = this.seatWorld(e, r.mount, tmpV);
     const horiz = Math.cos(s.pitch) * s.speed;
     this.descent = {
       pos: new THREE.Vector3(seat.x, seat.y - EYE, seat.z),
@@ -4111,9 +4119,8 @@ export class SceneManager {
       inp.turn = spec.leap ? clamp(inp.roll + inp.yaw, -1, 1) : 0; // czerw: A/D i Q/E skręcają
       inp.sprint = false;
     }
-    this.rideEnv.radius = this.flightRadius();
-    const area = this.walkArea;
-    this.rideEnv.clampToBoard = area ? (x, z) => clampToGround(area, x, z, 0) : undefined;
+    this.rideEnv.radius = this.rideRadius();
+    this.rideEnv.scale = hs(e);
     stepRide(s, inp, spec, this.rideEnv, dt);
     // skok i ogień to zdarzenia — zużyte w tym kroku
     inp.jump = false;
@@ -4132,8 +4139,7 @@ export class SceneManager {
 
     // kamera siedzi w siodle: rig przejmuje obrót maszyny, rozglądanie zostaje w kamerze
     if (s.pilot) {
-      const a = MOUNT_ANCHORS[r.mount].seat;
-      this.rig.position.copy(e.group.localToWorld(tmpV.set(a[0], a[1], a[2])));
+      this.rig.position.copy(this.seatWorld(e, r.mount, tmpV));
       // koń podskakuje tułowiem, ale jeździec nie ma kiwać horyzontem — rig bierze sam obrót w poziomie
       if (spec.kind === 'ground' && !spec.leap) this.rig.quaternion.setFromEuler(flightEuler.set(0, s.yaw, 0));
       else this.rig.quaternion.copy(e.group.quaternion);
@@ -4143,9 +4149,9 @@ export class SceneManager {
   /** Ruchome części wierzchowca w jeździe: śmigło, skrzydła i ogon smoka, nogi konia, segmenty i paszcza czerwia. */
   private animateMount(e: Entry, r: Ride, spec: MountSpec, dt: number) {
     const s = r.state;
-    const rig = e.rig;
+    const parts = e.parts;
     const damp = THREE.MathUtils.damp;
-    const prop = rig.get('propeller');
+    const prop = parts.get('propeller');
     if (prop) prop.rotation.z = (prop.rotation.z + (1.5 + s.speed * 1.6) * dt) % (Math.PI * 2);
 
     if (spec.hover) {
@@ -4153,18 +4159,18 @@ export class SceneManager {
       r.anim += dt * (4 + s.throttle * 5);
       const flap = Math.sin(r.anim) * 0.5;
       for (const [name, sign] of [['wingL', -1], ['wingR', 1]] as [string, number][]) {
-        const wing = rig.get(name);
+        const wing = parts.get(name);
         if (!wing) continue;
         const rest = (wing.userData.rest as number[])[5];
         wing.rotation.z = damp(wing.rotation.z, s.onGround ? rest : sign * flap, s.onGround ? 3 : 8, dt);
       }
-      const tail = rig.get('tail');
+      const tail = parts.get('tail');
       if (tail) {
         tail.rotation.y = Math.sin(r.anim * 0.45) * 0.18;
         tail.rotation.x = Math.sin(r.anim * 0.3) * 0.08;
       }
       for (const name of ['legFL', 'legFR', 'legBL', 'legBR']) {
-        const leg = rig.get(name);
+        const leg = parts.get(name);
         if (leg) leg.rotation.x = damp(leg.rotation.x, s.onGround ? 0 : -0.9, 5, dt); // w locie nogi podkulone
       }
       this.setEmitterOpacity(e, s.fire > 0 ? 0.75 : 0);
@@ -4183,13 +4189,13 @@ export class SceneManager {
       const sw = Math.sin(s.phase * 2.8);
       const pairs: [string, number][] = [['legFL', 1], ['legBR', 1], ['legFR', -1], ['legBL', -1]];
       for (const [name, sign] of pairs) {
-        const leg = rig.get(name);
+        const leg = parts.get(name);
         if (!leg) continue;
         leg.rotation.x = s.onGround ? sw * amp * sign : damp(leg.rotation.x, -0.5, 6, dt);
       }
-      const head = rig.get('head');
+      const head = parts.get('head');
       if (head) head.rotation.x = (head.userData.rest as number[])[3] + Math.sin(s.phase * 2.8) * 0.06 * amp;
-      const tail = rig.get('tail');
+      const tail = parts.get('tail');
       if (tail) tail.rotation.y = Math.sin(r.anim) * 0.2;
       e.model.position.y = s.onGround ? Math.abs(sw) * 0.1 * amp : 0;
     }
@@ -4201,15 +4207,15 @@ export class SceneManager {
    */
   private animateWorm(e: Entry, r: Ride, spec: MountSpec, dt: number) {
     const s = r.state;
-    const rig = e.rig;
+    const parts = e.parts;
     const damp = THREE.MathUtils.damp;
-    const head = rig.get('head');
+    const head = parts.get('head');
     if (head) head.rotation.x = damp(head.rotation.x, 0, 4, dt);
     const scale = hs(e);
     advanceTrail(r.trail, s.x, s.y, s.z, 1.5 * scale, 26);
     const seg = 3 * scale;
     for (let i = 0; ; i++) {
-      const part = rig.get(`seg${i}`);
+      const part = parts.get(`seg${i}`);
       if (!part) break;
       const ahead = trailPoint(r.trail, s.x, s.y, s.z, i * seg + 1.5 * scale);
       const center = trailPoint(r.trail, s.x, s.y, s.z, (i + 1) * seg + 1.5 * scale);
@@ -4220,7 +4226,7 @@ export class SceneManager {
     }
     const leaping = s.leapT >= 0 && spec.leap && s.leapT < spec.leap.duration * 0.5;
     for (const name of ['jawL', 'jawR', 'jawT']) {
-      const jaw = rig.get(name);
+      const jaw = parts.get(name);
       if (!jaw) continue;
       const rest = (jaw.userData.rest as number[])[3];
       const sign = rest < 0 ? -1 : 1;

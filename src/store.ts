@@ -55,7 +55,7 @@ interface State {
   doorPrompt: { kind: 'enter' | 'exit' | 'door' | 'board' | 'leave'; objectId?: string; label: string } | null;
   /** Gracz siedzi w siodle wierzchowca (spacer zamienia się w jazdę albo lot) — steruje podpowiedziami interfejsu. */
   riding: MountId | null;
-  /** Gracz wyskoczył z samolotu: spada swobodnie albo wisi na spadochronie. */
+  /** Gracz wyskoczył z siodła: spada swobodnie albo wisi na spadochronie. */
   descent: 'fall' | 'chute' | null;
   /** Pad zauważony w tej sesji — pasek podpowiedzi pokazuje wtedy przyciski pada zamiast klawiszy. */
   padSeen: boolean;

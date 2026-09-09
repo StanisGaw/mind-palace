@@ -150,11 +150,13 @@ export interface RideEnv {
   radius: number;
   /** Maszyna bez pilota nie opuszcza planszy: gdzie stanie, tam trzeba do niej dojść. */
   clampToBoard?: (x: number, z: number) => [number, number];
+  /** Skala wierzchowca: powiększony czerw wyskakuje odpowiednio wyżej. */
+  scale?: number;
 }
 
 export const IDLE_INPUT: RideInput = { throttle: 0, pitch: 0, roll: 0, yaw: 0, turn: 0, sprint: false, jump: false, fire: false };
 
-export const FIRE_TIME = 1.2; // s jednego zionięcia
+const FIRE_TIME = 1.2; // s jednego zionięcia
 const GRAVITY = 20; // m/s² jak w `physics.stepCharacter`
 const LEAP_MIN_SPEED = 4; // czerw wyskakuje dopiero rozpędzony
 
@@ -287,7 +289,7 @@ export function stepGround(r: RideState, input: RideInput, spec: MountSpec, env:
         r.onGround = true;
       } else {
         // nos w górę przy wyjściu z piasku, w dół przy wejściu
-        r.y = gy + spec.leap.height * Math.sin(Math.PI * t);
+        r.y = gy + spec.leap.height * (env.scale ?? 1) * Math.sin(Math.PI * t);
         r.pitch = 0.7 * Math.cos(Math.PI * t);
         r.onGround = false;
       }

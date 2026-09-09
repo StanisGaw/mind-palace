@@ -2116,14 +2116,15 @@ export const DOORS: Record<string, { local: [number, number, number]; outside: [
 export const GATE_SPAWN: [number, number, number] = [0, 0, 1.8];
 
 /**
- * Siodło (oczy jeźdźca) i miejsce, w którym staje po zsiadnięciu — w lokalnych współrzędnych modelu.
- * Samolot: fotel w kokpicie, wysiadka obok kadłuba za skrzydłem. Czerw: siodło liczone dla wyprostowanej głowy.
+ * Siodło (oczy jeźdźca) i miejsce, w którym staje po zsiadnięciu — w lokalnych współrzędnych modelu, a gdy
+ * podano `seatPart`, w układzie tej ruchomej części (siodło czerwia unosi się razem z głową).
+ * Samolot: fotel w kokpicie, wysiadka obok kadłuba za skrzydłem.
  */
-export const MOUNT_ANCHORS: Record<MountId, { seat: [number, number, number]; exit: [number, number, number] }> = {
+export const MOUNT_ANCHORS: Record<MountId, { seat: [number, number, number]; exit: [number, number, number]; seatPart?: string }> = {
   plane: { seat: [0, 1.66, 0.16], exit: [-1.9, 0, 1.4] },
   dragon: { seat: [0, 3.15, 0.3], exit: [2.4, 0, 0.5] },
   horse: { seat: [0, 2.4, 0.0], exit: [1.1, 0, 0.2] },
-  sandworm: { seat: [0, 3.75, -0.5], exit: [3.4, 0, 1.0] },
+  sandworm: { seat: [0, 2.35, -0.5], exit: [3.4, 0, 1.0], seatPart: 'head' },
 };
 
 /**
