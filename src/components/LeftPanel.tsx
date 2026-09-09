@@ -86,6 +86,8 @@ function Library({ q }: { q: string }) {
       ),
     [q, isInterior, insideInPlace],
   );
+  // chip kategorii tylko wtedy, gdy ma co pokazać — we wnętrzu Pojazdy czy Krajobraz są puste
+  const chips = cats.filter((cat) => filtered.some((c) => c.category === cat));
   const shownCats = active === 'all' ? cats : [active];
 
   const row = (item: (typeof CATALOG)[number]) => (
@@ -125,7 +127,7 @@ function Library({ q }: { q: string }) {
         <button className={'cat-chip' + (active === 'all' ? ' on' : '')} onClick={() => setCategory('all')} title="Pokaż wszystkie kategorie">
           Wszystkie
         </button>
-        {cats.map((cat) => (
+        {chips.map((cat) => (
           <button key={cat} className={'cat-chip' + (active === cat ? ' on' : '')} onClick={() => setCategory(cat)} title={`Pokaż tylko: ${CATEGORY_LABELS[cat]}`}>
             {CATEGORY_LABELS[cat]}
           </button>
