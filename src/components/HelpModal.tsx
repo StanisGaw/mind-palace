@@ -85,6 +85,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         <ul>
           <li>Przycisk <b>Otoczenie</b> (prawy górny róg sceny) ustawia porę dnia, pogodę (deszcz, śnieg, mgła, burza) i rodzaj krajobrazu wokół planszy. Przyciskiem obok wylosujesz nowe ukształtowanie terenu.</li>
           <li>Kategoria <b>Krajobraz</b> w bibliotece zawiera góry, wulkan, głazy, wzgórza i wodę do postawienia na planszy.</li>
+          <li><b>Jakość obrazu</b> (na dole tego samego panelu) dobiera się sama do sprzętu: na telefonie i tablecie średnia, na komputerze wysoka. Możesz ją narzucić ręcznie — niska wyłącza cienie i rysuje w rozdzielczości ekranu. Niezależnie od wyboru, gdy obraz zaczyna się ciąć, rozdzielczość obniża się sama i wraca, kiedy jest lżej.</li>
         </ul>
         <h3>Spacer pamięci (powtórki)</h3>
         <ul>
