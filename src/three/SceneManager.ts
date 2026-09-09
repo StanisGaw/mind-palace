@@ -7,8 +7,9 @@ import { useStore, descendants, movableRoots, selectionRoots } from '../store';
 import { yawOfObject } from '../lib/transform';
 import type { CameraKind, FurnitureSet, Palace, PalaceObject, RoomSpec, Vec3, ViewMode } from '../types';
 import { AMBIENCES, catalogItem, hasInterior } from '../catalog';
-import { buildModel, buildParachute, disposeObject, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN, PLANE_SEAT, PLANE_EXIT, type BuildCtx } from './builders';
+import { buildModel, buildParachute, disposeObject, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN, MOUNT_ANCHORS, type BuildCtx } from './builders';
 import { mergeByMaterial } from './merge';
+import { IDLE_INPUT, MOUNT_SPECS, advanceTrail, isMount, newRideState, rideSettled, stepRide, trailPoint, type MountId, type MountSpec, type RideEnv, type RideInput, type RideState } from '../lib/ride';
 import { ART_VARIANTS } from './art';
 import { hashString } from './noise';
 import { makeTextPanel, disposeTextPanel } from './text';
@@ -50,8 +51,8 @@ interface Entry {
   buildKey: string;
   /** Pivot skrzydła drzwi (obiekty typu `door` i budynki z wnętrzem w miejscu) — obraca go `toggleDoor`. */
   doorPivot?: THREE.Group;
-  /** Śmigło samolotu — scena obraca je w locie. */
-  propeller?: THREE.Object3D;
+  /** Ruchome części wierzchowca po nazwie z `userData.rig` (śmigło, skrzydła, nogi, segmenty) — scena rusza nimi w jeździe. */
+  rig: Map<string, THREE.Object3D>;
   /** Budynek z wnętrzem w tej samej scenie: dach do schowania, stropy pięter i ściany do chowania od strony kamery. */
   inplace: boolean;
   roof: THREE.Object3D | null;
@@ -84,8 +85,6 @@ interface Tween {
 const EYE = 1.6;
 /** Odległość (m) między graczem a celem orbity przy przejściu spacer ↔ edytor; obie strony muszą używać tej samej wartości. */
 const EDITOR_LOOK_AHEAD = 4;
-// lot samolotem: prędkości w m/s
-const PLANE_MAX_SPEED = 24;
 /** Kierunek, z którego świeci słońce (jednostkowy). Mapa cienia jedzie za graczem wzdłuż tej osi. */
 const SUN_DIR = new THREE.Vector3(12, 20, 8).normalize();
 const sunRight = new THREE.Vector3();
@@ -95,21 +94,16 @@ const lightPosTmp = new THREE.Vector3();
 const fwdTmp = new THREE.Vector3();
 /** Połowa boku mapy cienia w spacerze: dalej cieni i tak nie widać, a każdy metr kosztuje ostrość. */
 const WALK_SHADOW_HALF = 26;
-const PLANE_TAKEOFF = 11; // poniżej tej prędkości samolot toczy się po ziemi i nie reaguje na ster wysokości
-const PLANE_STALL = 10; // poniżej: brak siły nośnej, maszyna opada
-const PLANE_CEILING = 90;
 
-interface Flight {
+/** Przejażdżka: gracz siedzi w siodle wierzchowca (samolot, smok, koń, czerw). Dynamika w `lib/ride.ts`. */
+interface Ride {
   id: string;
-  pos: THREE.Vector3; // punkt zaczepienia modelu (kadłub na wysokości kół)
-  yaw: number;
-  pitch: number;
-  roll: number;
-  speed: number;
-  throttle: number; // 0..1
-  onGround: boolean;
-  /** Gracz siedzi za sterami. Po skoku maszyna leci sama: lekki gaz, wyrównany lot, aż stanie na ziemi. */
-  pilot: boolean;
+  mount: MountId;
+  state: RideState;
+  /** Czerw: ślad głowy (płaska tablica xyz w świecie), którym ciągną się segmenty ciała. */
+  trail: number[];
+  /** Faza animacji liczona czasem (skrzydła w zawisie, ogon) — `state.phase` rośnie tylko z drogą. */
+  anim: number;
 }
 /** Zeskok z samolotu: spadek swobodny, potem spadochron. `pos` to stopy gracza. */
 interface Descent {
@@ -350,8 +344,11 @@ export class SceneManager {
   private pitch = 0;
   private touchLook: { id: number; x: number; y: number; moved: boolean } | null = null;
   private fpVel = new THREE.Vector3();
-  /** Lot samolotem: gracz siedzi w kokpicie, a `updateFlight` prowadzi model i kamerę zamiast `updateFp`. */
-  private flight: Flight | null = null;
+  /** Przejażdżka: gracz siedzi w siodle, a `updateRide` prowadzi model i kamerę zamiast `updateFp`. */
+  private ride: Ride | null = null;
+  /** Wejścia jazdy zbierane między klatkami (skok i ogień to zdarzenia, reszta liczona z klawiszy co klatkę). */
+  private rideInput: RideInput = { ...IDLE_INPUT };
+  private rideEnv: RideEnv = { groundAt: (x, z) => this.groundHeightAt(x, z), radius: 24 };
   private descent: Descent | null = null;
   /** Czasza spadochronu, budowana przy pierwszym otwarciu; między skokami tylko ukryta. */
   private chute: THREE.Group | null = null;
@@ -649,7 +646,7 @@ export class SceneManager {
     this.sun.intensity = this.baseLight.sun * f + flash * 1.2;
     const base = this.weather.fog ?? this.ambienceFog;
     // z powietrza widać dużo dalej — mgła dobrana do spaceru zamieniłaby lot w mleczną pustkę
-    const k = this.piloting || this.descent ? 3 : 1;
+    const k = this.riding || this.descent ? 3 : 1;
     const fog = { color: base.color, near: base.near * k, far: base.far * k };
     if (!this.scene.fog || !(this.scene.fog instanceof THREE.Fog)) this.scene.fog = new THREE.Fog(fog.color, fog.near, fog.far);
     else {
@@ -1021,7 +1018,7 @@ export class SceneManager {
         group.traverse((c) => (c.userData.objectId = o.id));
         this.scene.add(group);
         const item = catalogItem(o.type);
-        e = { id: o.id, type: o.type, group, model, height: modelHeight(model), footprint: item.footprint, label: null, labelEl: null, labelKey: '', panel: null, panelKey: '', transformKey: '', emitter: null, buildKey: key, inplace: isInPlace(o), roof: null, slabs: [], walls: [], lights: [] };
+        e = { id: o.id, type: o.type, group, model, height: modelHeight(model), footprint: item.footprint, label: null, labelEl: null, labelKey: '', panel: null, panelKey: '', transformKey: '', emitter: null, buildKey: key, inplace: isInPlace(o), roof: null, slabs: [], walls: [], lights: [], rig: new Map() };
         model.traverse((c) => {
           const l = c as THREE.PointLight;
           if (!l.isPointLight) return;
@@ -1030,7 +1027,14 @@ export class SceneManager {
         });
         // drzwi z Konstrukcji i budynki z wnętrzem w miejscu mają otwierane skrzydło; zagnieżdżone budynki nie (F wchodzi do środka)
         if (o.type === 'door' || e.inplace) model.traverse((c) => { if (c.userData.doorLeaf) e!.doorPivot = c as THREE.Group; });
-        if (o.type === 'plane') model.traverse((c) => { if (c.userData.propeller) e!.propeller = c; });
+        if (isMount(o.type)) {
+          model.traverse((c) => {
+            if (typeof c.userData.rig !== 'string') return;
+            e!.rig.set(c.userData.rig, c);
+            // poza jazdą część wraca do pozy z budowy (uniesiona głowa czerwia, złożone skrzydła)
+            c.userData.rest ??= [c.position.x, c.position.y, c.position.z, c.rotation.x, c.rotation.y, c.rotation.z];
+          });
+        }
         if (e.inplace) {
           model.traverse((c) => {
             if (c.userData.roof) e!.roof = c;
@@ -1045,6 +1049,12 @@ export class SceneManager {
               ? new PuffEmitter({ count: 22, origin: anchor, radius: 0.4, rise: 1.9, life: 3.8, scaleFrom: 0.3, scaleTo: 1.15, color: '#b3aca6', opacity: 0.34, drift: [0.4, 0.14] })
               : item.emitter === 'mist'
                 ? new PuffEmitter({ count: 16, origin: anchor, radius: 0.4, rise: 0.45, life: 1.6, scaleFrom: 0.12, scaleTo: 0.42, color: '#ffffff', opacity: 0.26 })
+                : item.emitter === 'fire'
+                  // oddech smoka: suchy ogień do przodu (−Z), widoczny tylko gdy jeździec każe zionąć (`animateMount`)
+                  ? new PuffEmitter({ count: 14, origin: anchor, radius: 0.1, rise: 0.12, life: 0.65, scaleFrom: 0.07, scaleTo: 0.42, color: '#ff7a28', emissive: '#ff3a00', opacity: 0, drift: [0, -2.4] })
+                  : item.emitter === 'sand'
+                    // kłęby piasku spod czerwia: gęstnieją z prędkością, na postoju znikają
+                    ? new PuffEmitter({ count: 24, origin: anchor, radius: 0.9, rise: 0.6, life: 1.4, scaleFrom: 0.4, scaleTo: 2.2, color: '#c9a36b', opacity: 0, drift: [0, 1.5] })
                 : item.emitter === 'fireflies'
                   ? new SwarmEmitter({ count: 26, origin: [0, 0.4, 0], radius: 2.2, height: 1.6, kind: 'firefly', colors: ['#d8ff7a', '#f4ffb0', '#b8f060'], size: 0.09, speed: 0.8 })
                   : item.emitter === 'insects'
@@ -1099,7 +1109,7 @@ export class SceneManager {
   }
 
   private removeEntry(e: Entry) {
-    if (this.flight?.id === e.id) this.cancelFlight();
+    if (this.ride?.id === e.id) this.cancelRide();
     if (e.label) {
       e.group.remove(e.label);
       e.label.element.remove();
@@ -2098,7 +2108,7 @@ export class SceneManager {
     const prevMode = this.mode;
     if (mode === 'editor') {
       this.abortDescent();
-      if (this.flight) this.piloting ? this.leavePlane(true) : this.parkPlane();
+      if (this.ride) this.riding ? this.leaveMount(true) : this.parkMount();
     }
     if (mode !== 'editor' && this.topView) this.leaveTopView(true);
     if (mode === 'vr') {
@@ -2269,7 +2279,7 @@ export class SceneManager {
         useStore.getState().setVrActive(false);
       });
       // w goglach głowę śledzi headset i kamera nie usiadłaby na fotelu — lot kończymy przed wejściem
-      this.leavePlane(true);
+      this.leaveMount(true);
       await this.renderer.xr.setSession(session);
       st.setVrActive(true);
       st.showToast('Podejdź do obiektu i naciśnij, aby odsłonić notatkę.');
@@ -2319,7 +2329,7 @@ export class SceneManager {
       window.removeEventListener('deviceorientation', this.onOrientation, true);
       this.camera.rotation.set(this.pitch, 0, 0);
       // w kokpicie kamera siedzi w środku riga; poza nim musi wrócić na wysokość oczu
-      if (!this.piloting) this.camera.position.set(0, EYE, 0);
+      if (!this.riding) this.camera.position.set(0, EYE, 0);
       this.rig.rotation.set(0, this.yaw, 0);
       if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined);
       try {
@@ -3086,7 +3096,11 @@ export class SceneManager {
   }
 
   private fpInteract(id: string | null) {
-    if (this.piloting || this.descent) return;
+    if (this.riding) {
+      if (MOUNT_SPECS[this.ride!.mount].hover) this.rideInput.fire = true;
+      return;
+    }
+    if (this.descent) return;
     const st = useStore.getState();
     // zaczepienie zwierzęcia: reaguje, a jeśli punkt ma notatkę, obsługujemy ją dalej jak zwykle
     if (id) this.wildlife.poke(id);
@@ -3120,7 +3134,7 @@ export class SceneManager {
 
   private look(dx: number, dy: number) {
     this.pitch = THREE.MathUtils.clamp(this.pitch - dy, -1.3, 1.3);
-    if (this.piloting) {
+    if (this.riding) {
       // w kokpicie obrót prowadzi maszyna: rozglądanie zostaje w kamerze, względem kadłuba
       this.yaw = THREE.MathUtils.clamp(this.yaw - dx, -2.2, 2.2);
       this.camera.rotation.set(this.pitch, this.yaw, 0);
@@ -3220,9 +3234,9 @@ export class SceneManager {
       if (ev.code === 'KeyF') st.camera('center');
       if (ev.code === 'KeyT') st.camera('topView');
     }
-    if (ev.code === 'KeyF' && this.mode === 'fp' && this.piloting) {
+    if (ev.code === 'KeyF' && this.mode === 'fp' && this.riding) {
       ev.preventDefault();
-      this.leavePlane();
+      this.leaveMount();
       return;
     }
     if (ev.code === 'KeyF' && this.mode === 'fp') {
@@ -3379,19 +3393,19 @@ export class SceneManager {
       // w goglach kontrolery i pad działają równolegle: pada można trzymać, gdy kontrolery leżą na biurku
       if (presenting) this.readXrInput();
       this.readGamepad(dt);
-      if (this.flight) this.updateFlight(dt);
+      if (this.ride) this.updateRide(dt);
       if (this.descent) this.updateDescent(dt);
-      else if (!this.piloting) this.updateFp(dt);
+      else if (!this.riding) this.updateFp(dt);
       if (this.debugPhysics && ++this.debugTick % 10 === 0) this.updatePhysicsDebug();
       if (this.stereo && this.deviceOrient.active) this.applyDeviceOrientation();
     }
 
     if (this.mode !== 'editor' && ++this.doorCheck % 6 === 0) {
       this.updateDoorPrompt();
-      if (!this.piloting && !this.descent) this.updateInsideBuilding();
+      if (!this.riding && !this.descent) this.updateInsideBuilding();
     }
     // spacer: podgląd stawianego obiektu idzie za celownikiem (środek ekranu)
-    if (this.ghost && this.mode === 'fp' && !this.piloting && !this.descent) {
+    if (this.ghost && this.mode === 'fp' && !this.riding && !this.descent) {
       this.pointer.set(0, 0);
       this.updateGhost();
     }
@@ -3531,16 +3545,17 @@ export class SceneManager {
       st.setDoorPrompt(null);
       return;
     }
-    if (this.piloting) {
-      const f = this.flight!;
-      const ready = f.onGround && f.speed < 1.2 && (!this.walkArea || insideGround(this.walkArea, f.pos.x, f.pos.z));
-      st.setDoorPrompt(ready ? { kind: 'leave', objectId: f.id, label: 'Wysiądź z samolotu' } : null);
+    if (this.riding) {
+      const r = this.ride!;
+      const rs = r.state;
+      const ready = rs.onGround && Math.abs(rs.speed) < 1.2 && (!this.walkArea || insideGround(this.walkArea, rs.x, rs.z));
+      st.setDoorPrompt(ready ? { kind: 'leave', objectId: r.id, label: MOUNT_SPECS[r.mount].labels.leave } : null);
       return;
     }
-    const plane = this.planeInReach();
-    if (plane) {
-      const o = p.objects.find((x) => x.id === plane.id);
-      st.setDoorPrompt({ kind: 'board', objectId: plane.id, label: `Wsiądź do: ${o?.name ?? 'Samolot'}` });
+    const mount = this.mountInReach();
+    if (mount && isMount(mount.type)) {
+      const o = p.objects.find((x) => x.id === mount.id);
+      st.setDoorPrompt({ kind: 'board', objectId: mount.id, label: `${MOUNT_SPECS[mount.type].labels.board}: ${o?.name ?? catalogItem(mount.type).name}` });
       return;
     }
     const cam = this.renderer.xr.isPresenting ? this.renderer.xr.getCamera() : this.camera;
@@ -3598,8 +3613,8 @@ export class SceneManager {
     const st = useStore.getState();
     const dp = st.doorPrompt;
     if (!dp) return false;
-    if (dp.kind === 'board' && dp.objectId) this.boardPlane(dp.objectId);
-    else if (dp.kind === 'leave') this.leavePlane();
+    if (dp.kind === 'board' && dp.objectId) this.boardMount(dp.objectId);
+    else if (dp.kind === 'leave') this.leaveMount();
     else if (dp.kind === 'exit') st.exitInterior();
     else if (dp.kind === 'door' && dp.objectId) this.toggleDoor(dp.objectId);
     else if (dp.objectId) st.enterInterior(dp.objectId);
@@ -3679,9 +3694,11 @@ export class SceneManager {
     const jump = edge(0);
     const useA = edge(2);
     const useB = edge(1);
-    if (jump && !this.piloting) this.jump(); // w kokpicie ✕ nic nie robi; w spadku otwiera spadochron
+    // w kokpicie ✕ nic nie robi; na koniu i czerwiu skacze; w spadku otwiera spadochron
+    if (jump && (!this.riding || MOUNT_SPECS[this.ride!.mount].kind === 'ground')) this.jump();
+    if (edge(3) && this.riding) this.rideInput.fire = true; // △ — smok zionie ogniem
     if (useA || useB) {
-      if (this.piloting) this.leavePlane();
+      if (this.riding) this.leaveMount();
       else this.useDoor();
     }
     // krzyżak w locie dokłada i ujmuje gazu
@@ -3726,11 +3743,11 @@ export class SceneManager {
     this.physics?.teleport(tmpV3.set(this.rig.position.x, this.rig.position.y - this.headOffset, this.rig.position.z));
   }
 
-  // ---------- lot samolotem ----------
+  // ---------- przejażdżka: samolot i wierzchowce ----------
 
   /**
-   * Gdzie wolno wsiąść do samolotu. W goglach nie: wysokość głowy podaje headset, więc kamera
-   * nie usiadłaby na fotelu, tylko stała nad nim. Tryb stereo (telefon w goglach) podaje sam obrót
+   * Gdzie wolno wsiąść. W goglach nie: wysokość głowy podaje headset, więc kamera
+   * nie usiadłaby w siodle, tylko stała nad nim. Tryb stereo (telefon w goglach) podaje sam obrót
    * głowy, a pozycję nadal trzyma rig — tam siedzi się dokładnie jak w widoku z oczu.
    */
   private canBoard(): boolean {
@@ -3739,17 +3756,20 @@ export class SceneManager {
   }
 
   /**
-   * Samolot w zasięgu wsiadania: liczy się odległość od kokpitu, bo skrzydło zasłania celownik.
+   * Wierzchowiec w zasięgu wsiadania: liczy się odległość od siodła, bo skrzydło zasłania celownik.
+   * Powiększony wierzchowiec ma odpowiednio większy zasięg — inaczej nie dałoby się dosięgnąć siodła.
    */
-  private planeInReach(): Entry | null {
+  private mountInReach(): Entry | null {
     if (!this.canBoard()) return null;
     let best: Entry | null = null;
-    let bestD = 3.0;
+    let bestD = Infinity;
     for (const e of this.entries.values()) {
-      if (e.type !== 'plane' || !e.group.visible) continue;
-      const seat = e.group.localToWorld(tmpV.set(PLANE_SEAT[0], PLANE_SEAT[1], PLANE_SEAT[2]));
+      if (!isMount(e.type) || !e.group.visible) continue;
+      const a = MOUNT_ANCHORS[e.type].seat;
+      const seat = e.group.localToWorld(tmpV.set(a[0], a[1], a[2]));
       const d = Math.hypot(seat.x - this.rig.position.x, seat.z - this.rig.position.z);
-      if (d < bestD) {
+      const reach = MOUNT_SPECS[e.type].reach * Math.max(1, hs(e));
+      if (d < reach && d < bestD) {
         bestD = d;
         best = e;
       }
@@ -3763,151 +3783,176 @@ export class SceneManager {
     return this.terrain ? this.terrain.heightAt(x, z) : 0;
   }
 
-  /** Zasięg lotu: pierścień terenu, a bez krajobrazu okolica planszy. */
+  /** Zasięg jazdy i lotu: pierścień terenu, a bez krajobrazu okolica planszy. */
   private flightRadius(): number {
     if (this.terrain) return this.terrain.size / 2 - 6;
     return (this.walkArea ? groundExtent(this.walkArea) : 24) * 2;
   }
 
-  private boardPlane(id: string) {
+  boardMount(id: string) {
     if (this.descent) return;
     const e = this.entries.get(id);
     const o = this.lastPalace?.objects.find((x) => x.id === id);
-    if (!e || !o) return;
-    this.flight = {
-      id,
-      pos: e.group.position.clone(),
-      yaw: o.rotation[1],
-      pitch: 0,
-      roll: 0,
-      speed: 0,
-      throttle: 0,
-      onGround: true,
-      pilot: true,
-    };
-    // bryła kolizji zostałaby na miejscu postoju — na czas lotu znika, a po wysiadce wraca z nowej pozycji
+    if (!e || !o || !isMount(e.type)) return;
+    const spec = MOUNT_SPECS[e.type];
+    const p = e.group.position;
+    this.ride = { id, mount: e.type, state: newRideState(p.x, p.y, p.z, o.rotation[1]), trail: [], anim: 0 };
+    if (spec.leap) this.resetTrail(e, this.ride);
+    // bryła kolizji zostałaby na miejscu postoju — na czas jazdy znika, a po zsiadnięciu wraca z nowej pozycji
     this.physics?.removeStatic(id);
     this.yaw = 0;
     this.pitch = -0.1;
     this.camera.position.set(0, 0, 0);
     this.camera.rotation.set(this.pitch, 0, 0);
     const st = useStore.getState();
-    st.setFlying(true);
+    st.setRiding(e.type);
     st.setDoorPrompt(null);
     st.setPlacing(null);
-    st.showToast(
-      this.padSeen
-        ? 'R2 — gaz, L2 — wolniej, lewa gałka — nos i przechył, L1/R1 — kierunek. ▢ na ziemi wysiada, w powietrzu — skok ze spadochronem.'
-        : 'Shift — gaz, Ctrl — wolniej, W/S — nos, A/D — przechył, Q/E — kierunek. F na ziemi wysiada, w powietrzu — skok ze spadochronem.',
-    );
+    st.showToast(this.padSeen ? spec.labels.toastPad : spec.labels.toastKeys);
     this.applyLighting();
   }
 
-  /** Przerywa lot bez zapisywania pozycji: samolot zniknął ze sceny (zmiana pałacu, usunięcie obiektu). */
-  private cancelFlight() {
-    if (!this.flight) return;
-    const pilot = this.flight.pilot;
-    this.flight = null;
-    useStore.getState().setFlying(false);
+  /** Ślad czerwia na start: prosta linia za głową, żeby ciało od pierwszej klatki miało za czym się ciągnąć. */
+  private resetTrail(e: Entry, r: Ride) {
+    const s = r.state;
+    const step = 1.5 * hs(e);
+    r.trail.length = 0;
+    for (let i = 26; i >= 1; i--) r.trail.push(s.x + Math.sin(s.yaw) * step * i, s.y, s.z + Math.cos(s.yaw) * step * i);
+  }
+
+  /** Przerywa jazdę bez zapisywania pozycji: wierzchowiec zniknął ze sceny (zmiana pałacu, usunięcie obiektu). */
+  private cancelRide() {
+    if (!this.ride) return;
+    const pilot = this.ride.state.pilot;
+    this.ride = null;
+    useStore.getState().setRiding(null);
     this.applyLighting();
     // rig ma obrót maszyny (z przechyłem) — bez tego spacer zaczynałby się z przekrzywionym horyzontem
     if (pilot) this.placeRig(this.spawnPose());
   }
 
-  private get piloting(): boolean {
-    return !!this.flight?.pilot;
+  private get riding(): boolean {
+    return !!this.ride?.state.pilot;
   }
 
   /**
-   * Wysiadka: samolot zostaje tam, gdzie stanął (wyrównany, na ziemi), a gracz obok kadłuba.
+   * Zsiadanie: wierzchowiec zostaje tam, gdzie stanął (wyrównany, na ziemi), a gracz obok, twarzą do niego.
    * Bez `force` wymaga postoju na planszy — poza nią nie da się chodzić.
    */
-  leavePlane(force = false): boolean {
-    const f = this.flight;
-    if (!f || !f.pilot) return false;
+  leaveMount(force = false): boolean {
+    const r = this.ride;
+    if (!r || !r.state.pilot) return false;
+    const s = r.state;
+    const spec = MOUNT_SPECS[r.mount];
     const st = useStore.getState();
     if (!force) {
-      // w powietrzu wysiadka to skok ze spadochronem
-      if (!f.onGround) return this.bailOut();
-      if (f.speed > 1.2) {
-        st.showToast('Najpierw zatrzymaj maszynę.');
+      // w powietrzu zsiadanie to skok ze spadochronem; z konia w skoku i czerwia w wyskoku nie da się zejść
+      if (!s.onGround) {
+        if (spec.kind === 'air') return this.bailOut();
+        st.showToast('Poczekaj, aż wierzchowiec opadnie na ziemię.');
         return false;
       }
-      if (this.walkArea && !insideGround(this.walkArea, f.pos.x, f.pos.z)) {
-        st.showToast('Wysiąść można tylko nad planszą — wróć i wyląduj na niej.');
+      if (Math.abs(s.speed) > 1.2) {
+        st.showToast(spec.kind === 'air' ? 'Najpierw zatrzymaj maszynę.' : 'Najpierw zatrzymaj wierzchowca.');
+        return false;
+      }
+      if (this.walkArea && !insideGround(this.walkArea, s.x, s.z)) {
+        st.showToast('Zsiąść można tylko nad planszą — wróć i zatrzymaj się na niej.');
         return false;
       }
     }
-    const yaw = f.yaw;
-    const stand = this.parkPlane();
-    st.setFlying(false);
+    const [mx, mz] = [s.x, s.z];
+    const stand = this.parkMount();
+    st.setRiding(null);
     st.setDoorPrompt(null);
     this.applyLighting();
-    // twarzą do maszyny: lokalne +X samolotu
-    this.placeRig({ x: stand[0], z: stand[1], yaw: yaw - Math.PI / 2 });
+    // twarzą do wierzchowca: przód riga to −Z obrócone o yaw
+    this.placeRig({ x: stand[0], z: stand[1], yaw: Math.atan2(-(mx - stand[0]), -(mz - stand[1])) });
     return true;
   }
 
   /**
-   * Koniec lotu: samolot zostaje tam, gdzie stanął — wyrównany, na ziemi, z kolizją i zapisem w pałacu.
-   * Wspólne dla wysiadki i dla maszyny, która po skoku pilota wytoczyła się sama. Zwraca miejsce obok kadłuba.
+   * Koniec jazdy: wierzchowiec zostaje tam, gdzie stanął — wyrównany, na ziemi, w pozie spoczynkowej, z kolizją
+   * i zapisem w pałacu. Wspólne dla zsiadania i dla maszyny, która po skoku pilota stanęła sama. Zwraca miejsce obok.
    */
-  private parkPlane(): [number, number] {
-    const f = this.flight!;
+  private parkMount(): [number, number] {
+    const r = this.ride!;
+    const s = r.state;
     const st = useStore.getState();
-    const e = this.entries.get(f.id);
-    const pos: Vec3 = [f.pos.x, this.groundHeightAt(f.pos.x, f.pos.z), f.pos.z];
-    const yaw = f.yaw;
-    this.flight = null;
+    const e = this.entries.get(r.id);
+    const pos: Vec3 = [s.x, this.groundHeightAt(s.x, s.z), s.z];
+    const yaw = s.yaw;
+    this.ride = null;
     let stand: [number, number] = [pos[0], pos[2]];
     if (e) {
+      this.restRig(e);
       e.group.position.set(pos[0], pos[1], pos[2]);
       e.group.rotation.set(0, yaw, 0);
       e.group.updateMatrixWorld(true);
-      const out = e.group.localToWorld(tmpV.set(PLANE_EXIT[0], PLANE_EXIT[1], PLANE_EXIT[2]));
+      const a = MOUNT_ANCHORS[r.mount].exit;
+      const out = e.group.localToWorld(tmpV.set(a[0], a[1], a[2]));
       stand = this.clampXZ(out.x, out.z);
-      // kolider wraca tutaj, a nie w `syncObjects`: po locie w kółko pozycja bywa ta sama, więc klucz
+      // kolider wraca tutaj, a nie w `syncObjects`: po jeździe w kółko pozycja bywa ta sama, więc klucz
       // przekształcenia się nie zmienia i wpis zostałby bez bryły kolizji
-      this.physics?.setStatic(f.id, this.shapeFor(e), e.group.position, e.group.quaternion, e.group.scale);
+      this.physics?.setStatic(r.id, this.shapeFor(e), e.group.position, e.group.quaternion, e.group.scale);
     }
-    const id = f.id;
+    const id = r.id;
     st.setPalace((pl) => {
       const o = pl.objects.find((x) => x.id === id);
       if (!o) return;
       o.position = pos;
       o.rotation = [0, yaw, 0];
-      delete o.anchorId; // po locie samolot nie stoi już na tym, na czym zaparkował
+      delete o.anchorId; // po jeździe wierzchowiec nie stoi już na tym, na czym zaparkował
     });
     return stand;
   }
 
+  /** Poza jazdą ruchome części wracają do pozy z budowy; kłęby ognia i piasku gasną. */
+  private restRig(e: Entry) {
+    for (const c of e.rig.values()) {
+      const rest = c.userData.rest as number[] | undefined;
+      if (!rest) continue;
+      c.position.set(rest[0], rest[1], rest[2]);
+      c.rotation.set(rest[3], rest[4], rest[5]);
+    }
+    e.model.position.set(0, 0, 0);
+    this.setEmitterOpacity(e, 0);
+  }
+
+  private setEmitterOpacity(e: Entry, opacity: number) {
+    const m = e.emitter?.object as THREE.InstancedMesh | undefined;
+    if (m?.material) (m.material as THREE.MeshStandardMaterial).opacity = opacity;
+  }
+
   // ---------- skok ze spadochronem ----------
 
-  /** Skok z samolotu: gracz wypada z fotela z pędem maszyny, a ta leci dalej sama. */
+  /** Skok z siodła: gracz wypada z pędem maszyny, a ta leci dalej sama. */
   private bailOut(): boolean {
-    const f = this.flight;
-    const e = f && this.entries.get(f.id);
-    if (!f || !e) return false;
+    const r = this.ride;
+    const e = r && this.entries.get(r.id);
+    if (!r || !e) return false;
+    const s = r.state;
     const st = useStore.getState();
-    if (f.pos.y - this.groundHeightAt(f.pos.x, f.pos.z) < BAIL_MIN_HEIGHT) {
+    if (s.y - this.groundHeightAt(s.x, s.z) < BAIL_MIN_HEIGHT) {
       st.showToast('Za nisko na skok — nabierz wysokości albo wyląduj.');
       return false;
     }
-    if (this.walkArea && !insideGround(this.walkArea, f.pos.x, f.pos.z)) {
+    if (this.walkArea && !insideGround(this.walkArea, s.x, s.z)) {
       st.showToast('Skoczyć można tylko nad planszą — poza nią nie da się chodzić.');
       return false;
     }
-    f.pilot = false;
-    const seat = e.group.localToWorld(tmpV.set(PLANE_SEAT[0], PLANE_SEAT[1], PLANE_SEAT[2]));
-    const horiz = Math.cos(f.pitch) * f.speed;
+    s.pilot = false;
+    const a = MOUNT_ANCHORS[r.mount].seat;
+    const seat = e.group.localToWorld(tmpV.set(a[0], a[1], a[2]));
+    const horiz = Math.cos(s.pitch) * s.speed;
     this.descent = {
       pos: new THREE.Vector3(seat.x, seat.y - EYE, seat.z),
-      vel: new THREE.Vector3(-Math.sin(f.yaw) * horiz, Math.sin(f.pitch) * f.speed, -Math.cos(f.yaw) * horiz),
+      vel: new THREE.Vector3(-Math.sin(s.yaw) * horiz, Math.sin(s.pitch) * s.speed, -Math.cos(s.yaw) * horiz),
       chute: false,
       opened: 0,
     };
-    // rig prostuje się do kursu maszyny; w kokpicie kamera siedziała w jego środku, teraz wraca na oczy
-    this.yaw = f.yaw;
+    // rig prostuje się do kursu maszyny; w siodle kamera siedziała w jego środku, teraz wraca na oczy
+    this.yaw = s.yaw;
     this.pitch = -0.35;
     this.rig.position.copy(this.descent.pos);
     this.rig.rotation.set(0, this.yaw, 0);
@@ -3915,7 +3960,7 @@ export class SceneManager {
       this.camera.position.set(0, EYE, 0);
       if (!this.stereo) this.camera.rotation.set(this.pitch, 0, 0);
     }
-    st.setFlying(false);
+    st.setRiding(null);
     st.setDescent('fall');
     st.setDoorPrompt(null);
     st.showToast(this.padSeen ? 'Spadasz! ✕ otwiera spadochron.' : 'Spadasz! Spacja otwiera spadochron.');
@@ -4019,107 +4064,168 @@ export class SceneManager {
     useStore.getState().setDescent(null);
   }
 
-  /** Skokowa zmiana gazu — przyciski na telefonie i Spacja. */
+  /** Skokowa zmiana gazu — przyciski na telefonie, Spacja i krzyżak pada. Koń nie ma gazu. */
   throttleStep(d: number) {
-    const f = this.flight;
-    if (!f?.pilot) return;
-    f.throttle = THREE.MathUtils.clamp(f.throttle + d, 0, 1);
+    const r = this.ride;
+    if (!r?.state.pilot) return;
+    const spec = MOUNT_SPECS[r.mount];
+    if (spec.kind === 'ground' && !spec.leap) return;
+    r.state.throttle = THREE.MathUtils.clamp(r.state.throttle + d, 0, 1);
   }
 
-  private updateFlight(dt: number) {
-    const f = this.flight;
-    if (!f) return;
-    const e = this.entries.get(f.id);
+  private updateRide(dt: number) {
+    const r = this.ride;
+    if (!r) return;
+    const e = this.entries.get(r.id);
     if (!e) {
-      this.cancelFlight();
+      this.cancelRide();
       return;
     }
+    const s = r.state;
+    const spec = MOUNT_SPECS[r.mount];
     const k = this.keys;
     const clamp = THREE.MathUtils.clamp;
-    const damp = THREE.MathUtils.damp;
-
-    if (f.pilot) {
-      const thr = clamp((k.has('ShiftLeft') || k.has('ShiftRight') ? 1 : 0) - (k.has('ControlLeft') || k.has('ControlRight') ? 1 : 0) + this.padThrottle, -1, 1);
-      f.throttle = clamp(f.throttle + thr * dt * 0.5, 0, 1);
+    const key = (...codes: string[]) => (codes.some((c) => k.has(c)) ? 1 : 0);
+    const shift = key('ShiftLeft', 'ShiftRight');
+    const ctrl = key('ControlLeft', 'ControlRight');
+    const w = key('KeyW', 'ArrowUp');
+    const sKey = key('KeyS', 'ArrowDown');
+    const aKey = key('KeyA', 'ArrowLeft');
+    const dKey = key('KeyD', 'ArrowRight');
+    const q = key('KeyQ');
+    const eKey = key('KeyE');
+    const inp = this.rideInput;
+    if (spec.kind === 'ground' && !spec.leap) {
+      // koń: W/S to naprzód i wstecz, gałki jak w spacerze (do przodu to ujemne Y), skręt jak przechył w locie
+      inp.throttle = clamp(w - sKey - this.joystick.y - this.pad.y, -1, 1);
+      inp.turn = clamp(dKey - aKey + eKey - q + this.joystick.x + this.pad.x + this.padYaw, -1, 1);
+      inp.sprint = shift > 0 || this.padSprint;
+      inp.pitch = 0;
+      inp.roll = 0;
+      inp.yaw = 0;
     } else {
-      // bez pilota: w powietrzu lekki gaz (0,3 — poniżej prędkości przeciągnięcia) daje długie, płaskie
-      // szybowanie zamiast pionowego spadku po utracie siły nośnej; na ziemi gaz do zera, maszyna staje
-      f.throttle = damp(f.throttle, f.onGround ? 0 : 0.3, 1.5, dt);
+      inp.throttle = clamp(shift - ctrl + this.padThrottle, -1, 1);
+      inp.pitch = clamp(sKey - w + this.joystick.y + this.pad.y, -1, 1);
+      inp.roll = clamp(dKey - aKey + this.joystick.x + this.pad.x, -1, 1);
+      inp.yaw = clamp(eKey - q + this.padYaw, -1, 1);
+      inp.turn = spec.leap ? clamp(inp.roll + inp.yaw, -1, 1) : 0; // czerw: A/D i Q/E skręcają
+      inp.sprint = false;
     }
-    f.speed = damp(f.speed, f.throttle * PLANE_MAX_SPEED, 0.5, dt);
-
-    const pitchIn = f.pilot ? clamp((k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) - (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) + this.joystick.y + this.pad.y, -1, 1) : 0;
-    const rollIn = f.pilot ? clamp((k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) + this.joystick.x + this.pad.x, -1, 1) : 0;
-    const yawIn = f.pilot ? clamp((k.has('KeyE') ? 1 : 0) - (k.has('KeyQ') ? 1 : 0) + this.padYaw, -1, 1) : 0;
-    // stery działają tym mocniej, im większy opływ — przy postoju maszyna nie reaguje
-    const auth = clamp(f.speed / PLANE_TAKEOFF, 0, 1);
-
-    if (f.onGround && f.speed < PLANE_TAKEOFF) {
-      f.pitch = damp(f.pitch, 0, 6, dt);
-      f.roll = damp(f.roll, 0, 6, dt);
-      f.yaw -= (yawIn * 0.9 + rollIn * 0.7) * Math.min(f.speed / 5, 1) * dt; // kołowanie kółkiem ogonowym
-    } else {
-      f.pitch = clamp(f.pitch + pitchIn * 1.0 * auth * dt, -0.8, 0.8);
-      f.roll = clamp(f.roll - rollIn * 1.7 * auth * dt, -1.1, 1.1);
-      // puszczone stery same wracają do lotu poziomego — inaczej łatwo wpaść w spiralę
-      if (pitchIn === 0) f.pitch = damp(f.pitch, 0, 0.6, dt);
-      if (!f.pilot) f.roll = damp(f.roll, -0.5, 1.5, dt); // porzucona maszyna krąży, zamiast odlecieć za horyzont
-      else if (rollIn === 0) f.roll = damp(f.roll, 0, 0.9, dt);
-      f.yaw += (Math.sin(f.roll) * 0.9 * auth - yawIn * 0.8) * dt; // przechył zakręca
-      if (f.onGround) {
-        f.roll = damp(f.roll, 0, 5, dt);
-        f.pitch = Math.max(f.pitch, 0);
-      }
-    }
-
-    const lift = clamp(f.speed / PLANE_STALL, 0, 1);
-    const horiz = Math.cos(f.pitch) * f.speed;
-    f.pos.x -= Math.sin(f.yaw) * horiz * dt;
-    f.pos.z -= Math.cos(f.yaw) * horiz * dt;
-    f.pos.y += (Math.sin(f.pitch) * f.speed - (1 - lift) * 7) * dt;
-
-    const r = this.flightRadius();
-    const d = Math.hypot(f.pos.x, f.pos.z);
-    if (d > r) {
-      f.pos.x *= r / d;
-      f.pos.z *= r / d;
-    }
-    f.pos.y = Math.min(f.pos.y, PLANE_CEILING);
-    // bez pilota maszyna nie opuszcza planszy: gdzie stanie, tam trzeba do niej dojść
-    if (!f.pilot && this.walkArea) {
-      const [bx, bz] = clampToGround(this.walkArea, f.pos.x, f.pos.z, 0);
-      f.pos.x = bx;
-      f.pos.z = bz;
-    }
-    const gy = this.groundHeightAt(f.pos.x, f.pos.z);
-    if (f.pos.y <= gy) {
-      f.pos.y = gy;
-      if (!f.onGround) {
-        // przyziemienie hamuje maszynę i ścina gaz do tego, co zostało z prędkości
-        f.speed *= 0.72;
-        f.throttle = Math.min(f.throttle, f.speed / PLANE_MAX_SPEED);
-      }
-      f.onGround = true;
-    } else f.onGround = false;
+    this.rideEnv.radius = this.flightRadius();
+    const area = this.walkArea;
+    this.rideEnv.clampToBoard = area ? (x, z) => clampToGround(area, x, z, 0) : undefined;
+    stepRide(s, inp, spec, this.rideEnv, dt);
+    // skok i ogień to zdarzenia — zużyte w tym kroku
+    inp.jump = false;
+    inp.fire = false;
 
     // maszyna bez pilota: po wytoczeniu staje i wraca do pałacu jako zwykły obiekt
-    if (!f.pilot && f.onGround && f.speed < 0.3) {
-      this.parkPlane();
+    if (rideSettled(s)) {
+      this.parkMount();
       return;
     }
 
-    // kąty zawijamy do pełnego obrotu: po długim locie trafiają do zapisu pałacu i do macierzy
-    f.yaw = Math.atan2(Math.sin(f.yaw), Math.cos(f.yaw));
-    e.group.position.copy(f.pos);
-    e.group.quaternion.setFromEuler(flightEuler.set(f.pitch, f.yaw, f.roll));
+    e.group.position.set(s.x, s.y, s.z);
+    e.group.quaternion.setFromEuler(flightEuler.set(s.pitch, s.yaw, s.roll));
     e.group.updateMatrixWorld(true);
-    if (e.propeller) e.propeller.rotation.z = (e.propeller.rotation.z + (1.5 + f.speed * 1.6) * dt) % (Math.PI * 2);
+    this.animateMount(e, r, spec, dt);
 
-    // kamera siedzi w kokpicie: rig przejmuje pełny obrót maszyny, rozglądanie zostaje w kamerze
-    if (f.pilot) {
-      this.rig.position.copy(e.group.localToWorld(tmpV.set(PLANE_SEAT[0], PLANE_SEAT[1], PLANE_SEAT[2])));
-      this.rig.quaternion.copy(e.group.quaternion);
+    // kamera siedzi w siodle: rig przejmuje obrót maszyny, rozglądanie zostaje w kamerze
+    if (s.pilot) {
+      const a = MOUNT_ANCHORS[r.mount].seat;
+      this.rig.position.copy(e.group.localToWorld(tmpV.set(a[0], a[1], a[2])));
+      // koń podskakuje tułowiem, ale jeździec nie ma kiwać horyzontem — rig bierze sam obrót w poziomie
+      if (spec.kind === 'ground' && !spec.leap) this.rig.quaternion.setFromEuler(flightEuler.set(0, s.yaw, 0));
+      else this.rig.quaternion.copy(e.group.quaternion);
     }
+  }
+
+  /** Ruchome części wierzchowca w jeździe: śmigło, skrzydła i ogon smoka, nogi konia, segmenty i paszcza czerwia. */
+  private animateMount(e: Entry, r: Ride, spec: MountSpec, dt: number) {
+    const s = r.state;
+    const rig = e.rig;
+    const damp = THREE.MathUtils.damp;
+    const prop = rig.get('propeller');
+    if (prop) prop.rotation.z = (prop.rotation.z + (1.5 + s.speed * 1.6) * dt) % (Math.PI * 2);
+
+    if (spec.hover) {
+      // smok: na ziemi skrzydła ledwo drgają, w powietrzu machają tym szybciej, im więcej gazu
+      r.anim += dt * (s.onGround ? 1.5 : 4 + s.throttle * 5);
+      const flap = Math.sin(r.anim) * (s.onGround ? 0.08 : 0.5);
+      const wl = rig.get('wingL');
+      const wr = rig.get('wingR');
+      if (wl) wl.rotation.z = -flap;
+      if (wr) wr.rotation.z = flap;
+      const tail = rig.get('tail');
+      if (tail) {
+        tail.rotation.y = Math.sin(r.anim * 0.45) * 0.18;
+        tail.rotation.x = Math.sin(r.anim * 0.3) * 0.08;
+      }
+      for (const name of ['legFL', 'legFR', 'legBL', 'legBR']) {
+        const leg = rig.get(name);
+        if (leg) leg.rotation.x = damp(leg.rotation.x, s.onGround ? 0 : -0.9, 5, dt); // w locie nogi podkulone
+      }
+      this.setEmitterOpacity(e, s.fire > 0 ? 0.75 : 0);
+      return;
+    }
+
+    if (spec.leap) {
+      this.animateWorm(e, r, spec, dt);
+      return;
+    }
+
+    if (spec.kind === 'ground') {
+      // koń: kłus po przekątnej — faza rośnie z drogą, więc na postoju nogi stoją
+      r.anim += dt * 3;
+      const amp = Math.min(Math.abs(s.speed) / 4, 1) * 0.55;
+      const sw = Math.sin(s.phase * 2.8);
+      const pairs: [string, number][] = [['legFL', 1], ['legBR', 1], ['legFR', -1], ['legBL', -1]];
+      for (const [name, sign] of pairs) {
+        const leg = rig.get(name);
+        if (!leg) continue;
+        leg.rotation.x = s.onGround ? sw * amp * sign : damp(leg.rotation.x, -0.5, 6, dt);
+      }
+      const head = rig.get('head');
+      if (head) head.rotation.x = (head.userData.rest as number[])[3] + Math.sin(s.phase * 2.8) * 0.06 * amp;
+      const tail = rig.get('tail');
+      if (tail) tail.rotation.y = Math.sin(r.anim) * 0.2;
+      e.model.position.y = s.onGround ? Math.abs(sw) * 0.1 * amp : 0;
+    }
+  }
+
+  /**
+   * Czerw: głowa prostuje się z pozy spoczynkowej, segmenty ciągną się śladem głowy (pod ziemią, gdy próbki
+   * pochodzą sprzed wyskoku), paszcza rozchyla się w pierwszej połowie skoku, a piasek kłębi się z prędkością.
+   */
+  private animateWorm(e: Entry, r: Ride, spec: MountSpec, dt: number) {
+    const s = r.state;
+    const rig = e.rig;
+    const damp = THREE.MathUtils.damp;
+    const head = rig.get('head');
+    if (head) head.rotation.x = damp(head.rotation.x, 0, 4, dt);
+    const scale = hs(e);
+    advanceTrail(r.trail, s.x, s.y, s.z, 1.5 * scale, 26);
+    const seg = 3 * scale;
+    for (let i = 0; ; i++) {
+      const part = rig.get(`seg${i}`);
+      if (!part) break;
+      const ahead = trailPoint(r.trail, s.x, s.y, s.z, i * seg + 1.5 * scale);
+      const center = trailPoint(r.trail, s.x, s.y, s.z, (i + 1) * seg + 1.5 * scale);
+      part.position.copy(e.group.worldToLocal(tmpV.set(center[0], center[1], center[2])));
+      part.position.y += (part.userData.radius as number | undefined) ?? 0;
+      // segment patrzy w stronę poprzednika: +Z lokalne w stronę głowy, więc szerszy koniec z przodu
+      part.lookAt(tmpV2.set(ahead[0], ahead[1] + ((part.userData.radius as number | undefined) ?? 0) * e.group.scale.y, ahead[2]));
+    }
+    const leaping = s.leapT >= 0 && spec.leap && s.leapT < spec.leap.duration * 0.5;
+    for (const name of ['jawL', 'jawR', 'jawT']) {
+      const jaw = rig.get(name);
+      if (!jaw) continue;
+      const rest = (jaw.userData.rest as number[])[3];
+      const sign = rest < 0 ? -1 : 1;
+      jaw.rotation.x = damp(jaw.rotation.x, leaping ? sign * 0.9 : rest, 5, dt);
+    }
+    const burst = spec.leap && s.leapT < 0 && s.onGround && s.pitch < -0.2 ? 0.9 : 0;
+    this.setEmitterOpacity(e, s.onGround ? Math.max(Math.min(Math.abs(s.speed) / 8, 1) * 0.5, burst) : 0);
   }
 
   private updateFp(dt: number) {
@@ -4178,8 +4284,11 @@ export class SceneManager {
       this.openChute();
       return;
     }
-    if (this.piloting) {
-      this.throttleStep(0.25);
+    if (this.riding) {
+      const spec = MOUNT_SPECS[this.ride!.mount];
+      if (spec.hover) this.rideInput.fire = true; // smok zionie
+      else if (spec.kind === 'air') this.throttleStep(0.25);
+      else this.rideInput.jump = true; // koń skacze, czerw wyskakuje z piasku
       return;
     }
     this.jumpBuffer = 0.15;

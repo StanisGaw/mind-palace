@@ -6,6 +6,7 @@ import { paintingTexture } from './art';
 import { Noise2D } from './noise';
 import { grainTexture, textureById } from './textures';
 import { MATERIAL_DEFAULTS, MATERIAL_ROLES, paletteOf, type MaterialRole } from '../lib/materials';
+import type { MountId } from '../lib/ride';
 
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
 export interface MatOpts {
@@ -953,7 +954,7 @@ function buildPlane(g: THREE.Group) {
   // śmigło: osobna grupa, którą scena obraca w locie
   const prop = new THREE.Group();
   prop.position.set(0, 1.0, -2.42);
-  prop.userData.propeller = true;
+  prop.userData.rig = 'propeller';
   g.add(prop);
   add(prop, cone(0.2, 0.42, 10), accent, 0, 0, -0.16, [-Math.PI / 2, 0, 0]);
   add(prop, box(0.16, 1.75, 0.04), woodMat(C.wood), 0, 0, 0);
@@ -1951,10 +1952,16 @@ export const DOORS: Record<string, { local: [number, number, number]; outside: [
 /** Punkt, w którym staje gracz wchodząc przez bramę (lokalnie, przed bramą). */
 export const GATE_SPAWN: [number, number, number] = [0, 0, 1.8];
 
-/** Oczy pilota w kokpicie samolotu (lokalne współrzędne modelu). */
-export const PLANE_SEAT: [number, number, number] = [0, 1.66, 0.16];
-/** Miejsce, w którym pilot staje po wysiadce — obok kadłuba, za skrzydłem. */
-export const PLANE_EXIT: [number, number, number] = [-1.9, 0, 1.4];
+/**
+ * Siodło (oczy jeźdźca) i miejsce, w którym staje po zsiadnięciu — w lokalnych współrzędnych modelu.
+ * Samolot: fotel w kokpicie, wysiadka obok kadłuba za skrzydłem. Czerw: siodło liczone dla wyprostowanej głowy.
+ */
+export const MOUNT_ANCHORS: Record<MountId, { seat: [number, number, number]; exit: [number, number, number] }> = {
+  plane: { seat: [0, 1.66, 0.16], exit: [-1.9, 0, 1.4] },
+  dragon: { seat: [0, 2.9, 0.3], exit: [2.4, 0, 0.6] },
+  horse: { seat: [0, 2.35, 0.05], exit: [1.1, 0, 0.2] },
+  sandworm: { seat: [0, 4.3, 0.9], exit: [3.2, 0, 1.0] },
+};
 
 /**
  * Czasza spadochronu nad graczem: półkula z klinami na przemian w dwóch kolorach i linki do ramion.

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { MountId } from './lib/ride';
 import type { AppData, CameraKind, FurnitureSet, Palace, PalaceObject, Rating, SoundLevels, Tool, Vec3, ViewMode } from './types';
 import { ROOMS, catalogItem, hasInterior } from './catalog';
 import { uid } from './lib/ids';
@@ -52,8 +53,8 @@ interface State {
   topView: boolean; // aktywny rzut z góry na całą planszę
   sceneEntry: { kind: 'enter' | 'exit'; objectId: string; seq: number } | null;
   doorPrompt: { kind: 'enter' | 'exit' | 'door' | 'board' | 'leave'; objectId?: string; label: string } | null;
-  /** Gracz siedzi w samolocie (spacer zamienia się w lot) — steruje podpowiedziami interfejsu. */
-  flying: boolean;
+  /** Gracz siedzi w siodle wierzchowca (spacer zamienia się w jazdę albo lot) — steruje podpowiedziami interfejsu. */
+  riding: MountId | null;
   /** Gracz wyskoczył z samolotu: spada swobodnie albo wisi na spadochronie. */
   descent: 'fall' | 'chute' | null;
   /** Pad zauważony w tej sesji — pasek podpowiedzi pokazuje wtedy przyciski pada zamiast klawiszy. */
@@ -79,7 +80,7 @@ interface State {
   exitInterior(): void;
   setInsideBuilding(id: string | null): void;
   setDoorPrompt(p: State['doorPrompt']): void;
-  setFlying(v: boolean): void;
+  setRiding(v: MountId | null): void;
   setDescent(v: State['descent']): void;
   setPadSeen(): void;
   setEditFloor(n: number): void;
@@ -384,7 +385,7 @@ export const useStore = create<State>((set, get) => ({
   topView: false,
   sceneEntry: null,
   doorPrompt: null,
-  flying: false,
+  riding: null,
   descent: null,
   padSeen: false,
   insideBuildingId: null,
@@ -796,8 +797,8 @@ export const useStore = create<State>((set, get) => ({
   setDescent(v) {
     if (get().descent !== v) set({ descent: v });
   },
-  setFlying(v) {
-    if (get().flying !== v) set({ flying: v });
+  setRiding(v) {
+    if (get().riding !== v) set({ riding: v });
   },
   setDoorPrompt(p) {
     const cur = get().doorPrompt;
