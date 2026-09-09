@@ -34,6 +34,7 @@ export function Viewport() {
   const topView = useStore((s) => s.topView);
   const doorPrompt = useStore((s) => s.doorPrompt);
   const flying = useStore((s) => s.flying);
+  const padSeen = useStore((s) => s.padSeen);
   const setSettings = useStore((s) => s.setSettings);
   const palace = useCurrentPalace();
   const activeBuildingId = useStore((s) => s.activeBuildingId);
@@ -216,11 +217,15 @@ export function Viewport() {
         ) : viewMode === 'fp' ? (
           flying ? (
             <span>
-              <I.Plane width={12} height={12} /> Shift/Ctrl — gaz · W/S — nos · A/D — przechył · Q/E — kierunek · mysz — rozglądanie · F — wysiądź
+              <I.Plane width={12} height={12} />{' '}
+              {padSeen
+                ? 'R2/L2 — gaz · lewa gałka — nos i przechył · L1/R1 — kierunek · prawa gałka — rozglądanie · ▢ — wysiądź'
+                : 'Shift/Ctrl — gaz · W/S — nos · A/D — przechył · Q/E — kierunek · mysz — rozglądanie · F — wysiądź'}
             </span>
           ) : (
             <span>
-              <I.Eye width={12} height={12} /> WASD — chodzenie · Spacja — skok · F — drzwi · Esc — kursor
+              <I.Eye width={12} height={12} />{' '}
+              {padSeen ? 'Lewa gałka — chodzenie · ✕ — skok · ▢ — drzwi · spusty — bieg' : 'WASD — chodzenie · Spacja — skok · F — drzwi · Esc — kursor'}
             </span>
           )
         ) : null}
