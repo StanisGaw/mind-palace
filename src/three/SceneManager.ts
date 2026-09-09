@@ -4075,6 +4075,9 @@ export class SceneManager {
     for (let iter = 0; iter < 3; iter++) {
       for (const e of this.entries.values()) {
         if (e.id === ignoreId || e.inplace) continue; // do budynku z wnętrzem w miejscu się wchodzi
+        // ścieżki i zwierzęta nie mają bryły także w fizyce; ścieżka ma skalę X równą długości, więc jej
+        // „koło” objęłoby pół planszy
+        if (colliderKind(e.type) === 'none') continue;
         const r = e.footprint * 0.75 * hs(e) + margin;
         const dx = px - e.group.position.x;
         const dz = pz - e.group.position.z;
@@ -4167,9 +4170,6 @@ export class SceneManager {
     window.removeEventListener('pointerup', this.onPointerUp);
     window.removeEventListener('pointercancel', this.onPointerUp);
     window.removeEventListener('keydown', this.onKeyDown);
-        // ścieżki i zwierzęta nie mają bryły także w fizyce; ścieżka ma skalę X równą długości, więc jej
-        // „koło” objęłoby pół planszy
-        if (colliderKind(e.type) === 'none') continue;
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onWindowBlur);
     document.removeEventListener('pointerlockchange', this.onLockChange);
