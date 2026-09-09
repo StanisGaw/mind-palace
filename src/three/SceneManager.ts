@@ -305,6 +305,8 @@ export class SceneManager {
   private padThrottle = 0;
   /** L1/R1 w locie: ster kierunku. Prawa gałka zostaje przy rozglądaniu się po kokpicie. */
   private padYaw = 0;
+  /** Histereza obrotu skokowego z pada — osobna od kontrolerów, żeby jedno wejście nie rozbrajało drugiego. */
+  private padTurnArmed = false;
   private padSeen = false;
   /** Dotyk: po postawieniu zostań w trybie stawiania (odpowiednik Shift). */
   stickyPlacing = false;
@@ -2055,7 +2057,7 @@ export class SceneManager {
 
   private setMode(mode: ViewMode) {
     const prevMode = this.mode;
-    if (this.flight && mode !== 'fp') this.leavePlane(true);
+    if (this.flight && mode === 'editor') this.leavePlane(true);
     if (mode !== 'editor' && this.topView) this.leaveTopView(true);
     if (mode === 'vr') {
       this.mode = 'vr';
@@ -2063,12 +2065,14 @@ export class SceneManager {
       this.ensurePhysics();
       this.orbit.enabled = false;
       this.labelRenderer.domElement.style.display = 'none';
+      // punkt startu wyznaczamy tylko wtedy, gdy gracz dopiero wchodzi do świata; przełączenie
+      // spaceru na VR i z powrotem ma zostawić go tam, gdzie stał — inaczej zwiedzanie zaczyna się od nowa
+      if (prevMode === 'editor') this.editorToFp();
       this.enterVR().catch((err) => {
         console.error(err);
         useStore.getState().showToast('Nie udało się uruchomić VR: ' + (err as Error).message);
         useStore.getState().setViewMode('fp');
       });
-      if (prevMode === 'editor') this.editorToFp();
       this.applyFloorVisibility();
       this.refreshLabels(this.lastPalace!);
       this.refreshPanels(this.lastPalace!);
@@ -2202,9 +2206,10 @@ export class SceneManager {
         if (useStore.getState().viewMode === 'vr') useStore.getState().setViewMode('fp');
         useStore.getState().setVrActive(false);
       });
+      // w goglach głowę śledzi headset i kamera nie usiadłaby na fotelu — lot kończymy przed wejściem
+      this.leavePlane(true);
       await this.renderer.xr.setSession(session);
       st.setVrActive(true);
-      this.placeRig(this.spawnPose());
       st.showToast('Podejdź do obiektu i naciśnij, aby odsłonić notatkę.');
       return;
     }
@@ -2240,7 +2245,6 @@ export class SceneManager {
       /* ignoruj */
     }
     st.setVrActive(true);
-    this.placeRig(this.spawnPose());
   }
 
   private exitVR() {
@@ -3228,8 +3232,9 @@ export class SceneManager {
       this.orbit.update();
     } else if (this.mode === 'fp' || this.mode === 'vr') {
       if (this.jumpBuffer > 0) this.jumpBuffer = Math.max(0, this.jumpBuffer - dt);
+      // w goglach kontrolery i pad działają równolegle: pada można trzymać, gdy kontrolery leżą na biurku
       if (presenting) this.readXrInput();
-      else this.readGamepad(dt);
+      this.readGamepad(dt);
       if (this.flight) this.updateFlight(dt);
       else this.updateFp(dt);
       if (this.debugPhysics && ++this.debugTick % 10 === 0) this.updatePhysicsDebug();
@@ -3493,7 +3498,13 @@ export class SceneManager {
     this.pad.y = dead(gp.axes[1] ?? 0);
     const lookX = dead(gp.axes[2] ?? 0);
     const lookY = dead(gp.axes[3] ?? 0);
-    if (lookX !== 0 || lookY !== 0) this.look(lookX * 2.6 * dt, lookY * 2.0 * dt);
+    if (this.renderer.xr.isPresenting) {
+      // w goglach głową kieruje headset: prawa gałka obraca skokowo, tak samo jak kontroler
+      if (Math.abs(lookX) > 0.6 && !this.padTurnArmed) {
+        this.padTurnArmed = true;
+        this.snapTurn(lookX);
+      } else if (Math.abs(lookX) < 0.3) this.padTurnArmed = false;
+    } else if (lookX !== 0 || lookY !== 0) this.look(lookX * 2.6 * dt, lookY * 2.0 * dt);
     const down = (i: number) => !!gp.buttons[i]?.pressed;
     const edge = (i: number) => {
       if (!down(i)) {
@@ -3544,26 +3555,43 @@ export class SceneManager {
     // obrót skokowy z histerezą, żeby jedno wychylenie dało jeden obrót
     if (Math.abs(turn) > 0.6 && !this.snapTurnArmed) {
       this.snapTurnArmed = true;
-      const a = Math.sign(turn) * -(Math.PI / 6);
-      const head = this.renderer.xr.getCamera().getWorldPosition(tmpV2);
-      this.rig.rotation.y += a;
-      const dx = this.rig.position.x - head.x;
-      const dz = this.rig.position.z - head.z;
-      this.rig.position.x = head.x + dx * Math.cos(a) + dz * Math.sin(a);
-      this.rig.position.z = head.z - dx * Math.sin(a) + dz * Math.cos(a);
-      this.yaw = this.rig.rotation.y;
-      this.physics?.teleport(tmpV3.set(this.rig.position.x, this.rig.position.y - this.headOffset, this.rig.position.z));
+      this.snapTurn(turn);
     } else if (Math.abs(turn) < 0.3) this.snapTurnArmed = false;
+  }
+
+  /**
+   * Obrót o 30° wokół głowy — płynne obracanie w goglach wywołuje mdłości, więc i kontroler, i pad
+   * obracają skokowo. Głowa zostaje w miejscu, obraca się rig, więc ciało fizyki trzeba przestawić.
+   */
+  private snapTurn(dir: number) {
+    const a = Math.sign(dir) * -(Math.PI / 6);
+    const head = this.renderer.xr.getCamera().getWorldPosition(tmpV2);
+    this.rig.rotation.y += a;
+    const dx = this.rig.position.x - head.x;
+    const dz = this.rig.position.z - head.z;
+    this.rig.position.x = head.x + dx * Math.cos(a) + dz * Math.sin(a);
+    this.rig.position.z = head.z - dx * Math.sin(a) + dz * Math.cos(a);
+    this.yaw = this.rig.rotation.y;
+    this.physics?.teleport(tmpV3.set(this.rig.position.x, this.rig.position.y - this.headOffset, this.rig.position.z));
   }
 
   // ---------- lot samolotem ----------
 
   /**
+   * Gdzie wolno wsiąść do samolotu. W goglach nie: wysokość głowy podaje headset, więc kamera
+   * nie usiadłaby na fotelu, tylko stała nad nim. Tryb stereo (telefon w goglach) podaje sam obrót
+   * głowy, a pozycję nadal trzyma rig — tam siedzi się dokładnie jak w widoku z oczu.
+   */
+  private canBoard(): boolean {
+    if (this.renderer.xr.isPresenting) return false;
+    return this.mode === 'fp' || this.mode === 'vr';
+  }
+
+  /**
    * Samolot w zasięgu wsiadania: liczy się odległość od kokpitu, bo skrzydło zasłania celownik.
-   * Tylko w widoku z oczu — w VR wysokość głowy podaje headset i kamera nie usiadłaby na fotelu.
    */
   private planeInReach(): Entry | null {
-    if (this.mode !== 'fp') return null;
+    if (!this.canBoard()) return null;
     let best: Entry | null = null;
     let bestD = 3.0;
     for (const e of this.entries.values()) {
