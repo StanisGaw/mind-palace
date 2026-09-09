@@ -2130,11 +2130,16 @@ export class SceneManager {
     this.yaw = pose.yaw;
     this.pitch = -0.05;
     this.rig.rotation.set(0, this.yaw, 0);
-    if (!this.renderer.xr.isPresenting && !this.stereo) {
+    if (!this.renderer.xr.isPresenting) {
+      // W goglach pozycję głowy podaje headset. W trybie stereo czujniki dają sam obrót, więc wysokość
+      // oczu trzeba ustawić samemu — bez tego po wysiadce z samolotu (kamera zjeżdża wtedy do zera,
+      // bo w kokpicie siedzi w środku riga) głowa zostaje na poziomie stóp i widać świat od spodu.
       this.camera.position.set(0, EYE, 0);
-      this.camera.rotation.set(this.pitch, 0, 0);
-      this.camera.fov = 70;
-      this.camera.updateProjectionMatrix();
+      if (!this.stereo) {
+        this.camera.rotation.set(this.pitch, 0, 0);
+        this.camera.fov = 70;
+        this.camera.updateProjectionMatrix();
+      }
     }
     this.tween = null;
     // kapsuła fizyki musi trafić w to samo miejsce, inaczej gracz wróciłby do starej pozycji
@@ -2256,6 +2261,8 @@ export class SceneManager {
       this.stereo = null;
       window.removeEventListener('deviceorientation', this.onOrientation, true);
       this.camera.rotation.set(this.pitch, 0, 0);
+      // w kokpicie kamera siedzi w środku riga; poza nim musi wrócić na wysokość oczu
+      if (!this.flight) this.camera.position.set(0, EYE, 0);
       this.rig.rotation.set(0, this.yaw, 0);
       if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined);
       try {
