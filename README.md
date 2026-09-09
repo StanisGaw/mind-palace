@@ -58,7 +58,7 @@ npm run build        # produkcyjny build do dist/
   - **Smok wierzchowy** — to samo ciało co dziki smok, osiodłane. Steruje się jak samolot, ale przy gazie
     unosi się pionowo i zawisa w miejscu; `Spacja` albo kliknięcie — zionie ogniem.
   - **Koń** — srokaty, pod siodłem. `W` — stęp, `Shift` — galop, `S` — cofanie, `A`/`D` — skręt także
-    w miejscu, `Spacja` — skok. Trzyma się gruntu, więc wjeżdża na wzgórza wokół planszy.
+    w miejscu, `Spacja` — sus w górę. Trzyma się gruntu, więc wjeżdża na wzgórza wokół planszy.
   - **Czerw pustynny** — zaparkowany stoi z głową uniesioną z ziemi, w jeździe prostuje głowę i ciągnie
     za sobą segmenty ciała śladem głowy. `Shift`/`Ctrl` — powolny rozpęd i hamowanie, `A`/`D` — skręt
     szerokim łukiem, `Spacja` — wyskok z piasku łukiem z rozwartą paszczą. Suwak wielkości robi z niego
@@ -121,7 +121,7 @@ npm run build        # produkcyjny build do dist/
   steruje się jak w spacerze, z tą samą granicą planszy. Maszyna bez pilota krąży z lekkim gazem nad planszą
   (nie wylatuje poza nią), ląduje i parkuje sam (`parkMount`), a lądowanie gracza oddaje go fizyce (`land`).
 - **Pad** — zwykły kontroler (DualSense, Xbox) przez Gamepad API: lewa gałka chodzi, prawa rozgląda, krzyżyk
-  skacze, kwadrat i kółko otwierają drzwi albo wysadzają z samolotu, spusty biegną. W locie te same spusty dają
+  skacze, kwadrat i kółko otwierają drzwi albo zsadzają z pojazdu, spusty biegną. W locie te same spusty dają
   płynny gaz (analogowe, więc obroty rosną proporcjonalnie do nacisku), lewa gałka to ster wysokości i przechył,
   L1/R1 ster kierunku, a krzyżak zmienia gaz skokowo. Zauważenie pada przełącza pasek podpowiedzi z klawiszy
   na przyciski. Działa w spacerze i w trybie stereo; kontrolery gogli mają osobną ścieżkę (`readXrInput`).
