@@ -5,8 +5,9 @@ import { uid } from './lib/ids';
 import { yawRotation } from './lib/transform';
 import { getPref, setPref } from './lib/prefs';
 import { chainOf, collectSubtree, loadData, makeInteriorPalace, makePalace, rootOf, saveData } from './lib/storage';
-import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingLamps, floorBaseOf, mergePathObjects, orphanStairs, orphanStairsIn, buildingFloorY, buildingOf, maxFloorsOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt, worldXZ, isFacade } from './lib/rooms';
+import { DEFAULT_FINISH, DOOR_SLOT, FLOOR_MAX, SHELLS, buildingLamps, floorBaseOf, mergePathObjects, orphanStairs, orphanStairsIn, buildingFloorY, buildingOf, maxFloorsOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt, worldXZ, isFacade } from './lib/rooms';
 import { captureSet, furnitureSet, instantiateSet } from './lib/sets';
+import { DEFAULT_TEMPLATE, buildFromTemplate } from './lib/templates';
 import { findStairsIn, findStairsSpot, roomOfSpec } from './lib/layout';
 import { isDrawnGround, tileAt, tilesFromShape } from './lib/ground';
 import { loadCustomSets, saveCustomSets } from './lib/setStore';
@@ -135,7 +136,7 @@ interface State {
   togglePath(id: string): void;
   movePath(id: string, dir: -1 | 1): void;
   // pałace
-  createPalace(name?: string): void;
+  createPalace(name?: string, template?: string): void;
   switchPalace(id: string): void;
   renamePalace(name: string): void;
   deletePalace(id: string): void;
@@ -363,9 +364,6 @@ let toastTimer: number | undefined;
 let flySeq = 0;
 let camSeq = 0;
 let entrySeq = 0;
-
-/** Wykończenie nowego budynku z wnętrzem w miejscu: deski i tynk — przytulniej niż goły mur. */
-const DEFAULT_FINISH = { floor: 'planks', wall: 'plaster' };
 
 export const useStore = create<State>((set, get) => ({
   data: initialData(),
@@ -1159,10 +1157,11 @@ export const useStore = create<State>((set, get) => ({
     });
   },
 
-  createPalace(name) {
-    const p = makePalace(name ?? `Nowy pałac ${get().data.palaces.length + 1}`);
+  createPalace(name, template) {
+    const p = buildFromTemplate(template ?? DEFAULT_TEMPLATE, name ?? `Nowy pałac ${get().data.palaces.length + 1}`);
     const d = get().data;
-    set({ data: { ...d, palaces: [...d.palaces, p], currentId: p.id }, selectedIds: [], undoStack: [], redoStack: [], review: null });
+    // gotowa kompozycja zajmuje całą planszę — bez wykadrowania kamera zostałaby w poprzednim ujęciu
+    set({ data: { ...d, palaces: [...d.palaces, p], currentId: p.id }, selectedIds: [], undoStack: [], redoStack: [], review: null, focusRequest: get().focusRequest + 1 });
     scheduleSave(get, set);
   },
   switchPalace(id) {

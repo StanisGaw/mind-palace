@@ -309,6 +309,9 @@ export interface ShellSpec {
 /** Promień wewnętrznego lica muru wieży (jednostki modelu). */
 export const TOWER_R = 2.0;
 
+/** Wykończenie nowego budynku z wnętrzem w miejscu — surowy pokój w samym kolorze wygląda niedokończony. */
+export const DEFAULT_FINISH = { floor: 'planks', wall: 'plaster' };
+
 /**
  * Wnętrza o realistycznej powierzchni: domek 10,4 × 9,6 m przy skali 2, pałac 11,2 × 9,8 m przy 1,7,
  * biblioteka 10,2 × 9,5 m przy 1,65, świątynia 7,7 × 6,4 m, wieża o średnicy 10 m przy 2,5 — jest miejsce na
