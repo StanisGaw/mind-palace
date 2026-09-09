@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GROUND_TILE, clampToGround, groundBounds, groundExtent, groundOutlines, groundRects, insideGround, isDrawnGround, outsideDistance, tileAt, tilesFromShape } from './ground';
-import { clipPolygon, mergeTiles, rectPolygon, tileOutlines } from './rects';
+import { clipPolygon, mergeTiles, pointInPolygon, rectPolygon, tileOutlines } from './rects';
 import type { GroundSpec } from '../types';
 
 /**
@@ -90,6 +90,21 @@ describe('plansza z kafli', () => {
       const sasiedzi = tiles.filter(([i, j]) => have.has(`${i + 1},${j}`)).length + tiles.filter(([i, j]) => have.has(`${i},${j + 1}`)).length;
       expect(n, `${nazwa}: liczba krawędzi obrysu`).toBe(tiles.length * 4 - sasiedzi * 2);
     }
+  });
+
+  it('przynależność punktu do wielokąta łapie też kształty wklęsłe', () => {
+    const kwadrat: [number, number][] = [[0, 0], [4, 0], [4, 4], [0, 4]];
+    expect(pointInPolygon(kwadrat, 2, 2)).toBe(true);
+    expect(pointInPolygon(kwadrat, 5, 2)).toBe(false);
+    expect(pointInPolygon(kwadrat, 2, -1)).toBe(false);
+    // obrócony czworokąt (obrys wnętrza budynku pod kątem)
+    const romb: [number, number][] = [[0, -3], [3, 0], [0, 3], [-3, 0]];
+    expect(pointInPolygon(romb, 0, 0)).toBe(true);
+    expect(pointInPolygon(romb, 2.5, 2.5), 'róg opisanego kwadratu jest poza rombem').toBe(false);
+    // wklęsły: litera L
+    const el: [number, number][] = [[0, 0], [4, 0], [4, 2], [2, 2], [2, 4], [0, 4]];
+    expect(pointInPolygon(el, 1, 3)).toBe(true);
+    expect(pointInPolygon(el, 3, 3), 'wycięty róg litery L').toBe(false);
   });
 
   it('otwór przycięty do planszy nie wystaje poza jej obrys', () => {

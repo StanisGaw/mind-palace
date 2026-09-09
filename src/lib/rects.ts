@@ -216,3 +216,15 @@ function crossPoint(p: [number, number], q: [number, number], a: [number, number
 export function rectPolygon(r: Rect): [number, number][] {
   return [[r.x0, r.z0], [r.x1, r.z0], [r.x1, r.z1], [r.x0, r.z1]];
 }
+
+/** Czy punkt leży w wielokącie (parzystość przecięć półprostej w prawo). Działa też dla wklęsłych. */
+export function pointInPolygon(poly: [number, number][], x: number, z: number): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i];
+    const [xj, zj] = poly[j];
+    // krawędź pozioma nie przecina półprostej, więc dzielenie przez (zj - zi) jest bezpieczne
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
