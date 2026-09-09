@@ -565,6 +565,11 @@ export const useStore = create<State>((set, get) => ({
     const p = get().palace();
     const b = p.objects.find((o) => o.id === id);
     if (!b || !isInPlace(b) || !!b.basement === on) return;
+    // świątynia stoi na kolumnach zamiast na murach, więc pod nią nie ma czego pogłębiać
+    if (on && b.type === 'temple') {
+      get().showToast('Świątynia nie ma murów — piwnicy nie da się w niej zrobić.');
+      return;
+    }
     if (!on) {
       const below = p.objects.filter((o) => buildingOf(p.objects, o)?.id === id && floorOfIn(b, o.position[1]) < 0);
       if (below.some((o) => o.type !== 'ceiling_lamp' && o.type !== 'stairs')) {

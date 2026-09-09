@@ -486,12 +486,29 @@ function shellEntryRamp(g: THREE.Group, spec: ShellSpec, zOut: number) {
   shellRamp(g, spec.door.x, zOut, spec.door.z - 0.1, spec.door.w + 0.4, spec.floorY);
 }
 
+/**
+ * Cokół pod budynkiem: pełna płyta, a przy piwnicy pierścień wokół wnętrza. Pełna płyta ma wierzch dokładnie
+ * na poziomie podłogi parteru, więc zamykałaby klatkę schodową i nie dałoby się zejść na poziom −1.
+ */
+function basePlate(g: THREE.Group, ctx: BuildCtx, type: string, w: number, d: number, h: number, y: number, cz: number, material: THREE.Material) {
+  const outer: Rect = { x0: -w / 2, x1: w / 2, z0: cz - d / 2, z1: cz + d / 2 };
+  const spec = SHELLS[type];
+  const rects =
+    ctx.basement && spec
+      ? subtractRect([outer], { x0: spec.cx - spec.inner.w / 2, x1: spec.cx + spec.inner.w / 2, z0: spec.cz - spec.inner.d / 2, z1: spec.cz + spec.inner.d / 2 })
+      : [outer];
+  for (const r of rects) {
+    if (r.x1 - r.x0 < 0.01 || r.z1 - r.z0 < 0.01) continue;
+    add(g, box(r.x1 - r.x0, h, r.z1 - r.z0), material, (r.x0 + r.x1) / 2, y, (r.z0 + r.z1) / 2);
+  }
+}
+
 function buildPalace(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.palace;
   const { w, d } = spec.inner;
   const front = spec.cz + d / 2 + SHELL_WALL_T / 2; // lico ściany frontowej
-  add(g, box(w + 1.3, 0.28, d + 1.5), mat(C.stone), 0, 0.14, spec.cz + 0.1);
-  add(g, box(w + 0.7, 0.16, d + 0.9), mat(C.cream2), 0, 0.36, spec.cz + 0.1);
+  basePlate(g, ctx, 'palace', w + 1.3, d + 1.5, 0.28, 0.14, spec.cz + 0.1, mat(C.stone));
+  basePlate(g, ctx, 'palace', w + 0.7, d + 0.9, 0.16, 0.36, spec.cz + 0.1, mat(C.cream2));
   shellBox(g, ctx, 'palace', mat(C.cream), mat(C.stone), mat(C.dark));
   shellEntryRamp(g, spec, front + 1.3);
   // portyk przed licem ściany: kolumny między drzwiami (|x| < 0,3) a oknami (|x| ∈ 1,92..2,28) i za oknami
@@ -515,7 +532,7 @@ function buildLibrary(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.library;
   const { w, d } = spec.inner;
   const front = spec.cz + d / 2 + SHELL_WALL_T / 2;
-  add(g, box(w + 0.9, 0.24, d + 1.1), mat(C.stone), 0, 0.12, spec.cz + 0.1);
+  basePlate(g, ctx, 'library', w + 0.9, d + 1.1, 0.24, 0.12, spec.cz + 0.1, mat(C.stone));
   shellBox(g, ctx, 'library', mat(C.cream), mat(C.stone), mat(C.dark));
   shellEntryRamp(g, spec, front + 1.3);
   // kolumny przed ścianą, poza drzwiami (|x| < 0,35) i oknami (|x| ∈ 1,83..2,17)
@@ -548,7 +565,8 @@ function buildTemple(g: THREE.Group, ctx: BuildCtx) {
 function buildTower(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.tower;
   const r = TOWER_R;
-  add(g, cyl(r + 0.2, r + 0.3, 0.3, 12), mat(C.stone), 0, 0.15, 0);
+  // przy piwnicy cokół wieży to sama obręcz (walec bez den) — pełny dysk zamykałby zejście
+  add(g, ctx.basement ? new THREE.CylinderGeometry(r + 0.2, r + 0.3, 0.3, 12, 1, true) : cyl(r + 0.2, r + 0.3, 0.3, 12), mat(C.stone), 0, 0.15, 0);
   const floorFinish = finishMat(ctx.finish?.floor, C.stone);
   const lining = ctx.finish?.wall ? finishMat(ctx.finish.wall, C.cream) : undefined;
   const outer = finishMat(ctx.finish?.facade, C.cream, { tint: true });
@@ -602,7 +620,7 @@ function buildTower(g: THREE.Group, ctx: BuildCtx) {
 function buildHouse(g: THREE.Group, ctx: BuildCtx) {
   const spec = SHELLS.house;
   const { w, d } = spec.inner;
-  add(g, box(w + 0.5, 0.16, d + 0.5), mat(C.stone), 0, 0.08, 0);
+  basePlate(g, ctx, 'house', w + 0.5, d + 0.5, 0.16, 0.08, 0, mat(C.stone));
   shellBox(g, ctx, 'house', mat(C.cream), woodMat(C.wood), mat(C.dark));
   shellEntryRamp(g, spec, d / 2 + 0.8);
   const roof = roofGroup(g, roofLift(ctx, spec));
