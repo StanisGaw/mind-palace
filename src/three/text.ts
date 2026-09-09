@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { maxAnisotropy } from './textures';
 
 export interface TextPanelOpts {
   width?: number; // szerokość w jednostkach sceny
@@ -68,7 +69,7 @@ export function makeTextPanel(text: string, opts: TextPanelOpts = {}): THREE.Mes
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = maxAnisotropy(); // tabliczkę czyta się pod kątem; bez tego litery rozmywają się w pasy
   const geo = new THREE.PlaneGeometry(width, (width * canvasH) / canvasW);
   const material = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(geo, material);

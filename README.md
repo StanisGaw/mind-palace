@@ -120,9 +120,10 @@ npm run build        # produkcyjny build do dist/
 - **Pogoda i pora dnia** — niezależne ustawienia: cztery klimaty i sześć rodzajów pogody (chmury, deszcz,
   śnieg, mgła, burza z błyskawicami).
 - **Jakość obrazu** — preset urządzenia (`lib/quality.ts`, zapisywany w `lib/prefs`, nie w danych pałacu):
-  wybiera mnożnik pikseli, rozmiar i rodzaj mapy cienia. „Automatycznie" daje ekranom dotykowym średnią,
-  komputerom wysoką. Ponad presetem działa automat: średni czas klatki poniżej 40 kl./s obniża rozdzielczość
-  co 0,1, powyżej 55 kl./s podnosi ją z powrotem.
+  wybiera mnożnik pikseli, rozmiar i rodzaj mapy cienia. „Maksymalna" rysuje w pełnej gęstości pikseli
+  ekranu (mnożnik do 4, mapa cienia 4096) i wyłącza automat; „Automatycznie" daje ją ekranom dotykowym,
+  a komputerom wysoką. Poniżej maksymalnej działa automat: średni czas klatki poniżej 40 kl./s obniża
+  rozdzielczość co 0,1, powyżej 55 kl./s podnosi ją z powrotem.
 - **Fizyka** — silnik Rapier (WASM, ładowany dopiero przy wejściu w tryb chodzenia): grawitacja, skok
   (`Spacja`, przycisk na telefonie, grip w VR), wchodzenie po schodach i wskakiwanie na ławkę, głaz czy wzgórze.
   W spacerze można też stawiać obiekty z biblioteki: podgląd idzie za celownikiem, klik stawia, `R` obraca; wewnątrz

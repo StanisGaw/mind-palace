@@ -140,7 +140,8 @@ export function paintingTexture(variant: number): THREE.CanvasTexture {
   const v = ((variant % ART_VARIANTS) + ART_VARIANTS) % ART_VARIANTS;
   let tex = cache.get(v);
   if (tex) return tex;
-  const [c, ctx] = canvas(256, 192);
+  // 512 na bok: płótno ogląda się z pół metra, a malarze rysują względem w/h, więc rośnie tylko pamięć
+  const [c, ctx] = canvas(512, 384);
   PAINTERS[v](ctx, c.width, c.height);
   tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;

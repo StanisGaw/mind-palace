@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { autoQuality, nextScale, qualitySpec } from './quality';
 
 describe('autoQuality', () => {
-  it('daje telefonowi średnią, mocnemu komputerowi wysoką', () => {
-    expect(autoQuality({ touch: true, cores: 8 })).toBe('medium');
+  it('daje telefonowi maksymalną, mocnemu komputerowi wysoką', () => {
+    expect(autoQuality({ touch: true, cores: 8 })).toBe('ultra');
+    expect(autoQuality({ touch: true, cores: 2 })).toBe('ultra');
     expect(autoQuality({ touch: false, cores: 12 })).toBe('high');
     expect(autoQuality({ touch: false, cores: 2 })).toBe('medium');
   });
@@ -17,7 +18,14 @@ describe('qualitySpec', () => {
   });
 
   it('auto rozwija się do konkretnego presetu', () => {
-    expect(qualitySpec('auto', { touch: true, cores: 8 })).toEqual(qualitySpec('medium', { touch: false, cores: 8 }));
+    expect(qualitySpec('auto', { touch: true, cores: 8 })).toEqual(qualitySpec('ultra', { touch: false, cores: 8 }));
+  });
+
+  it('maksymalna rysuje każdy piksel ekranu i nie pozwala automatowi zejść niżej', () => {
+    const s = qualitySpec('ultra', { touch: true, cores: 8 });
+    expect(s.pixelRatio).toBeGreaterThanOrEqual(3);
+    expect(s.minScale).toBe(1);
+    expect(nextScale(1, 40, s.minScale)).toBe(1);
   });
 });
 

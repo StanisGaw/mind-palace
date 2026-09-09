@@ -403,6 +403,11 @@ const cache = new Map<string, THREE.Texture>();
  */
 let maxAniso = 4;
 
+/** Bieżące filtrowanie anizotropowe — dla tekstur rysowanych poza tym modułem (tabliczki z tekstem). */
+export function maxAnisotropy(): number {
+  return maxAniso;
+}
+
 /** Ustawia filtrowanie z możliwości renderera i nakłada je na wzory, które już powstały. */
 export function setMaxAnisotropy(n: number) {
   const v = Math.max(1, Math.min(16, Math.round(n)));

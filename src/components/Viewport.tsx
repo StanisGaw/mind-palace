@@ -654,7 +654,7 @@ function QualitySection() {
         </select>
       </label>
       <span className="env-title" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>
-        Niższa jakość zmniejsza rozdzielczość i upraszcza cienie. Przy spadku płynności rozdzielczość obniża się sama.
+        Maksymalna rysuje każdy piksel ekranu i nigdy nie obniża rozdzielczości. Niższe presety zmniejszają ją i upraszczają cienie, a przy spadku płynności schodzą jeszcze niżej same.
       </span>
     </div>
   );
