@@ -386,12 +386,35 @@ export function grainTexture(): THREE.Texture {
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAniso; // słoje drewna są na każdej podłodze; bez tego migoczą pod ostrym kątem
   tex.repeat.set(2, 2);
   grain2d = tex;
   return tex;
 }
 
 const cache = new Map<string, THREE.Texture>();
+
+/**
+ * Filtrowanie anizotropowe wzorów. Podłoga i strop oglądane pod ostrym kątem bez niego mienią się pasami —
+ * najbardziej na telefonie, gdzie na jeden piksel przypada kilka tekseli. Wartość ustawia scena z możliwości
+ * karty; do tego czasu trzymamy bezpieczne 4.
+ */
+let maxAniso = 4;
+
+/** Ustawia filtrowanie z możliwości renderera i nakłada je na wzory, które już powstały. */
+export function setMaxAnisotropy(n: number) {
+  const v = Math.max(1, Math.min(16, Math.round(n)));
+  if (v === maxAniso) return;
+  maxAniso = v;
+  for (const tex of cache.values()) {
+    tex.anisotropy = v;
+    tex.needsUpdate = true;
+  }
+  if (grain2d) {
+    grain2d.anisotropy = v;
+    grain2d.needsUpdate = true;
+  }
+}
 const thumbs = new Map<string, string>();
 
 function drawToCanvas(def: TextureDef): HTMLCanvasElement {
@@ -419,7 +442,7 @@ export function getTexture(id: string | undefined, customUrl?: string): THREE.Te
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = maxAniso;
   cache.set(key, tex);
   return tex;
 }

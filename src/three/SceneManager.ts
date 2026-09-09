@@ -22,7 +22,7 @@ import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorHeight, buildingF
 import { SET_WALL_GAP, furnitureSet, instantiateSet } from '../lib/sets';
 import { boxLocal, boxPoint, insideRoom, placementBlock, roomOfBuilding, roomOfSpec, type RoomShape } from '../lib/layout';
 import { clipPolygon, rectPolygon, subtractRect, type Rect } from '../lib/rects';
-import { getTexture } from './textures';
+import { getTexture, setMaxAnisotropy } from './textures';
 import { Wildlife, type SpawnInfo, type WorldInfo } from './wildlife';
 import { Soundscape } from './soundscape';
 import { loadCustomTextures } from '../lib/textureStore';
@@ -314,6 +314,8 @@ export class SceneManager {
     renderer.domElement.style.touchAction = 'none';
     container.appendChild(renderer.domElement);
     this.renderer = renderer;
+    // wzory na podłodze i stropie oglądane pod ostrym kątem mienią się bez filtrowania anizotropowego
+    setMaxAnisotropy(renderer.capabilities.getMaxAnisotropy());
 
     this.labelRenderer = new CSS2DRenderer();
     this.labelRenderer.domElement.className = 'labels-layer';
