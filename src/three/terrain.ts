@@ -18,9 +18,11 @@ const SEG = 96;
 
 /**
  * Pierścień krajobrazu wokół planszy: płaski tuż przy płycie, wznoszący się dalej.
- * Zwraca null dla scenerii 'none'.
+ * Zwraca null dla scenerii 'none'. `holes` to obrysy, w których terenu nie ma — wnętrza budynków z piwnicą:
+ * teren leży kilkanaście centymetrów pod zerem, czyli w środku takiej piwnicy, i bez wycięcia zamykałby ją
+ * niewidzialną pokrywą (jest też bryłą kolizji), przez którą nie dałoby się zejść schodami.
  */
-export function buildTerrain(ground: GroundSpec, scenery: Scenery, seed: number): Terrain | null {
+export function buildTerrain(ground: GroundSpec, scenery: Scenery, seed: number, holes: [number, number][][] = []): Terrain | null {
   if (scenery === 'none') return null;
   const preset = sceneryPreset(scenery);
   const groundSize = groundExtent(ground);
@@ -80,6 +82,7 @@ export function buildTerrain(ground: GroundSpec, scenery: Scenery, seed: number)
   }
   pos.needsUpdate = true;
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  if (holes.length > 0) cutHoles(geo, holes);
   geo.computeVertexNormals();
 
   const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }));
@@ -131,4 +134,33 @@ export function buildTerrain(ground: GroundSpec, scenery: Scenery, seed: number)
       group.removeFromParent();
     },
   };
+}
+
+/** Czy punkt leży w wielokącie (parzystość przecięć półprostej). */
+function inPolygon(poly: [number, number][], x: number, z: number): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i];
+    const [xj, zj] = poly[j];
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** Usuwa z siatki trójkąty, których środek wpada w któryś z obrysów — razem z ich kolizją. */
+function cutHoles(geo: THREE.BufferGeometry, holes: [number, number][][]) {
+  const idx = geo.getIndex();
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  if (!idx) return;
+  const kept: number[] = [];
+  for (let t = 0; t < idx.count; t += 3) {
+    const a = idx.getX(t);
+    const b = idx.getX(t + 1);
+    const c = idx.getX(t + 2);
+    const cx = (pos.getX(a) + pos.getX(b) + pos.getX(c)) / 3;
+    const cz = (pos.getZ(a) + pos.getZ(b) + pos.getZ(c)) / 3;
+    if (holes.some((h) => inPolygon(h, cx, cz))) continue;
+    kept.push(a, b, c);
+  }
+  geo.setIndex(kept);
 }

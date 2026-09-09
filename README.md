@@ -91,7 +91,9 @@ npm run build        # produkcyjny build do dist/
   wersji przeliczają się na zestawy przy pierwszym wczytaniu.
 - **Piwnica** — budynek z wnętrzem w miejscu może dostać kondygnację pod ziemią (poziom −1). Przycisk
   „+ Piwnica" pogłębia bryłę o jedną kondygnację, dokłada lampy i bieg schodów z parteru, a w płycie świata
-  wycina otwór pod wnętrzem budynku (`basementHoles`), żeby dało się tam zejść. Piwnica nie ma okien ani
+  i w pierścieniu terenu wycina otwór pod wnętrzem budynku (`basementHoles`, `basementQuads`). Bez tego drugiego
+  teren — leżący kilkanaście centymetrów pod zerem, a więc w środku piwnicy — zamykałby ją niewidzialną pokrywą,
+  bo jest też bryłą kolizji. Piwnica nie ma okien ani
   elewacji, a wybieraki piętra dostają pozycję „Piwnica". Wyłączenie działa jak usunięcie piętra: blokuje je
   własne wyposażenie stojące na dole, a lampy i schody znikają same.
 - **Elewacja** — budynek z wnętrzem w miejscu ma osobne pole „Elewacja" obok podłogi i ścian wnętrza:

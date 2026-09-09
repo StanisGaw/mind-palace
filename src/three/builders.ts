@@ -1230,10 +1230,14 @@ function buildStairs(g: THREE.Group, ctx: BuildCtx) {
     const step = add(g, box(width, rise, run + 0.02), mat(C.stone), 0, y, z);
     step.userData.skipCollider = true;
   }
+  const slope = -Math.atan2(H, len);
+  // spód biegu: bez niego z dołu (piwnica, otwarta klatka) widać osobno wiszące stopnie zamiast schodów
+  const soffit = add(g, box(width, 0.22, Math.hypot(len, H) - 0.25), mat(C.stoneDark), 0, H / 2 + rise / 2 - 0.055 - 0.185, 0, [slope, 0, 0]);
+  soffit.userData.skipCollider = true;
   // niewidoczna pochylnia: jedyna bryła kolizji, płynniejsza niż schodkowanie stopni; jej wierzch
   // przechodzi przez wierzchy stopni, żeby postać nie płynęła przez ich krawędzie
   const rampLen = Math.hypot(len, H);
-  const ramp = add(g, box(width + 0.1, 0.15, rampLen), mat(C.stone), 0, H / 2 + rise / 2 + 0.02 - 0.075, 0, [-Math.atan2(H, len), 0, 0]);
+  const ramp = add(g, box(width + 0.1, 0.15, rampLen), mat(C.stone), 0, H / 2 + rise / 2 + 0.02 - 0.075, 0, [slope, 0, 0]);
   ramp.visible = false;
 }
 

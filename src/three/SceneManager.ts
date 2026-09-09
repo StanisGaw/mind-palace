@@ -539,7 +539,7 @@ export class SceneManager {
       this.terrain.dispose();
       this.terrain = null;
     }
-    this.terrain = buildTerrain(p.settings.ground, p.settings.scenery, p.settings.seed);
+    this.terrain = buildTerrain(p.settings.ground, p.settings.scenery, p.settings.seed, basementQuads(p.objects));
     if (this.terrain) this.scene.add(this.terrain.group);
   }
 
@@ -826,7 +826,10 @@ export class SceneManager {
       this.physicsDirty = true; // zmieniony kształt płyty to inne kolidery pod nogami
     }
     // teren zależy od obrysu planszy, nie od otworów pod piwnicami — inaczej przeciąganie budynku przebudowywałoby go co klatkę
-    const terrainKey = `${p.settings.scenery}|${p.settings.seed}|${shapeKey}`;
+    // teren zależy też od piwnic: leży kilkanaście centymetrów pod zerem, czyli w środku każdej z nich,
+    // i bez wycięcia zamykałby je niewidzialną pokrywą. Klucz otworów jest zaokrąglony, więc przeciąganie
+    // budynku przebudowuje go najwyżej co ćwierć metra
+    const terrainKey = `${p.settings.scenery}|${p.settings.seed}|${shapeKey}|${holeKey}`;
     if (terrainKey !== this.terrainKey) {
       this.terrainKey = terrainKey;
       this.rebuildTerrain(p);
