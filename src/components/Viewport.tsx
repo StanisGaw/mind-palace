@@ -4,7 +4,8 @@ import { GROUND_SHAPES, GROUND_TILE, isDrawnGround } from '../lib/ground';
 import { TexturePicker } from './TexturePicker';
 import { allLandscapes, removeLandscape, saveLandscape, type LandscapePreset } from '../lib/landscapes';
 import type { Scenery, SoundLevels, Weather } from '../types';
-import { useCurrentPalace, useStore } from '../store';
+import { copyText, useCurrentPalace, useStore } from '../store';
+import { brokenTileText, describeBrokenTile } from '../lib/brokenTiles';
 import { SceneManager, activeScene } from '../three/SceneManager';
 import { QUALITY_LABELS, type Quality } from '../lib/quality';
 import { usePref } from '../lib/prefs';
@@ -408,6 +409,7 @@ function EnvironmentMenu() {
             <I.Spark width={13} height={13} /> Losuj ukształtowanie terenu
           </button>
           {palace.interior ? <FloorsSection /> : <GroundSection />}
+          <BrokenTilesSection />
           {!palace.interior && <ActiveBuildingSection />}
           <TextureSection />
           <QualitySection />
@@ -558,6 +560,56 @@ function ActiveBuildingSection() {
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** Zgłoszenia zepsutych kafli: tryb zgłaszania, lista z usuwaniem i kopiowanie wszystkich do schowka. */
+function BrokenTilesSection() {
+  const palace = useCurrentPalace();
+  const on = useStore((s) => s.brokenTileMode);
+  const setMode = useStore((s) => s.setBrokenTileMode);
+  const remove = useStore((s) => s.removeBrokenTile);
+  const showToast = useStore((s) => s.showToast);
+  const list = palace.brokenTiles ?? [];
+  const copyAll = () =>
+    copyText(list.map((t) => brokenTileText(palace, t)).join('\n')).then(
+      () => showToast(list.length === 1 ? 'Skopiowano zgłoszenie do schowka.' : `Skopiowano ${list.length} zgłoszenia do schowka.`),
+      () => showToast('Schowek niedostępny w tej przeglądarce.'),
+    );
+  return (
+    <div className="env-section">
+      <span className="env-title">Zepsute kafle</span>
+      <div className="shape-row">
+        <button className={'shape-btn' + (on ? ' on' : '')} onClick={() => setMode(!on)}>
+          {on ? 'Skończ zgłaszanie' : 'Zgłoś zepsuty kafel'}
+        </button>
+        {list.length > 0 && (
+          <button className="shape-btn" onClick={copyAll}>
+            Kopiuj wszystkie
+          </button>
+        )}
+      </div>
+      {list.length === 0 ? (
+        <p className="lead" style={{ margin: '2px 0 0' }}>
+          Miejsce z niewidzialną ścianą albo innym błędem: włącz zgłaszanie i kliknij kafel w scenie. Zgłoszenie z sąsiednimi obiektami trafia do zapisu
+          pałacu i do schowka.
+        </p>
+      ) : (
+        <div className="ls-list">
+          {list.map((t) => (
+            <div className="ls-row" key={t.id}>
+              <span className="ls-name" title={t.nearby.map((n) => `${n.name} (${n.distance} m)`).join(', ') || 'nic w pobliżu'}>
+                {describeBrokenTile(t)}
+                {t.nearby[0] ? ` · obok: ${t.nearby[0].name}` : ''}
+              </span>
+              <button className="ls-del" title="Usuń zgłoszenie" onClick={() => remove(t.id)}>
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
