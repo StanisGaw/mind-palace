@@ -4167,6 +4167,9 @@ export class SceneManager {
     window.removeEventListener('pointerup', this.onPointerUp);
     window.removeEventListener('pointercancel', this.onPointerUp);
     window.removeEventListener('keydown', this.onKeyDown);
+        // ścieżki i zwierzęta nie mają bryły także w fizyce; ścieżka ma skalę X równą długości, więc jej
+        // „koło” objęłoby pół planszy
+        if (colliderKind(e.type) === 'none') continue;
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onWindowBlur);
     document.removeEventListener('pointerlockchange', this.onLockChange);
