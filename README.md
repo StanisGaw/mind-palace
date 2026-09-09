@@ -55,15 +55,20 @@ npm run build        # produkcyjny build do dist/
   - **Samolot** — otwarty kokpit (tablica z zegarami, drążek, wiatrochron, kręcące się śmigło).
     `Shift`/`Ctrl` — gaz, `W`/`S` — ster wysokości, `A`/`D` — przechył (przechył zakręca), `Q`/`E` — ster
     kierunku. Powyżej prędkości startowej maszyna odrywa się od ziemi.
-  - **Smok wierzchowy** — to samo ciało co dziki smok, osiodłane. Steruje się jak samolot, ale przy gazie
-    unosi się pionowo i zawisa w miejscu; `Spacja` albo kliknięcie — zionie ogniem.
+  - **Smok wierzchowy** — to samo ciało co dziki smok, osiodłane. Lata jak śmigłowiec: `Shift`/`Ctrl` unosi
+    i opuszcza, puszczone zawisa w miejscu, `W`/`S` — do przodu i do tyłu, `A`/`D` — skręt w locie, `Q`/`E` —
+    obrót w miejscu; `Spacja` albo kliknięcie — zionie ogniem.
   - **Koń** — srokaty, pod siodłem. `W` — stęp, `Shift` — galop, `S` — cofanie, `A`/`D` — skręt także
     w miejscu, `Spacja` — sus w górę. Trzyma się gruntu, więc wjeżdża na wzgórza wokół planszy.
   - **Czerw pustynny** — zaparkowany stoi z głową uniesioną z ziemi, w jeździe prostuje głowę i ciągnie
     za sobą segmenty ciała śladem głowy. `Shift`/`Ctrl` — powolny rozpęd i hamowanie, `A`/`D` — skręt
     szerokim łukiem, `Spacja` — wyskok z piasku łukiem z rozwartą paszczą. Suwak wielkości robi z niego
     olbrzyma.
-  Dynamika jazdy i lotu to czyste funkcje w `lib/ride.ts` (`stepAir`, `stepGround`) z testami.
+  - **Koń 2** i **Smok 2** — te same wierzchowce z gotowych modeli GLB (Poly Pizza, Quaternius, CC0;
+    `public/models/CREDITS.txt`) z animacją szkieletową: stęp, galop i skok konia, zawis i szybki lot smoka.
+    Plik ładuje się raz (`three/assets.ts`), każdy obiekt dostaje klon ze szkieletem, a wpis buduje się na
+    nowo, gdy model dojedzie.
+  Dynamika jazdy i lotu to czyste funkcje w `lib/ride.ts` (`stepAir`, `stepHover`, `stepGround`) z testami.
 - **Elewacja i dekoracje** — budynki mają wbudowane okna z szybami, te same na bryle, w powłoce
   w miejscu i w pokoju ładowanym (z widokiem „dnia” za szybą). Okno, balkon i taras z biblioteki
   stawia się na murze budynku z wnętrzem w miejscu (mur dostaje otwór; balkon na piętrze, taras przy
@@ -210,6 +215,7 @@ src/
   three/textures.ts   proceduralne nawierzchnie
   three/wildlife.ts   zwierzęta: modele, zachowania, animacja
   three/builders.ts   proceduralne modele low-poly + kotwice drzwi, siodeł i emiterów
+  three/assets.ts     modele z plików GLB (wierzchowce z Poly Pizza): cache, klon ze szkieletem, klipy
   three/interior.ts   proceduralne wnętrza budynków
   three/terrain.ts    pierścień krajobrazu (heightmapa z szumu)
   three/merge.ts      scalanie siatek modelu po materiale (mniej wywołań rysowania)
