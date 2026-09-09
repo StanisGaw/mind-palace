@@ -1,0 +1,230 @@
+/**
+ * Przejażdżka wierzchowcem: dynamika lotu i jazdy jest czystą arytmetyką, więc sprawdzamy ją tutaj, zanim
+ * scena przepisze wynik na model i kamerę. Wartości samolotu odpowiadają dawnej całce z `SceneManager`:
+ * poniżej prędkości startowej maszyna nie odrywa się od ziemi, poniżej prędkości przeciągnięcia opada.
+ * Osobno pilnujemy katalogu: kategoria bez wpisu w `CATEGORY_ORDER` znikałaby z biblioteki po cichu.
+ */
+import { describe, expect, it } from 'vitest';
+import { CATALOG, CATEGORY_LABELS, CATEGORY_ORDER } from '../catalog';
+import { IDLE_INPUT, MOUNT_SPECS, advanceTrail, isMount, newRideState, rideSettled, stepAir, stepGround, trailPoint, type MountId, type RideEnv, type RideInput, type RideState } from './ride';
+
+const flat: RideEnv = { groundAt: () => 0, radius: 200 };
+const input = (over: Partial<RideInput>): RideInput => ({ ...IDLE_INPUT, ...over });
+
+function run(r: RideState, inp: RideInput, mount: MountId, env: RideEnv, seconds: number, dt = 1 / 60) {
+  const spec = MOUNT_SPECS[mount];
+  for (let t = 0; t < seconds; t += dt) {
+    if (spec.kind === 'air') stepAir(r, inp, spec, env, dt);
+    else stepGround(r, inp, spec, env, dt);
+  }
+  return r;
+}
+
+describe('katalog pojazdów', () => {
+  it('każdy wierzchowiec ma wpis w kategorii Pojazdy i odwrotnie', () => {
+    for (const id of Object.keys(MOUNT_SPECS)) {
+      const item = CATALOG.find((c) => c.id === id);
+      expect(item, `brak wpisu ${id}`).toBeDefined();
+      expect(item!.category, `${id} poza kategorią vehicle`).toBe('vehicle');
+    }
+    for (const item of CATALOG.filter((c) => c.category === 'vehicle')) expect(isMount(item.id), `${item.id} bez dynamiki jazdy`).toBe(true);
+  });
+
+  it('każda kategoria z etykietą jest w kolejności biblioteki', () => {
+    for (const cat of Object.keys(CATEGORY_LABELS)) expect(CATEGORY_ORDER, `kategoria ${cat} niewidoczna`).toContain(cat);
+  });
+});
+
+describe('samolot', () => {
+  it('poniżej prędkości startowej ster wysokości nie działa i maszyna zostaje na ziemi', () => {
+    const r = newRideState(0, 0, 0, 0);
+    r.speed = 8;
+    r.throttle = 8 / 24;
+    run(r, input({ pitch: 1 }), 'plane', flat, 1.5);
+    expect(r.y).toBe(0);
+    expect(r.onGround).toBe(true);
+    expect(Math.abs(r.pitch)).toBeLessThan(0.01);
+  });
+
+  it('po rozpędzeniu nos w górę odrywa maszynę od ziemi, a prędkość rośnie z gazem', () => {
+    const r = newRideState(0, 0, 0, 0);
+    run(r, input({ throttle: 1 }), 'plane', flat, 6);
+    expect(r.speed).toBeGreaterThan(18);
+    run(r, input({ throttle: 1, pitch: 1 }), 'plane', flat, 2);
+    expect(r.y).toBeGreaterThan(5);
+    expect(r.onGround).toBe(false);
+    expect(r.z).toBeLessThan(-50); // przód to −Z
+  });
+
+  it('poniżej prędkości przeciągnięcia maszyna opada i przyziemienie hamuje', () => {
+    const r = newRideState(0, 30, 0, 0);
+    r.onGround = false;
+    r.speed = 6;
+    const before = r.y;
+    run(r, IDLE_INPUT, 'plane', flat, 1);
+    expect(r.y).toBeLessThan(before - 3);
+    run(r, IDLE_INPUT, 'plane', flat, 10);
+    expect(r.y).toBe(0);
+    expect(r.onGround).toBe(true);
+    expect(r.speed).toBeLessThan(6);
+  });
+
+  it('nie przekracza pułapu ani promienia świata', () => {
+    const r = newRideState(0, 85, 0, 0);
+    r.onGround = false;
+    r.speed = 24;
+    r.throttle = 1;
+    run(r, input({ throttle: 1, pitch: 1 }), 'plane', { groundAt: () => 0, radius: 40 }, 6);
+    expect(r.y).toBeLessThanOrEqual(90);
+    expect(Math.hypot(r.x, r.z)).toBeLessThanOrEqual(40.001);
+  });
+
+  it('bez pilota szybuje w dół, kręci się w kółko i staje na planszy', () => {
+    const r = newRideState(0, 20, 0, 0);
+    r.onGround = false;
+    r.pilot = false;
+    r.speed = 20;
+    r.throttle = 0.8;
+    const env: RideEnv = { ...flat, clampToBoard: (x, z) => [Math.max(-10, Math.min(10, x)), Math.max(-10, Math.min(10, z))] };
+    run(r, IDLE_INPUT, 'plane', env, 40);
+    expect(rideSettled(r)).toBe(true);
+    expect(Math.abs(r.x)).toBeLessThanOrEqual(10);
+    expect(Math.abs(r.z)).toBeLessThanOrEqual(10);
+  });
+});
+
+describe('smok wierzchowy', () => {
+  it('unosi się z postoju na samym gazie, bez rozbiegu', () => {
+    const r = newRideState(0, 0, 0, 0);
+    run(r, input({ throttle: 1 }), 'dragon', flat, 1.5);
+    expect(r.y).toBeGreaterThan(0.3);
+    expect(r.onGround).toBe(false);
+    expect(r.speed).toBeLessThan(MOUNT_SPECS.dragon.takeoff!);
+  });
+
+  it('przy małej prędkości zawisa, gdy gaz jest wciśnięty, i opada bez gazu', () => {
+    const r = newRideState(0, 20, 0, 0);
+    r.onGround = false;
+    r.speed = 3;
+    r.throttle = 0.4;
+    run(r, IDLE_INPUT, 'dragon', flat, 1);
+    expect(r.y).toBeGreaterThan(19);
+    run(r, input({ throttle: -1 }), 'dragon', flat, 3);
+    expect(r.y).toBeLessThan(18);
+  });
+
+  it('po zeskoku szybuje jak samolot i ląduje', () => {
+    const r = newRideState(0, 25, 0, 0);
+    r.onGround = false;
+    r.pilot = false;
+    r.speed = 15;
+    r.throttle = 0.7;
+    run(r, IDLE_INPUT, 'dragon', flat, 40);
+    expect(rideSettled(r)).toBe(true);
+  });
+
+  it('ogień gaśnie po chwili', () => {
+    const r = newRideState(0, 0, 0, 0);
+    run(r, input({ fire: true }), 'dragon', flat, 0.2);
+    expect(r.fire).toBeGreaterThan(0.8);
+    run(r, IDLE_INPUT, 'dragon', flat, 1.5);
+    expect(r.fire).toBe(0);
+  });
+});
+
+describe('koń', () => {
+  const slope: RideEnv = { groundAt: (x) => x * 0.2, radius: 200 };
+
+  it('trzyma się gruntu na pochyłości i galopuje do pełnej prędkości', () => {
+    const r = newRideState(0, 0, 0, -Math.PI / 2); // przód −Z obrócony na +X
+    run(r, input({ throttle: 1, sprint: true }), 'horse', slope, 4);
+    expect(r.x).toBeGreaterThan(20);
+    expect(r.y).toBeCloseTo(r.x * 0.2, 5);
+    expect(r.speed).toBeGreaterThan(11);
+    expect(r.onGround).toBe(true);
+  });
+
+  it('skok odrywa od ziemi i kończy się w niecałe półtorej sekundy', () => {
+    const r = newRideState(0, 0, 0, 0);
+    stepGround(r, input({ jump: true }), MOUNT_SPECS.horse, flat, 1 / 60);
+    expect(r.onGround).toBe(false);
+    let airborne = 0;
+    for (let t = 0; t < 1.5 && !r.onGround; t += 1 / 60) {
+      stepGround(r, IDLE_INPUT, MOUNT_SPECS.horse, flat, 1 / 60);
+      airborne += 1 / 60;
+    }
+    expect(r.onGround).toBe(true);
+    expect(airborne).toBeLessThan(1.5);
+    expect(airborne).toBeGreaterThan(0.3);
+  });
+
+  it('skręca w miejscu, a cofa wolniej niż idzie', () => {
+    const r = newRideState(0, 0, 0, 0);
+    run(r, input({ turn: 1 }), 'horse', flat, 1);
+    expect(r.yaw).toBeLessThan(-0.5);
+    const fwd = run(newRideState(0, 0, 0, 0), input({ throttle: 1 }), 'horse', flat, 3);
+    const back = run(newRideState(0, 0, 0, 0), input({ throttle: -1 }), 'horse', flat, 3);
+    expect(Math.abs(back.z)).toBeLessThan(Math.abs(fwd.z) * 0.6);
+    expect(back.z).toBeGreaterThan(0);
+  });
+});
+
+describe('czerw pustynny', () => {
+  it('rozpędza się powoli i długo hamuje', () => {
+    const r = newRideState(0, 0, 0, 0);
+    run(r, input({ throttle: 1 }), 'sandworm', flat, 2);
+    expect(r.speed).toBeLessThan(8);
+    run(r, input({ throttle: 1 }), 'sandworm', flat, 12);
+    const top = r.speed;
+    expect(top).toBeGreaterThan(12);
+    run(r, input({ throttle: -1 }), 'sandworm', flat, 3);
+    expect(r.speed).toBeGreaterThan(top * 0.5);
+  });
+
+  it('wyskakuje z piasku dopiero rozpędzony i wraca na ziemię po czasie skoku', () => {
+    const slowWorm = newRideState(0, 0, 0, 0);
+    slowWorm.speed = 2;
+    stepGround(slowWorm, input({ jump: true }), MOUNT_SPECS.sandworm, flat, 1 / 60);
+    expect(slowWorm.leapT).toBe(-1);
+
+    const r = newRideState(0, 0, 0, 0);
+    r.speed = 10;
+    r.throttle = 10 / 16;
+    stepGround(r, input({ jump: true, throttle: 1 }), MOUNT_SPECS.sandworm, flat, 1 / 60);
+    expect(r.leapT).toBeGreaterThanOrEqual(0);
+    run(r, input({ throttle: 1 }), 'sandworm', flat, 1.2);
+    expect(r.y).toBeGreaterThan(4);
+    expect(r.onGround).toBe(false);
+    run(r, input({ throttle: 1 }), 'sandworm', flat, 1.4);
+    expect(r.y).toBe(0);
+    expect(r.onGround).toBe(true);
+    expect(r.leapT).toBe(-1);
+  });
+
+  it('skręca szerokim łukiem', () => {
+    const r = newRideState(0, 0, 0, 0);
+    r.speed = 16;
+    r.throttle = 1;
+    run(r, input({ throttle: 1, turn: 1 }), 'sandworm', flat, 1);
+    expect(-r.yaw).toBeCloseTo(0.45, 1);
+  });
+
+  it('ślad dopisuje próbki co krok i obcina najstarsze', () => {
+    const trail: number[] = [];
+    expect(advanceTrail(trail, 0, 0, 0, 1.5, 4)).toBe(true);
+    expect(advanceTrail(trail, 0.5, 0, 0, 1.5, 4)).toBe(false);
+    for (let i = 1; i <= 6; i++) advanceTrail(trail, 0, 0, -i * 2, 1.5, 4);
+    expect(trail.length).toBe(12);
+    expect(trail[trail.length - 1]).toBe(-12);
+  });
+
+  it('punkt na śladzie leży w zadanej odległości za głową, także poza końcem śladu', () => {
+    const trail: number[] = [];
+    for (let i = 0; i <= 5; i++) advanceTrail(trail, 0, 0, 10 - i * 2, 1.5, 20); // czerw jedzie w −Z
+    const head: [number, number, number] = [0, 0, -1];
+    const near = trailPoint(trail, head[0], head[1], head[2], 3);
+    expect(near[2]).toBeCloseTo(2, 5);
+    const far = trailPoint(trail, head[0], head[1], head[2], 20);
+    expect(far[2]).toBeCloseTo(19, 5); // przedłużenie ostatniego odcinka
+  });
+});

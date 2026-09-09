@@ -9,7 +9,7 @@ export interface CatalogItem {
   emoji: string; // ikona w liście
   footprint: number; // przybliżony promień (do rozmieszczania)
   maxScale?: number; // górna granica suwaka wielkości (domyślnie 10)
-  emitter?: 'smoke' | 'mist' | 'fireflies' | 'butterflies' | 'insects'; // system cząsteczek doczepiony do obiektu
+  emitter?: 'smoke' | 'mist' | 'fireflies' | 'butterflies' | 'insects' | 'fire' | 'sand'; // system cząsteczek doczepiony do obiektu (ogień i piasek — wierzchowce, sterowane w jeździe)
   collider?: 'trimesh' | 'box' | 'cylinder' | 'none'; // bryła kolizji (domyślnie 'box')
   unique?: boolean; // tylko jeden taki obiekt na pałac (brama)
   spawn?: AnimalKind; // punkt pojawiania zwierzęcia
@@ -46,7 +46,11 @@ export const CATALOG: CatalogItem[] = [
   { id: 'chest', name: 'Skrzynia', category: 'object', emoji: '🧰', description: 'Skrzynia na sekrety.', footprint: 0.6 },
   { id: 'signpost', name: 'Drogowskaz', category: 'object', emoji: '🪧', description: 'Wskazuje kierunek historii.', footprint: 0.4, outdoorOnly: true },
   { id: 'well', name: 'Studnia', category: 'object', emoji: '🪣', description: 'Głębokie skojarzenia.', footprint: 0.8, collider: 'trimesh', outdoorOnly: true },
-  { id: 'plane', name: 'Samolot', category: 'object', emoji: '✈️', description: 'Mały samolot z otwartym kokpitem. W spacerze podejdź i naciśnij F, żeby wsiąść i polecieć.', footprint: 2.4, maxScale: 2, collider: 'trimesh', outdoorOnly: true },
+  // Pojazdy i wierzchowce — w spacerze F wsiada, sterowanie i wysiadka w `lib/ride.ts`
+  { id: 'plane', name: 'Samolot', category: 'vehicle', emoji: '✈️', description: 'Mały samolot z otwartym kokpitem. W spacerze podejdź i naciśnij F, żeby wsiąść i polecieć.', footprint: 2.4, maxScale: 2, collider: 'trimesh', outdoorOnly: true },
+  { id: 'dragon', name: 'Smok wierzchowy', category: 'vehicle', emoji: '🐲', description: 'Smok z siodłem. Dosiądź go w spacerze: startuje pionowo, zawisa w miejscu i zionie ogniem.', footprint: 3.6, maxScale: 2, collider: 'trimesh', emitter: 'fire', outdoorOnly: true },
+  { id: 'horse', name: 'Koń', category: 'vehicle', emoji: '🐎', description: 'Srokaty koń pod siodłem. W spacerze podejdź i naciśnij F, żeby dosiąść i pogalopować.', footprint: 1.2, maxScale: 2, collider: 'box', outdoorOnly: true },
+  { id: 'sandworm', name: 'Czerw pustynny', category: 'vehicle', emoji: '🪱', description: 'Olbrzymi czerw wyłaniający się z ziemi. Dosiądź głowy i płyń po planszy, wyskakując z piasku.', footprint: 4, maxScale: 3, collider: 'trimesh', emitter: 'sand', outdoorOnly: true },
   // Rośliny
   { id: 'tree', name: 'Drzewo', category: 'plant', emoji: '🌳', description: 'Okrągła korona, cień na myśli.', footprint: 1.2, collider: 'cylinder', outdoorOnly: true },
   { id: 'cypress', name: 'Cyprys', category: 'plant', emoji: '🌲', description: 'Smukłe drzewo — dobry punkt orientacyjny.', footprint: 0.6, collider: 'cylinder', outdoorOnly: true },
@@ -111,7 +115,7 @@ export const CATALOG: CatalogItem[] = [
   { id: 'stairs', name: 'Schody', category: 'structure', emoji: '🪜', description: 'Prowadzą na wyższe piętro.', footprint: 0.8, collider: 'trimesh', maxScale: 2 },
 ];
 
-export const CATEGORY_ORDER: Category[] = ['structure', 'building', 'lighting', 'furniture', 'plant', 'landscape', 'object', 'animal', 'special'];
+export const CATEGORY_ORDER: Category[] = ['structure', 'building', 'lighting', 'furniture', 'plant', 'landscape', 'object', 'vehicle', 'animal', 'special'];
 
 /** Wnętrza budynków: wymiary pokoju wchodzimy do środka. Altana jest otwarta — nie ma wnętrza. */
 export const ROOMS: Record<string, RoomSpec> = {
@@ -138,6 +142,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   plant: 'Rośliny',
   landscape: 'Krajobraz',
   object: 'Przedmioty',
+  vehicle: 'Pojazdy',
   animal: 'Zwierzęta',
   special: 'Specjalne',
   structure: 'Konstrukcja',

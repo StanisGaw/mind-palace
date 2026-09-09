@@ -1,6 +1,6 @@
 export type Vec3 = [number, number, number];
 
-export type Category = 'building' | 'lighting' | 'furniture' | 'plant' | 'landscape' | 'object' | 'animal' | 'special' | 'structure';
+export type Category = 'building' | 'lighting' | 'furniture' | 'plant' | 'landscape' | 'object' | 'vehicle' | 'animal' | 'special' | 'structure';
 
 export interface SrsState {
   interval: number; // dni
