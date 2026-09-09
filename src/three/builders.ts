@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { buildAnimalBody, type AnimalKind } from './wildlife';
 import { DOOR_OPENING, FACADE, SHELLS, SHELL_WALL_T, TOWER_R, WALL_SEGMENT, WALL_THICKNESS, facadeWallsOf, shellFixedBoxes, shellWindowHoles, type FacadeWall, type Opening, type ShellSpec, type WallHole } from '../lib/rooms';
-import { subtractRect, type Rect } from './interior';
+import { subtractRect, type Rect } from '../lib/rects';
 import { paintingTexture } from './art';
 import { Noise2D } from './noise';
 import { grainTexture, textureById } from './textures';

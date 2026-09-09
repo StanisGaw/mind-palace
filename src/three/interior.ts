@@ -3,6 +3,7 @@ import type { RoomSpec } from '../types';
 import { discSlabGeometry, finishMat, glassMat, mat, scaleUv, spiralStairs, trimeshOf, wallGeometry, woodMat, type Trimesh } from './builders';
 import { SHELLS, SHELL_WINDOWS, type Opening, type WallHole } from '../lib/rooms';
 import { skyTexture } from './art';
+import { subtractRect, type Rect } from '../lib/rects';
 
 export interface RoomBox {
   size: [number, number, number];
@@ -30,33 +31,6 @@ export interface Room {
   /** Siatki kolizji (helikalne wstęgi schodów). */
   trimeshes: Trimesh[];
   dispose(): void;
-}
-
-export interface Rect {
-  x0: number;
-  x1: number;
-  z0: number;
-  z1: number;
-}
-
-/** Wycina prostokątny otwór z listy prostokątów (podział na do czterech pasów wokół dziury). */
-export function subtractRect(rects: Rect[], hole: Rect): Rect[] {
-  const out: Rect[] = [];
-  for (const r of rects) {
-    if (hole.x1 <= r.x0 || hole.x0 >= r.x1 || hole.z1 <= r.z0 || hole.z0 >= r.z1) {
-      out.push(r);
-      continue;
-    }
-    const ix0 = Math.max(r.x0, hole.x0);
-    const ix1 = Math.min(r.x1, hole.x1);
-    const iz0 = Math.max(r.z0, hole.z0);
-    const iz1 = Math.min(r.z1, hole.z1);
-    if (r.x0 < ix0) out.push({ x0: r.x0, x1: ix0, z0: r.z0, z1: r.z1 });
-    if (ix1 < r.x1) out.push({ x0: ix1, x1: r.x1, z0: r.z0, z1: r.z1 });
-    if (r.z0 < iz0) out.push({ x0: ix0, x1: ix1, z0: r.z0, z1: iz0 });
-    if (iz1 < r.z1) out.push({ x0: ix0, x1: ix1, z0: iz1, z1: r.z1 });
-  }
-  return out;
 }
 
 const WALL_T = 0.3; // grubość ściany obwodowej

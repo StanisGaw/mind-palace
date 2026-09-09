@@ -1,8 +1,61 @@
 import type { GroundShape, GroundSpec } from '../types';
+import { clampToRect, mergeTiles, rectDistance, tileOutlines, type Rect } from './rects';
+
+/** Bok kafla narysowanej planszy w metrach. */
+export const GROUND_TILE = 4;
+
+/** Czy plansza jest narysowana kaflami (wtedy `shape` i wymiary nie mają znaczenia). */
+export function isDrawnGround(g: GroundSpec): boolean {
+  return !!g.tiles && g.tiles.length > 0;
+}
+
+/** Płyta jako prostokąty: narysowana plansza po scaleniu kafli, prostokątna jako jeden. Koło i sześciokąt: pusto. */
+export function groundRects(g: GroundSpec): Rect[] {
+  if (isDrawnGround(g)) return mergeTiles(g.tiles!, GROUND_TILE);
+  if (g.shape === 'rect') return [{ x0: -g.width / 2, x1: g.width / 2, z0: -g.depth / 2, z1: g.depth / 2 }];
+  return [];
+}
+
+/** Obrys planszy do rysowania: dla kafli może być wklęsły i wieloczęściowy, inaczej jeden wielokąt wypukły. */
+export function groundOutlines(g: GroundSpec): [number, number][][] {
+  return isDrawnGround(g) ? tileOutlines(g.tiles!, GROUND_TILE) : [groundPolygon(g)];
+}
+
+/** Prostokąt opisany na planszy (środek i połowy boków) — kadr kamery, cieni i mgły. */
+export function groundBounds(g: GroundSpec): Rect {
+  const rects = isDrawnGround(g) ? groundRects(g) : null;
+  if (!rects || rects.length === 0) return { x0: -g.width / 2, x1: g.width / 2, z0: -g.depth / 2, z1: g.depth / 2 };
+  return {
+    x0: Math.min(...rects.map((r) => r.x0)),
+    x1: Math.max(...rects.map((r) => r.x1)),
+    z0: Math.min(...rects.map((r) => r.z0)),
+    z1: Math.max(...rects.map((r) => r.z1)),
+  };
+}
 
 /** Największy wymiar planszy — do kadrowania kamery, mgły i cieni. */
 export function groundExtent(g: GroundSpec): number {
-  return Math.max(g.width, g.depth);
+  if (!isDrawnGround(g)) return Math.max(g.width, g.depth);
+  const b = groundBounds(g);
+  return Math.max(b.x1 - b.x0, b.z1 - b.z0);
+}
+
+/** Kafel, w którym leży punkt. */
+export function tileAt(x: number, z: number): [number, number] {
+  return [Math.floor(x / GROUND_TILE), Math.floor(z / GROUND_TILE)];
+}
+
+/** Bieżący kształt planszy przepisany na kafle — punkt wyjścia przy pierwszym rysowaniu. */
+export function tilesFromShape(g: GroundSpec): [number, number][] {
+  const half = Math.ceil(Math.max(g.width, g.depth) / GROUND_TILE) + 1;
+  const out: [number, number][] = [];
+  for (let i = -half; i <= half; i++) {
+    for (let j = -half; j <= half; j++) {
+      // kafel należy do planszy, gdy jego środek leży w obrysie
+      if (insideGround(g, (i + 0.5) * GROUND_TILE, (j + 0.5) * GROUND_TILE)) out.push([i, j]);
+    }
+  }
+  return out;
 }
 
 /** Obrys planszy w rzucie z góry (wielokąt wypukły, przeciwnie do wskazówek zegara). */
@@ -29,6 +82,10 @@ export function groundPolygon(g: GroundSpec): [number, number][] {
 
 /** Ile trzeba odsunąć się od krawędzi planszy (0 wewnątrz). */
 export function outsideDistance(g: GroundSpec, x: number, z: number): number {
+  if (isDrawnGround(g)) {
+    const rects = groundRects(g);
+    return rects.length ? Math.min(...rects.map((r) => rectDistance(r, x, z))) : 0;
+  }
   if (g.shape === 'rect') return Math.max(Math.abs(x) - g.width / 2, Math.abs(z) - g.depth / 2, 0);
   const r = g.width / 2;
   if (g.shape === 'circle') return Math.max(Math.hypot(x, z) - r, 0);
@@ -48,6 +105,22 @@ export function insideGround(g: GroundSpec, x: number, z: number): boolean {
 
 /** Najbliższy punkt wewnątrz planszy, z zadanym marginesem od krawędzi. */
 export function clampToGround(g: GroundSpec, x: number, z: number, margin = 0.4): [number, number] {
+  if (isDrawnGround(g)) {
+    const rects = groundRects(g);
+    if (rects.length === 0) return [x, z];
+    // najbliższy punkt w którymkolwiek prostokącie; margines liczymy dopiero po wyborze, żeby nie odrzucić wąskiego pasa
+    let best: [number, number] = clampToRect(rects[0], x, z, margin);
+    let bestD = Math.hypot(best[0] - x, best[1] - z);
+    for (const r of rects.slice(1)) {
+      const p = clampToRect(r, x, z, margin);
+      const d = Math.hypot(p[0] - x, p[1] - z);
+      if (d < bestD) {
+        best = p;
+        bestD = d;
+      }
+    }
+    return best;
+  }
   if (g.shape === 'rect') {
     const hx = Math.max(g.width / 2 - margin, 0.5);
     const hz = Math.max(g.depth / 2 - margin, 0.5);

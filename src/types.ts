@@ -68,6 +68,8 @@ export interface GroundSpec {
   width: number;
   depth: number;
   shape: GroundShape;
+  /** Plansza narysowana: kafle siatki (patrz `GROUND_TILE`). Gdy jest, `shape`, `width` i `depth` nie liczą się. */
+  tiles?: [number, number][];
 }
 
 export interface PalaceSettings {

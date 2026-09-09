@@ -8,6 +8,7 @@ import { chainOf, collectSubtree, loadData, makeInteriorPalace, makePalace, root
 import { DOOR_SLOT, FLOOR_MAX, SHELLS, buildingLamps, orphanStairs, orphanStairsIn, buildingFloorY, buildingOf, maxFloorsOf, clampToRoom, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, mergedWall, roomSpecFor, wallChains, wallOffsetOf, wallPointAt, worldXZ, isFacade } from './lib/rooms';
 import { captureSet, furnitureSet, instantiateSet } from './lib/sets';
 import { findStairsIn, findStairsSpot, roomOfSpec } from './lib/layout';
+import { isDrawnGround, tileAt, tilesFromShape } from './lib/ground';
 import { loadCustomSets, saveCustomSets } from './lib/setStore';
 import { isDue, newSrs, reviewSrs } from './lib/srs';
 import { flattenStops, dueInTree, type ReviewStop } from './lib/review';
@@ -54,7 +55,9 @@ interface State {
   flying: boolean;
   /** Budynek z wnętrzem w miejscu, w którym stoi gracz w spacerze (biblioteka ogranicza się do wyposażenia wnętrz). */
   insideBuildingId: string | null;
-  placing: { type: string; ids?: string[]; setId?: string } | null; // element z biblioteki, zestaw mebli (`set`) albo kopie obiektów `ids` — czeka na kliknięcie w scenie
+  placing: { type: string; ids?: string[]; setId?: string } | null;
+  /** Rysowanie planszy: przeciągnięcie po scenie dokłada kafle, z Shiftem wymazuje. */
+  groundBrush: boolean; // element z biblioteki, zestaw mebli (`set`) albo kopie obiektów `ids` — czeka na kliknięcie w scenie
   sound: SoundLevels; // głośność dźwięków otoczenia; trzymana w preferencjach, nie w danych pałacu
   editFloor: number; // piętro edytowane w edytorze (nieutrwalane — zerowane przy zmianie sceny)
   activeBuildingId: string | null; // budynek z wnętrzem w miejscu, któremu edytor chowa dach (nieutrwalane)
@@ -91,6 +94,9 @@ interface State {
   /** Scala współliniowe, stykające się ścianki spośród podanych; zwraca id ścianek, które zostały. */
   mergeWalls(ids: string[], opts?: { undo?: boolean }): string[];
   setPlacing(p: { type: string; ids?: string[]; setId?: string } | null): void;
+  setGroundBrush(v: boolean): void;
+  /** Dokłada albo wymazuje kafle planszy; nie pozwala usunąć kafla, na którym coś stoi. */
+  paintGroundTiles(tiles: [number, number][], erase: boolean): void;
   removeObject(id: string): void;
   updateObject(id: string, patch: Partial<PalaceObject>, opts?: { undo?: boolean }): void;
   duplicateObject(id: string): void;
@@ -372,6 +378,7 @@ export const useStore = create<State>((set, get) => ({
   flying: false,
   insideBuildingId: null,
   placing: null,
+  groundBrush: false,
   sound: initialSound(),
   editFloor: 0,
   activeBuildingId: null,
@@ -681,6 +688,44 @@ export const useStore = create<State>((set, get) => ({
     const cur = get().placing;
     if (cur?.type === p?.type && cur?.setId === p?.setId && (cur?.ids ?? []).join(',') === (p?.ids ?? []).join(',')) return;
     set({ placing: p });
+  },
+
+  setGroundBrush(v) {
+    if (get().groundBrush === v) return;
+    set({ groundBrush: v, ...(v ? { placing: null } : {}) });
+    if (v) {
+      const g = get().palace().settings.ground;
+      // pierwsze rysowanie przepisuje bieżący kształt na kafle, żeby nie zaczynać od pustej planszy
+      if (!isDrawnGround(g)) get().setSettings({ ground: { ...g, tiles: tilesFromShape(g) } });
+      get().showToast('Rysuj planszę przeciągnięciem. Shift wymazuje kafle, Esc kończy.');
+    }
+  },
+
+  paintGroundTiles(tiles, erase) {
+    if (tiles.length === 0) return;
+    const p = get().palace();
+    const g = p.settings.ground;
+    const have = new Set((g.tiles ?? tilesFromShape(g)).map(([i, j]) => `${i},${j}`));
+    let blocked = false;
+    for (const [i, j] of tiles) {
+      const key = `${i},${j}`;
+      if (!erase) {
+        have.add(key);
+        continue;
+      }
+      // kafel z obiektem zostaje: inaczej budynek albo drzewo wisiałoby nad pustką
+      const busy = p.objects.some((o) => !o.anchorId && tileAt(o.position[0], o.position[2]).join(',') === key);
+      if (busy) blocked = true;
+      else have.delete(key);
+    }
+    const next: [number, number][] = Array.from(have, (k) => k.split(',').map(Number) as [number, number]);
+    if (next.length === 0) {
+      get().showToast('Plansza nie może zniknąć w całości.');
+      return;
+    }
+    const same = next.length === (g.tiles?.length ?? -1) && next.every(([i, j]) => (g.tiles ?? []).some(([a, b2]) => a === i && b2 === j));
+    if (!same) get().setSettings({ ground: { ...g, tiles: next } });
+    if (blocked) get().showToast('Na tym kaflu stoją obiekty — najpierw je przenieś.');
   },
 
   setInsideBuilding(id) {

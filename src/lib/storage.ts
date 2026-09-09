@@ -4,6 +4,7 @@ import { uid } from './ids';
 import { hashString } from '../three/noise';
 import { FLOOR_MAX, SHELLS, attachLegacyDoors, buildingOf, facadeSnap, isFacade, localXZ, roomLamps, worldXZ } from './rooms';
 import { yawRotation } from './transform';
+import { isDrawnGround, tileAt } from './ground';
 import { asSet } from './setStore';
 
 const KEY = 'mneme.data.v1';
@@ -58,6 +59,29 @@ function growGroundForBuildings(p: Palace) {
     needZ = Math.max(needZ, (Math.abs(o.position[2]) + reach) * 2);
   }
   const g = p.settings.ground;
+  if (isDrawnGround(g)) {
+    // narysowana plansza rośnie kaflami tam, gdzie stoi bryła — suwaki jej nie dotyczą
+    const has = new Set(g.tiles!.map(([i, j]) => `${i},${j}`));
+    const add: [number, number][] = [];
+    for (const o of p.objects) {
+      const shell = SHELLS[o.type];
+      if (!shell) continue;
+      const rx = (shell.inner.w * o.scale[0]) / 2 + 1.5;
+      const rz = (shell.inner.d * o.scale[2]) / 2 + 1.5;
+      const [i0, j0] = tileAt(o.position[0] - rx, o.position[2] - rz);
+      const [i1, j1] = tileAt(o.position[0] + rx, o.position[2] + rz);
+      for (let i = i0; i <= i1; i++) {
+        for (let j = j0; j <= j1; j++) {
+          const key = `${i},${j}`;
+          if (has.has(key)) continue;
+          has.add(key);
+          add.push([i, j]);
+        }
+      }
+    }
+    if (add.length > 0) p.settings = { ...p.settings, ground: { ...g, tiles: [...g.tiles!, ...add] } };
+    return;
+  }
   // koło i sześciokąt biorą średnicę z `width`, `depth` jest wtedy nieużywane — muszą urosnąć po dłuższej osi
   const round = g.shape !== 'rect';
   const even = (v: number) => Math.ceil(v / 2) * 2; // suwak planszy chodzi co 2 m
@@ -223,6 +247,23 @@ function normalizeSettings(raw: unknown, id: string): PalaceSettings {
       depth: Math.max(4, typeof g.depth === 'number' ? g.depth : g.width),
       shape: g.shape === 'circle' || g.shape === 'hex' ? g.shape : 'rect',
     };
+  }
+  // narysowana plansza: pary całkowitych indeksów kafli, bez powtórzeń — bez tego zapis gubiłby kształt
+  const tiles = (g as { tiles?: unknown } | undefined)?.tiles;
+  if (Array.isArray(tiles)) {
+    const seen = new Set<string>();
+    const clean: [number, number][] = [];
+    for (const t of tiles) {
+      if (!Array.isArray(t) || t.length < 2) continue;
+      const i = Math.round(Number(t[0]));
+      const j = Math.round(Number(t[1]));
+      if (!Number.isFinite(i) || !Number.isFinite(j) || Math.abs(i) > 1000 || Math.abs(j) > 1000) continue;
+      const key = `${i},${j}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      clean.push([i, j]);
+    }
+    if (clean.length > 0) merged.ground.tiles = clean;
   }
   delete merged.groundSize;
   return merged;

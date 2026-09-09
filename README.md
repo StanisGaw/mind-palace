@@ -27,6 +27,11 @@ npm run build        # produkcyjny build do dist/
   nowe lico muru, a plansza rośnie tak, by pomieścić bryły.
 - **Układanie i kotwiczenie** — obiekty można stawiać na innych; postawiony przedmiot przesuwa się
   i obraca razem z podstawą. Stawianie działa też poza planszą, na okolicznym terenie.
+- **Rysowana plansza** — przycisk „Rysuj planszę" w Otoczeniu zamienia płytę na kafle 4 × 4 m: przeciągnięcie
+  po scenie dokłada kafle, z `Shift` wymazuje, `Esc` kończy. Plansza może być wtedy dowolnego kształtu (litera L,
+  z dziurą w środku, z odnogami); kafle scalają się w możliwie duże prostokąty, z których powstają blat płyty,
+  linie siatki i kolidery fizyki (`lib/rects.ts`, `lib/ground.ts`). Kafla, na którym coś stoi, nie da się wymazać,
+  a „Wróć do kształtu" przywraca prostokąt, koło albo sześciokąt.
 - **Plansza i nawierzchnia** — kształt płyty (prostokąt, koło, sześciokąt), jej wymiary, kilkanaście
   proceduralnych nawierzchni (trawa, żwir, kostka, kamienie polne, kora…) oraz własne obrazy jako
   tekstura. Zestawy otoczenia można zapisywać i wczytywać jako „krajobrazy". **Ścieżki** rysuje się
@@ -124,7 +129,7 @@ Dopisz `?physdebug=1` do adresu, aby zobaczyć bryły kolizji jako linie.
 ## Testy
 
 ```bash
-npm test          # vitest: testy integracyjne układów i zestawów (src/lib/layout.test.ts)
+npm test          # vitest: zestawy i układy, piętra i schody, plansza z kafli (src/lib/*.test.ts)
 ```
 
 Testy sprawdzają geometrię w metrach: czy schody mieszczą się w pokoju razem z podejściem i podestem,

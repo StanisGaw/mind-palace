@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AMBIENCES, SCENERIES, WEATHERS } from '../catalog';
-import { GROUND_SHAPES } from '../lib/ground';
+import { GROUND_SHAPES, GROUND_TILE, isDrawnGround } from '../lib/ground';
 import { TexturePicker } from './TexturePicker';
 import { allLandscapes, removeLandscape, saveLandscape, type LandscapePreset } from '../lib/landscapes';
 import type { Scenery, SoundLevels, Weather } from '../types';
@@ -539,12 +539,40 @@ function ActiveBuildingSection() {
 function GroundSection() {
   const palace = useCurrentPalace();
   const setSettings = useStore((s) => s.setSettings);
+  const brush = useStore((s) => s.groundBrush);
+  const setGroundBrush = useStore((s) => s.setGroundBrush);
   const g = palace.settings.ground;
+  const drawn = isDrawnGround(g);
   const round = g.shape !== 'rect';
   const set = (patch: Partial<typeof g>) => setSettings({ ground: { ...g, ...patch } });
   return (
     <div className="env-section">
       <span className="env-title">Plansza</span>
+      <div className="shape-row">
+        <button className={'shape-btn' + (brush ? ' on' : '')} onClick={() => setGroundBrush(!brush)}>
+          {brush ? 'Skończ rysowanie' : 'Rysuj planszę'}
+        </button>
+        {drawn && (
+          <button
+            className="shape-btn"
+            onClick={() => {
+              setGroundBrush(false);
+              const { tiles, ...rest } = g;
+              void tiles;
+              setSettings({ ground: rest });
+            }}
+          >
+            Wróć do kształtu
+          </button>
+        )}
+      </div>
+      {drawn ? (
+        <p className="lead" style={{ margin: '2px 0 0' }}>
+          Plansza narysowana z {g.tiles!.length} kafli po {GROUND_TILE} m. Przeciągnij po scenie, żeby dołożyć,
+          z Shiftem — żeby wymazać.
+        </p>
+      ) : (
+        <>
       <div className="shape-row">
         {GROUND_SHAPES.map((sh) => (
           <button key={sh.id} className={'shape-btn' + (g.shape === sh.id ? ' on' : '')} onClick={() => set({ shape: sh.id })}>
@@ -568,6 +596,8 @@ function GroundSection() {
           <span>Głębokość: {g.depth} m</span>
           <input type="range" min={10} max={80} step={2} value={g.depth} onChange={(e) => set({ depth: Number(e.target.value) })} />
         </label>
+      )}
+        </>
       )}
     </div>
   );
@@ -605,7 +635,15 @@ function LandscapeSection() {
       <div className="ls-list">
         {list.map((p) => (
           <div key={p.id} className="ls-row">
-            <button className="ls-name" onClick={() => { setSettings({ ...p.settings }); showToast(`Zastosowano: ${p.name}`); }}>
+            <button
+              className="ls-name"
+              onClick={() => {
+                // krajobraz to pogoda, sceneria i nawierzchnia — narysowanej planszy nie kasuje
+                const ground = isDrawnGround(palace.settings.ground) ? palace.settings.ground : p.settings.ground;
+                setSettings({ ...p.settings, ground });
+                showToast(`Zastosowano: ${p.name}`);
+              }}
+            >
               {p.name}
             </button>
             {!p.builtin && (

@@ -17,7 +17,7 @@ import { buildTerrain, type Terrain } from './terrain';
 import { buildRoom, type Room } from './interior';
 import { Physics, FOOT_OFFSET, type StaticShape } from './physics';
 import { ROOMS, colliderKind, spawnKind } from '../catalog';
-import { clampToGround, clipSegment, groundExtent, groundPolygon, insideGround } from '../lib/ground';
+import { GROUND_TILE, clampToGround, clipSegment, groundBounds, groundExtent, groundOutlines, groundPolygon, groundRects, insideGround, isDrawnGround, tileAt } from '../lib/ground';
 import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, buildingOf, buildingOpenings, facadeFloorOk, facadeHoles, facadeSlotFree, facadeSnap, isDrawn, isFacade, doorOffsets, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, localXZ, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, SHELLS, TOWER_R, type Opening } from '../lib/rooms';
 import { SET_WALL_GAP, furnitureSet, instantiateSet } from '../lib/sets';
 import { boxLocal, boxPoint, insideRoom, placementBlock, roomOfBuilding, roomOfSpec, type RoomShape } from '../lib/layout';
@@ -209,6 +209,10 @@ export class SceneManager {
   private ghostSet: FurnitureSet | null = null;
   /** Zestaw z tyłem sam ustawia się do ściany, dopóki użytkownik nie obróci podglądu ręcznie. */
   private ghostAutoRot = true;
+  /** Rysowanie planszy: podgląd malowanych kafli i kafle dotknięte w bieżącym przeciągnięciu. */
+  private brushPreview: THREE.LineSegments | null = null;
+  private brushTiles: Map<string, [number, number]> | null = null;
+  private brushErase = false;
   /** Powód, dla którego podglądu nie wolno postawić (świeca na blacie, obraz na oknie). */
   private placeBlockReason = '';
   private ghostFootprint = 1;
@@ -444,32 +448,36 @@ export class SceneManager {
       (this.grid.material as THREE.Material).dispose();
     }
     const size = groundExtent(spec);
+    const drawn = isDrawnGround(spec);
+    const rects = groundRects(spec);
     const poly = groundPolygon(spec);
-    const shape = new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, z)));
     const amb = AMBIENCES.find((a) => a.id === (this.lastPalace?.settings.ambience ?? 'garden')) ?? AMBIENCES[0];
 
-    const topGeo = new THREE.ShapeGeometry(shape);
+    // UV takie same jak w `ShapeGeometry` (współrzędne świata), żeby `applyGroundTexture` działało tak samo
+    const topGeo = drawn ? rectsGeometry(rects) : new THREE.ShapeGeometry(new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, z))));
     topGeo.rotateX(-Math.PI / 2);
     this.ground = new THREE.Mesh(topGeo, new THREE.MeshStandardMaterial({ color: amb.ground, roughness: 1 }));
     this.ground.receiveShadow = true;
     this.ground.userData.ground = true;
     this.scene.add(this.ground);
 
-    const slabGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.6, bevelEnabled: false });
-    slabGeo.rotateX(Math.PI / 2); // wyciągnięcie idzie wzdłuż +Z, po obrocie schodzi w dół
+    // bok płyty: dla narysowanej planszy pionowe ścianki tylko wzdłuż krawędzi bez sąsiada
+    const slabGeo = drawn ? skirtGeometry(groundOutlines(spec), 0.6) : rotatedExtrude(poly, 0.6);
     this.slab = new THREE.Mesh(slabGeo, new THREE.MeshStandardMaterial({ color: '#b7bba9', roughness: 1, side: THREE.DoubleSide }));
     this.slab.position.y = -0.01;
     this.slab.receiveShadow = true;
     this.scene.add(this.slab);
 
-    // siatka rysowana liniami przyciętymi do obrysu planszy
+    // siatka rysowana liniami przyciętymi do obrysu planszy (kafle: do każdego prostokąta osobno)
     const pts: number[] = [];
-    const half = Math.ceil(size / 2) + 1;
-    for (let i = -half; i <= half; i++) {
-      for (const seg of [
-        clipSegment([i, -half - 1], [i, half + 1], poly),
-        clipSegment([-half - 1, i], [half + 1, i], poly),
-      ]) {
+    const b = groundBounds(spec);
+    const from = Math.floor(Math.min(b.x0, b.z0)) - 1;
+    const to = Math.ceil(Math.max(b.x1, b.z1)) + 1;
+    for (let i = from; i <= to; i++) {
+      const segs = drawn
+        ? rects.flatMap((r) => [clipSegment([i, from], [i, to], rectPolygon(r)), clipSegment([from, i], [to, i], rectPolygon(r))])
+        : [clipSegment([i, from], [i, to], poly), clipSegment([from, i], [to, i], poly)];
+      for (const seg of segs) {
         if (!seg) continue;
         pts.push(seg[0][0], 0, seg[0][1], seg[1][0], 0, seg[1][1]);
       }
@@ -480,7 +488,7 @@ export class SceneManager {
     this.grid.position.y = 0.012;
     this.scene.add(this.grid);
 
-    const shadowHalf = size / 2 + 2;
+    const shadowHalf = Math.max(Math.abs(b.x0), Math.abs(b.x1), Math.abs(b.z0), Math.abs(b.z1)) + 2;
     this.sun.shadow.camera.left = -shadowHalf;
     this.sun.shadow.camera.right = shadowHalf;
     this.sun.shadow.camera.top = shadowHalf;
@@ -771,11 +779,14 @@ export class SceneManager {
     // scena zewnętrzna
     this.ground.visible = true;
     this.slab.visible = true;
-    const groundKey = `${p.settings.ground.shape}|${p.settings.ground.width}|${p.settings.ground.depth}`;
+    // klucz musi objąć narysowane kafle, inaczej dorysowany kawałek planszy nie przebudowałby płyty ani kolizji
+    const g = p.settings.ground;
+    const groundKey = `${g.shape}|${g.width}|${g.depth}|${(g.tiles ?? []).map((t) => t.join(':')).sort().join(',')}`;
     if (this.lastGroundKey !== groundKey) {
       this.buildGround(p.settings.ground);
       this.lastGroundKey = groundKey;
       this.lastTextureKey = '';
+      this.physicsDirty = true; // zmieniony kształt płyty to inne kolidery pod nogami
     }
     const terrainKey = `${p.settings.scenery}|${p.settings.seed}|${groundKey}`;
     if (terrainKey !== this.terrainKey) {
@@ -799,7 +810,8 @@ export class SceneManager {
     }
     this.walkArea = p.settings.ground;
     const h = groundExtent(p.settings.ground) / 2 - 0.4;
-    this.bounds = { hx: p.settings.ground.width / 2 - 0.4, hz: p.settings.ground.depth / 2 - 0.4 };
+    const gb = groundBounds(p.settings.ground);
+    this.bounds = { hx: Math.max(gb.x1, -gb.x0) - 0.4, hz: Math.max(gb.z1, -gb.z0) - 0.4 };
     void h;
     void sceneChanged;
   }
@@ -1194,7 +1206,8 @@ export class SceneManager {
     if (p.interior) {
       ph.setRoom(this.room?.colliders ?? null, this.room?.trimeshes ?? []);
     } else {
-      ph.setGroundShape(groundPolygon(p.settings.ground), 0.6);
+      if (isDrawnGround(p.settings.ground)) ph.setGroundParts(groundRects(p.settings.ground), 0.6);
+      else ph.setGroundShape(groundPolygon(p.settings.ground), 0.6);
       ph.setTerrain(this.terrain?.mesh ?? null);
     }
     for (const [id, e] of this.entries) {
@@ -2463,6 +2476,52 @@ export class SceneManager {
     return { pos: gp };
   }
 
+  /** Dokłada kafel pod kursorem do bieżącego pociągnięcia i odświeża podgląd. */
+  private brushAt() {
+    if (!this.brushTiles) return;
+    const p = new THREE.Vector3();
+    if (!this.groundPoint(p)) return;
+    const [i, j] = tileAt(p.x, p.z);
+    const key = `${i},${j}`;
+    if (this.brushTiles.has(key)) return;
+    this.brushTiles.set(key, [i, j]);
+    this.showBrushPreview();
+  }
+
+  /** Obrys malowanych kafli: zielony przy dokładaniu, czerwony przy wymazywaniu. */
+  private showBrushPreview() {
+    this.clearBrushPreview();
+    if (!this.brushTiles || this.brushTiles.size === 0) return;
+    const pts: number[] = [];
+    for (const [i, j] of this.brushTiles.values()) {
+      const x0 = i * GROUND_TILE;
+      const x1 = x0 + GROUND_TILE;
+      const z0 = j * GROUND_TILE;
+      const z1 = z0 + GROUND_TILE;
+      const ring: [number, number][] = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
+      for (let k = 0; k < 4; k++) {
+        const a = ring[k];
+        const b = ring[(k + 1) % 4];
+        pts.push(a[0], 0, a[1], b[0], 0, b[1]);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    this.brushPreview = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: this.brushErase ? '#b4483d' : '#3f7550', depthTest: false }));
+    this.brushPreview.position.y = 0.05;
+    this.brushPreview.renderOrder = 5;
+    this.scene.add(this.brushPreview);
+  }
+
+  /** Zwalnia podgląd pędzla — wołane przy każdym odświeżeniu i przy sprzątaniu sceny. */
+  private clearBrushPreview() {
+    if (!this.brushPreview) return;
+    this.scene.remove(this.brushPreview);
+    this.brushPreview.geometry.dispose();
+    (this.brushPreview.material as THREE.Material).dispose();
+    this.brushPreview = null;
+  }
+
   private groundPoint(out: THREE.Vector3): boolean {
     this.raycaster.setFromCamera(this.pointer, this.camera);
     return !!this.raycaster.ray.intersectPlane(this.groundPlane, out);
@@ -2476,6 +2535,14 @@ export class SceneManager {
   private onPointerDown = (ev: PointerEvent) => {
     if (this.isUiTarget(ev)) return;
     const st = useStore.getState();
+    if (this.mode === 'editor' && st.groundBrush && ev.button === 0) {
+      this.setPointer(ev);
+      this.brushErase = ev.shiftKey;
+      this.brushTiles = new Map();
+      this.orbit.enabled = false;
+      this.brushAt();
+      return;
+    }
     if (this.mode === 'vr') {
       if (!this.stereo) return;
       // bez czujników ruchu rozglądamy się myszą, więc najpierw przejmujemy kursor
@@ -2595,6 +2662,11 @@ export class SceneManager {
   };
 
   private onPointerMove = (ev: PointerEvent) => {
+    if (this.brushTiles) {
+      this.setPointer(ev);
+      this.brushAt();
+      return;
+    }
     // tryb stereo bez czujników: przeciągnięcie rozgląda się zamiast prowadzić do przodu
     if (
       this.mode === 'vr' &&
@@ -2717,6 +2789,14 @@ export class SceneManager {
   };
 
   private onPointerUp = (ev: PointerEvent) => {
+    if (this.brushTiles) {
+      const painted = [...this.brushTiles.values()];
+      this.brushTiles = null;
+      this.orbit.enabled = this.mode === 'editor';
+      this.clearBrushPreview();
+      useStore.getState().paintGroundTiles(painted, this.brushErase);
+      return;
+    }
     if (ev.button === 1 || ev.type === 'pointercancel') this.endFreeLook();
     if (this.gizmoArmed) {
       // uchwyty już zakończyły przeciąganie (słuchają na płótnie, my na oknie) — włączamy oba z powrotem
@@ -2978,7 +3058,8 @@ export class SceneManager {
       }
     }
     if (ev.code === 'Escape') {
-      if (st.review && this.mode !== 'vr') st.endReview();
+      if (st.groundBrush) st.setGroundBrush(false);
+      else if (st.review && this.mode !== 'vr') st.endReview();
       else st.select(null);
     }
     // Spacja to zawsze skok; w spacerze do przodu przechodzimy Enterem albo kliknięciem
@@ -3617,6 +3698,7 @@ export class SceneManager {
     this.container.removeEventListener('contextmenu', this.onContextMenu);
     this.container.removeEventListener('wheel', this.onWheel, { capture: true } as EventListenerOptions);
     this.setGhost(null);
+    this.clearBrushPreview();
     this.marquee?.el?.remove();
     this.marquee = null;
     for (const ring of this.selRings) this.scene.remove(ring);
@@ -3657,4 +3739,52 @@ export class SceneManager {
     this.renderer.domElement.remove();
     this.labelRenderer.domElement.remove();
   }
+}
+
+/** Prostokąt jako wielokąt przeciwnie do wskazówek zegara (do przycinania linii siatki). */
+function rectPolygon(r: { x0: number; x1: number; z0: number; z1: number }): [number, number][] {
+  return [[r.x0, r.z0], [r.x1, r.z0], [r.x1, r.z1], [r.x0, r.z1]];
+}
+
+/** Blat płyty z listy prostokątów: dwa trójkąty na prostokąt, UV we współrzędnych świata (jak `ShapeGeometry`). */
+function rectsGeometry(rects: { x0: number; x1: number; z0: number; z1: number }[]): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const uv: number[] = [];
+  for (const r of rects) {
+    const quad: [number, number][] = [[r.x0, r.z0], [r.x1, r.z0], [r.x1, r.z1], [r.x0, r.z1]];
+    for (const k of [0, 1, 2, 0, 2, 3]) {
+      pos.push(quad[k][0], quad[k][1], 0);
+      uv.push(quad[k][0], quad[k][1]);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Bok płyty: pionowy pas pod każdą krawędzią obrysu, od poziomu zero w dół. */
+function skirtGeometry(rings: [number, number][][], depth: number): THREE.BufferGeometry {
+  const pos: number[] = [];
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length; i++) {
+      const [ax, az] = ring[i];
+      const [bx, bz] = ring[(i + 1) % ring.length];
+      pos.push(ax, 0, az, bx, 0, bz, bx, -depth, bz);
+      pos.push(ax, 0, az, bx, -depth, bz, ax, -depth, az);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Bok płyty o obrysie wypukłym — jak dotąd, przez wyciągnięcie kształtu w dół. */
+function rotatedExtrude(poly: [number, number][], depth: number): THREE.BufferGeometry {
+  const shape = new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, z)));
+  const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false });
+  geo.rotateX(Math.PI / 2); // wyciągnięcie idzie wzdłuż +Z, po obrocie schodzi w dół
+  return geo;
 }

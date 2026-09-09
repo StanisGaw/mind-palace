@@ -124,6 +124,23 @@ export class Physics {
     return this.world.createRigidBody(desc);
   }
 
+  /**
+   * Płyta narysowana kaflami: po jednym pudełku na scalony prostokąt. Prostokąty powiększamy o centymetr,
+   * żeby kolidery zazębiały się i kontroler postaci nie zaczepiał o szew między nimi.
+   */
+  setGroundParts(rects: { x0: number; x1: number; z0: number; z1: number }[], thickness = 0.6) {
+    if (this.ground) this.world.removeRigidBody(this.ground);
+    this.ground = this.fixedBody(0, 0, 0);
+    for (const r of rects) {
+      const hx = (r.x1 - r.x0) / 2 + 0.01;
+      const hz = (r.z1 - r.z0) / 2 + 0.01;
+      this.world.createCollider(
+        this.R.ColliderDesc.cuboid(hx, thickness / 2, hz).setTranslation((r.x0 + r.x1) / 2, -thickness / 2, (r.z0 + r.z1) / 2),
+        this.ground,
+      );
+    }
+  }
+
   /** Płyta o dowolnym obrysie: prostokąt jako pudełko, koło i sześciokąt jako bryła wypukła. */
   setGroundShape(polygon: [number, number][], thickness = 0.6) {
     if (this.ground) this.world.removeRigidBody(this.ground);
