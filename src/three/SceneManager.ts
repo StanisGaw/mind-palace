@@ -8,6 +8,7 @@ import { yawOfObject } from '../lib/transform';
 import type { CameraKind, FurnitureSet, Palace, PalaceObject, RoomSpec, Vec3, ViewMode } from '../types';
 import { AMBIENCES, catalogItem, hasInterior } from '../catalog';
 import { buildModel, buildParachute, disposeObject, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN, PLANE_SEAT, PLANE_EXIT, type BuildCtx } from './builders';
+import { mergeByMaterial } from './merge';
 import { ART_VARIANTS } from './art';
 import { hashString } from './noise';
 import { makeTextPanel, disposeTextPanel } from './text';
@@ -56,6 +57,8 @@ interface Entry {
   roof: THREE.Object3D | null;
   slabs: THREE.Object3D[];
   walls: THREE.Mesh[];
+  /** Światła punktowe modelu (latarnia, lampa sufitowa, ognisko) — świeci tylko kilka najbliższych. */
+  lights: THREE.PointLight[];
 }
 
 /** Czy obiekt jest widoczny razem ze wszystkimi przodkami (raycaster nie sprawdza `visible`). */
@@ -83,6 +86,15 @@ const EYE = 1.6;
 const EDITOR_LOOK_AHEAD = 4;
 // lot samolotem: prędkości w m/s
 const PLANE_MAX_SPEED = 24;
+/** Kierunek, z którego świeci słońce (jednostkowy). Mapa cienia jedzie za graczem wzdłuż tej osi. */
+const SUN_DIR = new THREE.Vector3(12, 20, 8).normalize();
+const sunRight = new THREE.Vector3();
+const sunUp = new THREE.Vector3();
+const sunFocusTmp = new THREE.Vector3();
+const lightPosTmp = new THREE.Vector3();
+const fwdTmp = new THREE.Vector3();
+/** Połowa boku mapy cienia w spacerze: dalej cieni i tak nie widać, a każdy metr kosztuje ostrość. */
+const WALK_SHADOW_HALF = 26;
 const PLANE_TAKEOFF = 11; // poniżej tej prędkości samolot toczy się po ziemi i nie reaguje na ster wysokości
 const PLANE_STALL = 10; // poniżej: brak siły nośnej, maszyna opada
 const PLANE_CEILING = 90;
@@ -299,6 +311,12 @@ export class SceneManager {
   private renderScale = 1;
   private frameMs = 16;
   private scaleHold = 0;
+  /** Światła punktowe wszystkich obiektów, przebierane co kilka klatek na najbliższe kamerze. */
+  private pointLights: THREE.PointLight[] = [];
+  private lightTick = 0;
+  /** Ognisko mapy cienia i jej połowa boku — zmieniamy je dopiero, gdy gracz odejdzie o teksel. */
+  private sunFocus = new THREE.Vector3(NaN, 0, NaN);
+  private sunHalf = 0;
   private disposed = false;
 
   // interakcja edytora
@@ -570,14 +588,6 @@ export class SceneManager {
     this.grid.position.y = 0.012;
     this.scene.add(this.grid);
 
-    const shadowHalf = Math.max(Math.abs(b.x0), Math.abs(b.x1), Math.abs(b.z0), Math.abs(b.z1)) + 2;
-    this.sun.shadow.camera.left = -shadowHalf;
-    this.sun.shadow.camera.right = shadowHalf;
-    this.sun.shadow.camera.top = shadowHalf;
-    this.sun.shadow.camera.bottom = -shadowHalf;
-    this.sun.shadow.camera.near = 1;
-    this.sun.shadow.camera.far = 80;
-    this.sun.shadow.camera.updateProjectionMatrix();
   }
 
   private applyAmbience(id: string) {
@@ -1003,13 +1013,21 @@ export class SceneManager {
       if (!e) {
         const key = buildKey(o);
         const model = buildModel(o.type, this.modelCtx(o, p));
+        // scalamy przed nadaniem `objectId`, bo scalane są tylko siatki bez własnego `userData`
+        mergeByMaterial(model);
         const group = new THREE.Group();
         group.add(model);
         group.userData.objectId = o.id;
         group.traverse((c) => (c.userData.objectId = o.id));
         this.scene.add(group);
         const item = catalogItem(o.type);
-        e = { id: o.id, type: o.type, group, model, height: modelHeight(model), footprint: item.footprint, label: null, labelEl: null, labelKey: '', panel: null, panelKey: '', transformKey: '', emitter: null, buildKey: key, inplace: isInPlace(o), roof: null, slabs: [], walls: [] };
+        e = { id: o.id, type: o.type, group, model, height: modelHeight(model), footprint: item.footprint, label: null, labelEl: null, labelKey: '', panel: null, panelKey: '', transformKey: '', emitter: null, buildKey: key, inplace: isInPlace(o), roof: null, slabs: [], walls: [], lights: [] };
+        model.traverse((c) => {
+          const l = c as THREE.PointLight;
+          if (!l.isPointLight) return;
+          l.userData.baseIntensity = l.intensity;
+          e!.lights.push(l);
+        });
         // drzwi z Konstrukcji i budynki z wnętrzem w miejscu mają otwierane skrzydło; zagnieżdżone budynki nie (F wchodzi do środka)
         if (o.type === 'door' || e.inplace) model.traverse((c) => { if (c.userData.doorLeaf) e!.doorPivot = c as THREE.Group; });
         if (o.type === 'plane') model.traverse((c) => { if (c.userData.propeller) e!.propeller = c; });
@@ -3235,6 +3253,86 @@ export class SceneManager {
   };
 
   // ---------- pętla ----------
+  /**
+   * Świeci tylko `qspec.pointLights` świateł najbliższych kamerze. Każde światło punktowe liczy się w każdym
+   * pikselu ekranu, więc trzydzieści latarni i lamp sufitowych potrafi kosztować więcej niż cała reszta sceny.
+   * Wybór odświeżamy co kilka klatek (kolejność się nie zmienia w ciągu jednego kroku), a natężenie dochodzi
+   * do celu płynnie — zgaszenie latarni z klatki na klatkę byłoby nocą widoczne jako mrugnięcie.
+   */
+  private updatePointLights(dt: number, camPos: THREE.Vector3) {
+    if (++this.lightTick % 6 === 1) {
+      this.pointLights.length = 0;
+      for (const e of this.entries.values()) {
+        if (e.lights.length === 0 || !e.group.visible) continue;
+        for (const l of e.lights) this.pointLights.push(l);
+      }
+      // im dalej od zasięgu światła, tym mniej widać jego plamę — stąd odległość pomniejszona o zasięg
+      const order = this.pointLights.map((l) => ({ l, d: l.getWorldPosition(lightPosTmp).distanceTo(camPos) - l.distance }));
+      order.sort((a, b) => a.d - b.d);
+      const max = this.qspec.pointLights;
+      order.forEach((x, i) => (x.l.userData.lightOn = i < max));
+    }
+    const k = 1 - Math.exp(-dt * 8);
+    for (const l of this.pointLights) {
+      const target = l.userData.lightOn ? (l.userData.baseIntensity as number) : 0;
+      if (l.intensity !== target) {
+        l.intensity += (target - l.intensity) * k;
+        if (Math.abs(l.intensity - target) < 0.02) l.intensity = target;
+      }
+      const on = l.intensity > 0.01;
+      if (l.visible !== on) l.visible = on;
+    }
+  }
+
+  /**
+   * Ustawia mapę cienia słońca na kwadrat o boku `2 × half` wokół punktu (`cx`, `cz`). W edytorze obejmuje całą
+   * planszę, w spacerze idzie za graczem — na planszy 80 m cały świat w jednej mapie oznaczałby cień
+   * czterokrotnie mniej dokładny i przerysowywanie wszystkich brył co klatkę.
+   *
+   * Ognisko przyciągamy do siatki tekseli mapy (w osiach światła, nie świata) — bez tego krawędzie cieni
+   * pełzłyby przy każdym kroku gracza.
+   */
+  private applySunShadow(cx: number, cz: number, half: number) {
+    const texel = (2 * half) / (this.sun.shadow.mapSize.x || 1024);
+    const right = sunRight.set(0, 1, 0).cross(SUN_DIR).normalize();
+    const up = sunUp.copy(SUN_DIR).cross(right).normalize();
+    const focus = sunFocusTmp.set(cx, 0, cz);
+    const a = Math.round(focus.dot(right) / texel) * texel;
+    const b = Math.round(focus.dot(up) / texel) * texel;
+    const c = focus.dot(SUN_DIR);
+    focus.set(0, 0, 0).addScaledVector(right, a).addScaledVector(up, b).addScaledVector(SUN_DIR, c);
+    if (this.sunHalf === half && this.sunFocus.equals(focus)) return;
+    this.sunHalf = half;
+    this.sunFocus.copy(focus);
+    const dist = half * 2 + 24; // światło musi być nad najwyższą bryłą, którą obejmuje mapa
+    this.sun.target.position.copy(focus);
+    this.sun.target.updateMatrixWorld();
+    this.sun.position.copy(focus).addScaledVector(SUN_DIR, dist);
+    const cam = this.sun.shadow.camera;
+    cam.left = -half;
+    cam.right = half;
+    cam.top = half;
+    cam.bottom = -half;
+    cam.near = 1;
+    cam.far = dist * 2;
+    cam.updateProjectionMatrix();
+  }
+
+  /** Kwadrat mapy cienia: w edytorze cała plansza, w spacerze okolica gracza. */
+  private syncSunShadow(camPos: THREE.Vector3, presenting: boolean) {
+    // `bounds` to obrys planszy liczony przy jej budowie — po kafelkach nie ma co chodzić co klatkę
+    const plate = Math.max(this.bounds.hx, this.bounds.hz) + 2.4;
+    if (this.mode === 'editor' || plate <= WALK_SHADOW_HALF) {
+      this.applySunShadow(0, 0, plate);
+      return;
+    }
+    // przesuwamy kwadrat przed gracza: za plecami cieni i tak nie widać, a przed sobą widać je do końca planszy
+    // w goglach kierunek patrzenia podaje kamera XR, nie ta z edytora
+    const fwd = (presenting ? this.renderer.xr.getCamera() : this.camera).getWorldDirection(fwdTmp);
+    const len = Math.hypot(fwd.x, fwd.z) || 1;
+    this.applySunShadow(camPos.x + (fwd.x / len) * WALK_SHADOW_HALF * 0.5, camPos.z + (fwd.z / len) * WALK_SHADOW_HALF * 0.5, WALK_SHADOW_HALF);
+  }
+
   private frame(frame?: XRFrame) {
     if (this.disposed) return;
     const dt = Math.min(this.clock.getDelta(), 0.05);
@@ -3337,6 +3435,8 @@ export class SceneManager {
 
     // pogoda (raz na klatkę, także gdy stereo renderuje scenę dwukrotnie)
     const camWorldPos = presenting ? this.renderer.xr.getCamera().getWorldPosition(tmpV3) : this.camera.getWorldPosition(tmpV3);
+    this.updatePointLights(dt, camWorldPos);
+    this.syncSunShadow(camWorldPos, presenting);
     const hadFlash = this.weather.flash;
     this.weather.update(dt, camWorldPos);
     if (hadFlash !== this.weather.flash) this.applyLighting();

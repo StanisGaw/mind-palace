@@ -24,14 +24,19 @@ export interface QualitySpec {
   softShadows: boolean;
   /** Dolna granica automatycznego obniżania rozdzielczości, jako ułamek `pixelRatio`; 1 wyłącza automat. */
   minScale: number;
+  /**
+   * Ile świateł punktowych świeci naraz. Każde liczy się w każdym pikselu ekranu, więc trzydzieści latarni
+   * i lamp sufitowych kosztuje kilkakrotnie więcej niż sama scena — świecą tylko najbliższe kamerze.
+   */
+  pointLights: number;
 }
 
 const SPECS: Record<Exclude<Quality, 'auto'>, QualitySpec> = {
   // ostrość ponad płynność: każdy piksel ekranu, największa mapa cienia i żadnego obniżania w locie
-  ultra: { pixelRatio: 4, shadowMap: 4096, softShadows: true, minScale: 1 },
-  high: { pixelRatio: 2, shadowMap: 2048, softShadows: true, minScale: 0.7 },
-  medium: { pixelRatio: 1.5, shadowMap: 1024, softShadows: false, minScale: 0.6 },
-  low: { pixelRatio: 1, shadowMap: 0, softShadows: false, minScale: 0.5 },
+  ultra: { pixelRatio: 4, shadowMap: 4096, softShadows: true, minScale: 1, pointLights: 10 },
+  high: { pixelRatio: 2, shadowMap: 2048, softShadows: true, minScale: 0.7, pointLights: 8 },
+  medium: { pixelRatio: 1.5, shadowMap: 1024, softShadows: false, minScale: 0.6, pointLights: 6 },
+  low: { pixelRatio: 1, shadowMap: 0, softShadows: false, minScale: 0.5, pointLights: 3 },
 };
 
 /**
