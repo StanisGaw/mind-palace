@@ -124,6 +124,15 @@ npm run build        # produkcyjny build do dist/
   ekranu (mnożnik do 4, mapa cienia 4096) i wyłącza automat; „Automatycznie" daje ją ekranom dotykowym,
   a komputerom wysoką. Poniżej maksymalnej działa automat: średni czas klatki poniżej 40 kl./s obniża
   rozdzielczość co 0,1, powyżej 55 kl./s podnosi ją z powrotem.
+- **Koszt klatki na dużej planszy** — trzy rzeczy pilnują, by pełna wioska chodziła tak płynnie jak pusty
+  ogród. **Światła punktowe**: świeci tylko kilka najbliższych kamerze (`qspec.pointLights`, od 3 do 10),
+  bo każde z nich liczy się w każdym pikselu ekranu — reszta gaśnie płynnie i nie widać przeskoku.
+  **Scalanie siatek** (`three/merge.ts`): siatki modelu o wspólnym materiale stają się jedną przy budowie
+  obiektu, więc dom to kilkanaście wywołań rysowania zamiast siedemdziesięciu; osobne zostają te, którymi
+  scena rusza (skrzydło drzwi, dach, stropy, ściany chowane przed kamerą). **Mapa cienia** obejmuje całą
+  planszę tylko w edytorze — w spacerze jedzie za graczem (kwadrat 52 m, przesunięty w stronę patrzenia),
+  co daje ostrzejsze cienie i mniej brył do przerysowania. Zmierzone na wiosce, ten sam punkt widzenia:
+  912 → 536 wywołań rysowania i 2,6 × krótsza klatka.
 - **Fizyka** — silnik Rapier (WASM, ładowany dopiero przy wejściu w tryb chodzenia): grawitacja, skok
   (`Spacja`, przycisk na telefonie, grip w VR), wchodzenie po schodach i wskakiwanie na ławkę, głaz czy wzgórze.
   W spacerze można też stawiać obiekty z biblioteki: podgląd idzie za celownikiem, klik stawia, `R` obraca; wewnątrz
@@ -192,6 +201,7 @@ src/
   three/builders.ts   proceduralne modele low-poly + kotwice drzwi i emiterów
   three/interior.ts   proceduralne wnętrza budynków
   three/terrain.ts    pierścień krajobrazu (heightmapa z szumu)
+  three/merge.ts      scalanie siatek modelu po materiale (mniej wywołań rysowania)
   three/noise.ts      simplex 2D, fBm, grzbiety górskie
   three/weather.ts    chmury, opady, mgła, błyskawice
   three/particles.ts  systemy cząsteczek (opady, dym, mgiełka)
