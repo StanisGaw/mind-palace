@@ -263,7 +263,8 @@ export function mergePathObjects(objects: PalaceObject[], makeId: () => string =
     if (chain.length < 2) continue;
     // zachowujemy grupę, którą ciąg już ma — dzięki temu ponowne scalanie niczego nie zmienia
     const gid = chain.find((o) => o.groupId && ownGroup(o.groupId))?.groupId ?? makeId();
-    for (const o of chain) groups.set(o.id, gid);
+    // ścieżki zgrupowanej ręcznie z czymś innym (latarnia przy alejce) nie wyrywamy z tamtej grupy
+    for (const o of chain) if (!o.groupId || ownGroup(o.groupId)) groups.set(o.id, gid);
   }
   next = next.map((o) => (groups.has(o.id) && o.groupId !== groups.get(o.id) ? { ...o, groupId: groups.get(o.id) } : o));
   return { objects: next, gone: [...gone] };
@@ -476,35 +477,53 @@ export function buildingOpenings(b: PalaceObject, objects: PalaceObject[]): Open
   return out;
 }
 
+/** Obrys wnętrza budynku w rzucie — cztery rogi w świecie, w kolejności obiegu. */
+function innerQuad(b: PalaceObject, grow = 0): [number, number][] {
+  const spec = SHELLS[b.type] ?? SHELLS.house;
+  const hw = spec.inner.w / 2 + grow;
+  const hd = spec.inner.d / 2 + grow;
+  return [
+    worldXZ(b, spec.cx - hw, spec.cz - hd),
+    worldXZ(b, spec.cx + hw, spec.cz - hd),
+    worldXZ(b, spec.cx + hw, spec.cz + hd),
+    worldXZ(b, spec.cx - hw, spec.cz + hd),
+  ];
+}
+
+/** Czy bryła stoi prosto (obrót będący wielokrotnością ćwierć obrotu) — wtedy jej obrys jest osiowy. */
+function axisAligned(b: PalaceObject): boolean {
+  const yaw = ((b.rotation[1] % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
+  return Math.min(yaw, Math.PI / 2 - yaw) < 0.01;
+}
+
 /**
- * Otwory w płycie świata pod budynkami z piwnicą: obrys wnętrza w rzucie (prostokąt opisany na obróconym
- * wnętrzu). Bez nich gracz schodzący do piwnicy uderzyłby w kolider płyty, a przez klatkę schodową
- * widać byłoby jej wierzch zamiast piwnicy.
+ * Obrysy otworów w płycie świata pod budynkami z piwnicą — po jednym wielokącie na budynek, do rysowania.
+ * Bez otworu przez klatkę schodową widać byłoby wierzch płyty zamiast piwnicy.
+ */
+export function basementQuads(objects: PalaceObject[]): [number, number][][] {
+  return objects.filter((b) => b.basement && isInPlace(b)).map((b) => innerQuad(b));
+}
+
+/**
+ * To samo dla fizyki i dla planszy z kafli, które operują na prostokątach osiowych. Budynek stojący prosto
+ * daje jeden prostokąt; obrócony — pasy wpisane w obrys powiększony o grubość muru, więc ewentualne
+ * nieprzecięte resztki chowają się pod murem, a otwór nigdzie nie wychodzi poza bryłę.
  */
 export function basementHoles(objects: PalaceObject[]): Rect[] {
   const out: Rect[] = [];
   for (const b of objects) {
     if (!b.basement || !isInPlace(b)) continue;
-    const spec = SHELLS[b.type] ?? SHELLS.house;
-    const hw = spec.inner.w / 2;
-    const hd = spec.inner.d / 2;
-    const corners: [number, number][] = [
-      worldXZ(b, spec.cx - hw, spec.cz - hd),
-      worldXZ(b, spec.cx + hw, spec.cz - hd),
-      worldXZ(b, spec.cx + hw, spec.cz + hd),
-      worldXZ(b, spec.cx - hw, spec.cz + hd),
-    ];
-    // budynek ustawiony prosto daje jeden prostokąt; obrócony — pasy wpisane w obrys, bo prostokąt opisany
-    // wycinałby grunt kilka metrów poza murem i dało się przez to spaść z planszy
-    const yaw = ((b.rotation[1] % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
-    if (Math.min(yaw, Math.PI / 2 - yaw) < 0.01) {
+    if (axisAligned(b)) {
+      const q = innerQuad(b);
       out.push({
-        x0: Math.min(...corners.map((c) => c[0])),
-        x1: Math.max(...corners.map((c) => c[0])),
-        z0: Math.min(...corners.map((c) => c[1])),
-        z1: Math.max(...corners.map((c) => c[1])),
+        x0: Math.min(...q.map((c) => c[0])),
+        x1: Math.max(...q.map((c) => c[0])),
+        z0: Math.min(...q.map((c) => c[1])),
+        z1: Math.max(...q.map((c) => c[1])),
       });
-    } else out.push(...convexStrips(corners, 0.5));
+      continue;
+    }
+    out.push(...convexStrips(innerQuad(b, SHELL_WALL_T), 0.25));
   }
   return out;
 }

@@ -90,8 +90,9 @@ export function mergeTiles(tiles: [number, number][], size: number): Rect[] {
 
 /**
  * Obrysy zewnętrzne zbioru kafli: krawędzie należące do dokładnie jednego kafla, obejście po sąsiadach.
- * Może zwrócić kilka pierścieni (rozłączne wyspy i dziury) — wynik jest przeciwnie do wskazówek zegara
- * dla pola i zgodnie z nimi dla dziur, jak wymaga `THREE.Shape`.
+ * Każdy pierścień zaczyna się i kończy w tym samym punkcie, a każda krawędź występuje dokładnie raz — to
+ * wystarcza do rysowania boku płyty. Do `THREE.Shape` się NIE nadaje: przy kaflach stykających się rogiem
+ * jeden pierścień potrafi obejść kilka wysp naraz, a wysp od dziur nic tu nie odróżnia.
  */
 export function tileOutlines(tiles: [number, number][], size: number): [number, number][][] {
   const has = new Set(tiles.map(([i, j]) => `${i},${j}`));

@@ -18,7 +18,7 @@ import { buildRoom, type Room } from './interior';
 import { Physics, FOOT_OFFSET, type StaticShape } from './physics';
 import { ROOMS, colliderKind, spawnKind } from '../catalog';
 import { GROUND_TILE, clampToGround, clipSegment, groundBounds, groundExtent, groundOutlines, groundPolygon, groundRects, insideGround, isDrawnGround, tileAt } from '../lib/ground';
-import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, buildingOf, buildingOpenings, facadeFloorOk, facadeHoles, facadeSlotFree, facadeSnap, basementHoles, isDrawn, isFacade, doorOffsets, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, localXZ, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, SHELLS, TOWER_R, type Opening } from '../lib/rooms';
+import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, buildingOf, buildingOpenings, facadeFloorOk, facadeHoles, facadeSlotFree, facadeSnap, basementHoles, basementQuads, isDrawn, isFacade, doorOffsets, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, localXZ, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, SHELLS, TOWER_R, type Opening } from '../lib/rooms';
 import { SET_WALL_GAP, furnitureSet, instantiateSet } from '../lib/sets';
 import { boxLocal, boxPoint, insideRoom, placementBlock, roomOfBuilding, roomOfSpec, type RoomShape } from '../lib/layout';
 import { subtractRect, type Rect } from '../lib/rects';
@@ -448,7 +448,7 @@ export class SceneManager {
   }
 
   // ---------- teren ----------
-  private buildGround(spec: GroundSpec, holes: Rect[] = []) {
+  private buildGround(spec: GroundSpec, holes: Rect[] = [], outlines: [number, number][][] = []) {
     if (this.ground) {
       this.scene.remove(this.ground, this.slab, this.grid);
       this.ground.geometry.dispose();
@@ -468,9 +468,11 @@ export class SceneManager {
     const amb = AMBIENCES.find((a) => a.id === (this.lastPalace?.settings.ambience ?? 'garden')) ?? AMBIENCES[0];
 
     // UV takie same jak w `ShapeGeometry` (współrzędne świata), żeby `applyGroundTexture` działało tak samo
+    // na planszy z kafli blat składamy z prostokątów, więc otwór wycinamy prostokątami; na zwykłej idzie
+    // przez triangulację, a ta gubi się przy dziurach stykających się bokami — stąd jeden obrys na budynek
     const topGeo = drawn
       ? rectsGeometry(holes.reduce((acc, h) => subtractRect(acc, h), rects))
-      : new THREE.ShapeGeometry(shapeWithHoles(poly, holes, true));
+      : new THREE.ShapeGeometry(shapeWithHoles(poly, outlines, true));
     topGeo.rotateX(-Math.PI / 2);
     this.ground = new THREE.Mesh(topGeo, new THREE.MeshStandardMaterial({ color: amb.ground, roughness: 1 }));
     this.ground.receiveShadow = true;
@@ -479,8 +481,8 @@ export class SceneManager {
 
     // bok płyty: dla narysowanej planszy pionowe ścianki tylko wzdłuż krawędzi bez sąsiada
     const slabGeo = drawn
-      ? skirtGeometry([...groundOutlines(spec), ...holes.map(rectRing)], 0.6)
-      : rotatedExtrude(poly, holes, 0.6);
+      ? skirtGeometry([...groundOutlines(spec), ...outlines.map(closed)], 0.6)
+      : rotatedExtrude(poly, outlines, 0.6);
     this.slab = new THREE.Mesh(slabGeo, new THREE.MeshStandardMaterial({ color: '#b7bba9', roughness: 1, side: THREE.DoubleSide }));
     this.slab.position.y = -0.01;
     this.slab.receiveShadow = true;
@@ -807,11 +809,14 @@ export class SceneManager {
     // klucz musi objąć narysowane kafle, inaczej dorysowany kawałek planszy nie przebudowałby płyty ani kolizji
     const g = p.settings.ground;
     const holes = basementHoles(p.objects);
-    const holeKey = holes.map((h) => [h.x0, h.x1, h.z0, h.z1].map((v) => v.toFixed(2)).join(':')).sort().join(',');
+    const outlines = basementQuads(p.objects);
+    // ćwierć metra zaokrąglenia: przeciąganie budynku z piwnicą nie przebudowuje płyty na każdą klatkę,
+    // a różnica w położeniu otworu jest niewidoczna
+    const holeKey = outlines.flat().map(([x, z]) => `${Math.round(x * 4)}:${Math.round(z * 4)}`).join(',');
     const shapeKey = `${g.shape}|${g.width}|${g.depth}|${(g.tiles ?? []).map((t) => t.join(':')).sort().join(',')}`;
     const groundKey = `${shapeKey}|${holeKey}`;
     if (this.lastGroundKey !== groundKey) {
-      this.buildGround(p.settings.ground, holes);
+      this.buildGround(p.settings.ground, holes, outlines);
       this.lastGroundKey = groundKey;
       this.lastTextureKey = '';
       this.physicsDirty = true; // zmieniony kształt płyty to inne kolidery pod nogami
@@ -2517,13 +2522,13 @@ export class SceneManager {
     if (!this.groundPoint(p)) return;
     const [i, j] = tileAt(p.x, p.z);
     if (this.brushLast && (this.brushLast[0] !== i || this.brushLast[1] !== j)) {
-      // szybkie przeciągnięcie przeskakuje kilka kafli naraz; bez połączenia zostawiałoby dziury
-      // i kafle stykające się tylko rogiem, z których nie da się zrobić sensownego boku płyty
+      // szybkie przeciągnięcie przeskakuje kilka kafli naraz; łączymy je łamaną po bokach (najpierw w osi X,
+      // potem w Z), żeby ślad był ciągły, a kafle stykały się bokiem, nie rogiem
       const [i0, j0] = this.brushLast;
-      const steps = Math.max(Math.abs(i - i0), Math.abs(j - j0));
-      for (let k = 1; k < steps; k++) {
-        this.addBrushTile(Math.round(i0 + ((i - i0) * k) / steps), Math.round(j0 + ((j - j0) * k) / steps));
-      }
+      const stepX = Math.sign(i - i0);
+      const stepZ = Math.sign(j - j0);
+      for (let x = i0; x !== i; x += stepX) this.addBrushTile(x, j0);
+      for (let z = j0; z !== j; z += stepZ) this.addBrushTile(i, z);
     }
     this.brushLast = [i, j];
     this.addBrushTile(i, j);
@@ -3836,7 +3841,7 @@ function skirtGeometry(rings: [number, number][][], depth: number): THREE.Buffer
 }
 
 /** Bok płyty o obrysie wypukłym — jak dotąd, przez wyciągnięcie kształtu w dół. */
-function rotatedExtrude(poly: [number, number][], holes: Rect[], depth: number): THREE.BufferGeometry {
+function rotatedExtrude(poly: [number, number][], holes: [number, number][][], depth: number): THREE.BufferGeometry {
   const shape = shapeWithHoles(poly, holes);
   const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false });
   geo.rotateX(Math.PI / 2); // wyciągnięcie idzie wzdłuż +Z, po obrocie schodzi w dół
@@ -3844,26 +3849,34 @@ function rotatedExtrude(poly: [number, number][], holes: Rect[], depth: number):
 }
 
 /**
- * Obrys planszy z prostokątnymi dziurami (piwnice). `flipZ` odwraca drugą współrzędną dla geometrii,
- * którą obracamy o −90° wokół X (blat) — bez tego dziura wypadłaby po przeciwnej stronie planszy.
+ * Obrys planszy z dziurami (piwnice) jako kształt do triangulacji i wyciągnięcia. `flipZ` odwraca drugą
+ * współrzędną dla geometrii, którą obracamy o −90° wokół X (blat) — bez tego dziura wypadłaby po przeciwnej
+ * stronie planszy. Dziura musi być obiegana w drugą stronę niż obrys, inaczej triangulacja jej nie wytnie.
  */
-function shapeWithHoles(poly: [number, number][], holes: Rect[], flipZ = false): THREE.Shape {
+function shapeWithHoles(poly: [number, number][], holes: [number, number][][], flipZ = false): THREE.Shape {
   const f = flipZ ? -1 : 1;
   const shape = new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, f * z)));
   for (const h of holes) {
-    const path = new THREE.Path();
-    // dziura obiegana w drugą stronę niż obrys, inaczej triangulacja jej nie wytnie
-    path.moveTo(h.x0, f * h.z0);
-    path.lineTo(h.x0, f * h.z1);
-    path.lineTo(h.x1, f * h.z1);
-    path.lineTo(h.x1, f * h.z0);
+    const pts = h.map(([x, z]) => new THREE.Vector2(x, f * z));
+    const path = new THREE.Path(signedArea(pts) > 0 ? [...pts].reverse() : pts);
     path.closePath();
     shape.holes.push(path);
   }
   return shape;
 }
 
-/** Prostokąt jako zamknięty pierścień punktów (bok płyty wokół otworu piwnicy). */
-function rectRing(r: Rect): [number, number][] {
-  return [[r.x0, r.z0], [r.x1, r.z0], [r.x1, r.z1], [r.x0, r.z1], [r.x0, r.z0]];
+/** Podwojone pole ze wzoru na sznurowadło — znak mówi, w którą stronę obiegany jest wielokąt. */
+function signedArea(pts: THREE.Vector2[]): number {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    const q = pts[(i + 1) % pts.length];
+    a += p.x * q.y - q.x * p.y;
+  }
+  return a;
+}
+
+/** Wielokąt domknięty powtórzonym punktem — `skirtGeometry` rysuje ściankę pod każdą parą sąsiadów. */
+function closed(ring: [number, number][]): [number, number][] {
+  return [...ring, ring[0]];
 }

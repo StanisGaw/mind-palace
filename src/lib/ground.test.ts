@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GROUND_TILE, clampToGround, groundBounds, groundExtent, groundOutlines, groundRects, insideGround, isDrawnGround, outsideDistance, tileAt, tilesFromShape } from './ground';
-import { mergeTiles } from './rects';
+import { mergeTiles, tileOutlines } from './rects';
 import type { GroundSpec } from '../types';
 
 /**
@@ -62,6 +62,34 @@ describe('plansza z kafli', () => {
     expect(groundExtent(L)).toBe(16);
     expect(outsideDistance(L, 18, 4)).toBeCloseTo(2, 6);
     expect(outsideDistance(L, 4, 4)).toBe(0);
+  });
+
+  it('obrys używa każdej krawędzi dokładnie raz, także przy kaflach stykających się rogiem', () => {
+    const uklady: [string, [number, number][]][] = [
+      ['skos', [[0, 0], [1, 1]]],
+      ['litera L', L.tiles!],
+      ['klepsydra', [[0, 0], [1, 1], [2, 2], [2, 0], [0, 2]]],
+      ['szachownica', [[0, 0], [1, 1], [2, 0], [3, 1], [0, 2], [1, 3]]],
+      ['pojedynczy kafel', [[5, -7]]],
+    ];
+    for (const [nazwa, tiles] of uklady) {
+      const rings = tileOutlines(tiles, GROUND_TILE);
+      const uzyte = new Set<string>();
+      let n = 0;
+      for (const ring of rings) {
+        expect(ring[0], `${nazwa}: pierścień nie jest domknięty`).toEqual(ring[ring.length - 1]);
+        for (let i = 0; i + 1 < ring.length; i++) {
+          const k = `${ring[i]}|${ring[i + 1]}`;
+          expect(uzyte.has(k), `${nazwa}: krawędź ${k} użyta dwa razy`).toBe(false);
+          uzyte.add(k);
+          n++;
+        }
+      }
+      // każdy kafel wnosi cztery krawędzie, a każdy styk bokiem zabiera dwie (styk rogiem nie zabiera żadnej)
+      const have = new Set(tiles.map(([i, j]) => `${i},${j}`));
+      const sasiedzi = tiles.filter(([i, j]) => have.has(`${i + 1},${j}`)).length + tiles.filter(([i, j]) => have.has(`${i},${j + 1}`)).length;
+      expect(n, `${nazwa}: liczba krawędzi obrysu`).toBe(tiles.length * 4 - sasiedzi * 2);
+    }
   });
 
   it('scalanie jest odporne na powtórzone kafle', () => {

@@ -55,9 +55,10 @@ interface State {
   flying: boolean;
   /** Budynek z wnętrzem w miejscu, w którym stoi gracz w spacerze (biblioteka ogranicza się do wyposażenia wnętrz). */
   insideBuildingId: string | null;
+  /** Element z biblioteki, zestaw mebli (`set`) albo kopie obiektów `ids` — czeka na kliknięcie w scenie. */
   placing: { type: string; ids?: string[]; setId?: string } | null;
   /** Rysowanie planszy: przeciągnięcie po scenie dokłada kafle, z Shiftem wymazuje. */
-  groundBrush: boolean; // element z biblioteki, zestaw mebli (`set`) albo kopie obiektów `ids` — czeka na kliknięcie w scenie
+  groundBrush: boolean;
   sound: SoundLevels; // głośność dźwięków otoczenia; trzymana w preferencjach, nie w danych pałacu
   editFloor: number; // piętro edytowane w edytorze (nieutrwalane — zerowane przy zmianie sceny)
   activeBuildingId: string | null; // budynek z wnętrzem w miejscu, któremu edytor chowa dach (nieutrwalane)

@@ -147,7 +147,7 @@ describe('wbudowane zestawy mebli', () => {
         it(`„${set.name}" w ${type} (skala ${scale.toFixed(2)}): jest gdzie go postawić`, () => {
           const b = building(type, scale, 0.4, 1);
           const room = roomOfBuilding(b);
-          if (set.width + 0.6 > 2 * room.box.hx || set.depth + 0.6 > 2 * room.box.hz) return; // zestaw większy niż wnętrze — użytkownik dostaje ostrzeżenie
+          if (set.width + 0.6 > 2 * room.box.hx || set.depth + 0.6 > 2 * room.box.hz) return; // zestaw większy niż wnętrze — stawianie jest dozwolone, ale nie ma czego sprawdzać
           const span = room.box.hx - set.width / 2 - 0.15;
           let best: string[] | null = null;
           for (let off = -span; off <= span + 1e-6; off += 0.5) {

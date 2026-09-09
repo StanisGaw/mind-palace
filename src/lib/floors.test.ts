@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SHELLS, basementHoles, localXZ, buildingFloorHeight, buildingFloorY, buildingOpenings, facadeFloorOk, floorBaseOf, floorOfIn, orphanStairs, orphanStairsIn, stairOpenings } from './rooms';
+import { SHELL_WALL_T, SHELLS, basementHoles, localXZ, worldXZ, buildingFloorHeight, buildingFloorY, buildingOpenings, facadeFloorOk, floorBaseOf, floorOfIn, orphanStairs, orphanStairsIn, stairOpenings } from './rooms';
 import { findStairsSpot } from './layout';
 import { ROOMS } from '../catalog';
 import type { PalaceObject, Vec3 } from '../types';
@@ -138,21 +138,32 @@ describe('piwnica (poziom −1)', () => {
     expect(h.z1 - h.z0).toBeCloseTo(spec.inner.d * b.scale[2], 6);
   });
 
-  it('otwór pod obróconym budynkiem mieści się w jego obrysie', () => {
-    const b = { ...dom(true), rotation: [0, Math.PI / 4, 0] } as PalaceObject;
+  it('otwór pod obróconym budynkiem nie wychodzi poza mur i zostawia najwyżej wąski pasek przy ścianie', () => {
     const spec = SHELLS.house;
-    const hw = (spec.inner.w * b.scale[0]) / 2;
-    const hd = (spec.inner.d * b.scale[2]) / 2;
-    const holes = basementHoles([b]);
-    expect(holes.length, 'obrócony budynek dostaje pasy, nie jeden prostokąt').toBeGreaterThan(1);
-    for (const h of holes) {
-      for (const [x, z] of [[h.x0, h.z0], [h.x1, h.z0], [h.x1, h.z1], [h.x0, h.z1]]) {
-        const [lx, lz] = localXZ(b, x, z);
-        // gdyby otwór wystawał poza mur, dałoby się spaść z planszy tuż obok budynku
-        expect(Math.abs(lx * b.scale[0]) <= hw + 0.01 && Math.abs(lz * b.scale[2]) <= hd + 0.01, `róg (${x.toFixed(2)}, ${z.toFixed(2)}) poza budynkiem`).toBe(true);
+    for (const yaw of [0.02, 0.3, Math.PI / 4, 1.2]) {
+      const b = { ...dom(true), rotation: [0, yaw, 0] } as PalaceObject;
+      const hw = (spec.inner.w * b.scale[0]) / 2;
+      const hd = (spec.inner.d * b.scale[2]) / 2;
+      const mur = SHELL_WALL_T * b.scale[0];
+      const holes = basementHoles([b]);
+      const wDziurze = (x: number, z: number) => holes.some((h) => x >= h.x0 && x <= h.x1 && z >= h.z0 && z <= h.z1);
+      for (const h of holes) {
+        for (const [x, z] of [[h.x0, h.z0], [h.x1, h.z0], [h.x1, h.z1], [h.x0, h.z1]]) {
+          const [lx, lz] = localXZ(b, x, z);
+          // otwór poza murem to dziura w planszy obok budynku — dałoby się w nią spaść
+          expect(Math.abs(lx * b.scale[0]) <= hw + mur + 0.01 && Math.abs(lz * b.scale[2]) <= hd + mur + 0.01, `kąt ${yaw}: róg (${x.toFixed(2)}, ${z.toFixed(2)}) poza murem`).toBe(true);
+        }
       }
+      // nieprzecięte resztki płyty mogą zostać tylko przy samej ścianie: schody schodzą dalej od muru
+      let najdalej = 0;
+      for (let u = -0.98; u <= 0.98; u += 0.02) {
+        for (let v = -0.98; v <= 0.98; v += 0.02) {
+          const [x, z] = worldXZ(b, (spec.cx ?? 0) + u * (spec.inner.w / 2), (spec.cz ?? 0) + v * (spec.inner.d / 2));
+          if (wDziurze(x, z)) continue;
+          najdalej = Math.max(najdalej, Math.min((1 - Math.abs(u)) * hw, (1 - Math.abs(v)) * hd));
+        }
+      }
+      expect(najdalej, `kąt ${yaw}: nieprzecięty grunt ${najdalej.toFixed(2)} m od muru`).toBeLessThan(0.3);
     }
-    const pole = holes.reduce((a, h) => a + (h.x1 - h.x0) * (h.z1 - h.z0), 0);
-    expect(pole / (4 * hw * hd), 'otwór ma pokryć większość wnętrza').toBeGreaterThan(0.85);
   });
 });
