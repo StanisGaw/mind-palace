@@ -5,7 +5,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRe
 import { StereoEffect } from 'three/examples/jsm/effects/StereoEffect.js';
 import { useStore, descendants, movableRoots, selectionRoots } from '../store';
 import { yawOfObject } from '../lib/transform';
-import type { CameraKind, FurnitureSet, Palace, PalaceObject, RoomSpec, Vec3, ViewMode } from '../types';
+import type { BrokenTile, CameraKind, FurnitureSet, Palace, PalaceObject, RoomSpec, Vec3, ViewMode } from '../types';
 import { AMBIENCES, catalogItem, hasInterior } from '../catalog';
 import { buildModel, buildParachute, disposeObject, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN, PLANE_SEAT, PLANE_EXIT, type BuildCtx } from './builders';
 import { ART_VARIANTS } from './art';
@@ -212,6 +212,13 @@ export class SceneManager {
   private lastEditFloor = 0;
   /** Id otwartych drzwi obiektowych — stan chwilowy, kasowany przy zmianie sceny. */
   private openDoors = new Set<string>();
+  /** Znaczniki zgłoszonych kafli: płaski kwadrat 1 × 1 m na każde zgłoszenie, wspólna geometria i materiał. */
+  private brokenGroup = new THREE.Group();
+  private brokenGeo = new THREE.PlaneGeometry(1, 1);
+  private brokenMat = new THREE.MeshBasicMaterial({ color: '#d0463a', transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
+  private lastBrokenTiles: BrokenTile[] | undefined;
+  /** Naciśnięcie w trybie zgłaszania — zgłoszenie zapisujemy przy puszczeniu, jeśli kursor się nie ruszył (przeciągnięcie obraca widok). */
+  private brokenDown: { x: number; y: number } | null = null;
   private doorAnims: { id: string; from: number; to: number; t: number; dur: number }[] = [];
   private bounds = { hx: 11.6, hz: 11.6 };
   private walkArea: GroundSpec | null = null;
@@ -358,6 +365,7 @@ export class SceneManager {
   };
 
   constructor(container: HTMLElement) {
+    this.scene.add(this.brokenGroup);
     this.container = container;
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     renderer.toneMapping = THREE.NoToneMapping;
@@ -656,6 +664,10 @@ export class SceneManager {
     if (s.selectedIds !== prev.selectedIds || s.hoverId !== prev.hoverId) this.applySelection(s.selectedIds, s.hoverId);
     if (s.tool !== prev.tool || s.review !== prev.review) this.syncGizmo();
     if (placingKey(s.placing) !== placingKey(prev.placing)) this.setGhost(s.placing);
+    if (s.brokenTileMode !== prev.brokenTileMode) {
+      this.brokenDown = null;
+      this.renderer.domElement.style.cursor = s.brokenTileMode ? 'crosshair' : '';
+    }
     if (!s.groundBrush && prev.groundBrush) {
       // Esc w trakcie pociągnięcia: bez tego podniesienie przycisku i tak zapisałoby kafle
       this.brushTiles = null;
@@ -706,6 +718,7 @@ export class SceneManager {
       this.doorAnims = [];
     }
     this.syncObjects(p);
+    this.syncBrokenTiles(p);
     this.placeRings(useStore.getState().selectedIds, useStore.getState().hoverId);
     this.applyFloorVisibility();
     if (this.physics && this.physicsDirty && this.mode !== 'editor') this.rebuildPhysics();
@@ -714,6 +727,39 @@ export class SceneManager {
     this.refreshPanels(p);
     this.syncWildlife();
     if (first) this.cameraCommand('fit', true);
+  }
+
+  /** Znaczniki zgłoszeń przebudowujemy tylko, gdy lista w pałacu się zmieniła (każda mutacja daje nową tablicę). */
+  private syncBrokenTiles(p: Palace) {
+    if (p.brokenTiles === this.lastBrokenTiles) return;
+    this.lastBrokenTiles = p.brokenTiles;
+    this.brokenGroup.clear();
+    for (const t of p.brokenTiles ?? []) {
+      const m = new THREE.Mesh(this.brokenGeo, this.brokenMat);
+      m.rotation.x = -Math.PI / 2;
+      // kwadrat leży na wysokości kliknięcia (piętro, wierzch obiektu), odrobinę nad powierzchnią
+      m.position.set(t.tile[0] + 0.5, t.point[1] + 0.03, t.tile[1] + 0.5);
+      m.renderOrder = 6;
+      m.userData.brokenTileId = t.id;
+      this.brokenGroup.add(m);
+    }
+  }
+
+  /** Kliknięcie w trybie zgłaszania: w istniejący znacznik — usuwa zgłoszenie, w scenę — zapisuje nowe. */
+  private reportBrokenTile(ev: PointerEvent) {
+    this.setPointer(ev);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const st = useStore.getState();
+    // znacznik dodany chwilę temu mógł nie mieć jeszcze policzonej macierzy świata (klik przed pierwszą klatką)
+    this.brokenGroup.updateMatrixWorld(true);
+    const marker = this.raycaster.intersectObjects(this.brokenGroup.children, false)[0];
+    if (marker) {
+      st.removeBrokenTile(marker.object.userData.brokenTileId as string);
+      return;
+    }
+    const target = this.placementPoint(new Set());
+    if (!target) return;
+    st.addBrokenTile([target.pos.x, target.pos.y, target.pos.z]);
   }
 
   /** Czy wpis (obiekt albo marker zwierzęcia) powinien być teraz widoczny. Jedno miejsce dla `syncWildlife` i pięter. */
@@ -2698,6 +2744,11 @@ export class SceneManager {
       this.brushAt();
       return;
     }
+    if (this.mode === 'editor' && st.brokenTileMode && ev.button === 0) {
+      // OrbitControls dalej dostaje zdarzenie: przeciągnięcie obraca widok, samo kliknięcie zgłasza
+      this.brokenDown = { x: ev.clientX, y: ev.clientY };
+      return;
+    }
     if (this.mode === 'vr') {
       if (!this.stereo) return;
       // bez czujników ruchu rozglądamy się myszą, więc najpierw przejmujemy kursor
@@ -2937,9 +2988,9 @@ export class SceneManager {
     if (ev.pointerType === 'mouse' && !this.isUiTarget(ev)) {
       this.setPointer(ev);
       const id = this.pick();
-      const tool = useStore.getState().tool;
+      const { tool, brokenTileMode } = useStore.getState();
       useStore.getState().setHover(id);
-      this.renderer.domElement.style.cursor = id ? (tool === 'select' ? 'pointer' : 'grab') : '';
+      this.renderer.domElement.style.cursor = brokenTileMode ? 'crosshair' : id ? (tool === 'select' ? 'pointer' : 'grab') : '';
     }
   };
 
@@ -2982,6 +3033,12 @@ export class SceneManager {
     }
     if (this.mode !== 'editor') return;
     const st = useStore.getState();
+    if (this.brokenDown) {
+      const moved = Math.hypot(ev.clientX - this.brokenDown.x, ev.clientY - this.brokenDown.y);
+      this.brokenDown = null;
+      if (moved < 6 && st.brokenTileMode) this.reportBrokenTile(ev);
+      return;
+    }
     if (this.ghost && this.placeDown) {
       const moved = Math.hypot(ev.clientX - this.placeDown.x, ev.clientY - this.placeDown.y);
       const isTouch = ev.pointerType === 'touch';
@@ -3215,6 +3272,7 @@ export class SceneManager {
     }
     if (ev.code === 'Escape') {
       if (st.groundBrush) st.setGroundBrush(false);
+      else if (st.brokenTileMode) st.setBrokenTileMode(false);
       else if (st.review && this.mode !== 'vr') st.endReview();
       else st.select(null);
     }
@@ -4194,6 +4252,10 @@ export class SceneManager {
     this.container.removeEventListener('wheel', this.onWheel, { capture: true } as EventListenerOptions);
     this.setGhost(null);
     this.clearBrushPreview();
+    this.scene.remove(this.brokenGroup);
+    this.brokenGroup.clear();
+    this.brokenGeo.dispose();
+    this.brokenMat.dispose();
     this.marquee?.el?.remove();
     this.marquee = null;
     for (const ring of this.selRings) this.scene.remove(ring);
