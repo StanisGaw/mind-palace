@@ -3,10 +3,11 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 
 /**
  * Oznaczenia, po których scena odnajduje pojedynczą siatkę i rusza nią osobno (skrzydło drzwi, dach,
- * strop, ściana chowana przed kamerą, śmigło, końcówka ścieżki, szyba z własnym materiałem). Siatka
+ * strop, ściana chowana przed kamerą, części wierzchowców `rig` — śmigło, skrzydła, nogi, segmenty —
+ * końcówka ścieżki, szyba z własnym materiałem). Siatka
  * z którymkolwiek z nich zostaje sobą; reszta może się scalić.
  */
-const KEEP_APART = new Set(['doorLeaf', 'propeller', 'roof', 'slab', 'wallNormal', 'floorIndex', 'pathCap', 'ownMaterial', 'noPick', 'interactive', 'exitDoor', 'ground']);
+const KEEP_APART = new Set(['doorLeaf', 'rig', 'roof', 'slab', 'wallNormal', 'floorIndex', 'pathCap', 'ownMaterial', 'noPick', 'interactive', 'exitDoor', 'ground']);
 
 function separate(o: THREE.Object3D): boolean {
   for (const key of Object.keys(o.userData)) if (KEEP_APART.has(key)) return true;
