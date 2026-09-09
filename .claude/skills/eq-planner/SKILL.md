@@ -14,7 +14,8 @@ Wczytaj `.claude/skills/eq-knowledge/SKILL.md` i instrukcje o warstwach oraz wer
   i da się zrobić zrzut pokazujący efekt.
 - **Kolejność od najmniej ryzykownej.** Zmiany w typach i migracje idą wcześnie,
   bo kompilator wskaże wszystkie miejsca do poprawy.
-- **Nie planuj testów jednostkowych** — w tym projekcie ich nie ma. Planuj asercje `eval:`.
+- **Czystą logikę z `lib/` planuj z testami** (`vitest`, `src/lib/*.test.ts`), a to, co widać w scenie,
+  sprawdzaj zrzutem z asercją `eval:`. Testy nie zastępują zrzutu.
 
 ## Kolejność zależności
 

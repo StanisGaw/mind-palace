@@ -23,8 +23,8 @@ brak logowania, brak zewnętrznych zasobów graficznych — wszystkie modele są
 ## Skrót najważniejszych zasad
 
 1. **Interfejs jest po polsku**, identyfikatory w kodzie po angielsku.
-2. **Nie ma testów jednostkowych ani lintera.** Weryfikacja to `npx tsc --noEmit`,
-   `npm run build` i zrzut ekranu z przeglądarki.
+2. **Nie ma lintera.** Weryfikacja to `npm test` (vitest — czysta geometria z `src/lib`),
+   `npm run build` i zrzut ekranu z przeglądarki. Testy nie zastępują zrzutu.
 3. **Każdy zasób Three.js utworzony w kodzie musi być zwolniony** w odpowiedniej metodzie
    sprzątającej — inaczej przełączanie scen wycieka pamięcią.
 4. **Migracje danych żyją wyłącznie w `normalizePalace`** (`src/lib/storage.ts`) i muszą być
