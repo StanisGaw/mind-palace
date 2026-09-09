@@ -79,6 +79,8 @@ function localBox(root: THREE.Object3D, scale: THREE.Vector3) {
   root.traverse((child) => {
     const mesh = child as THREE.Mesh;
     if (!mesh.isMesh) return;
+    // wierzchołki skórowanej siatki leżą w układzie kości — pudło daje niewidzialna bryła zastępcza modelu
+    if ((mesh as unknown as THREE.SkinnedMesh).isSkinnedMesh) return;
     const inst = mesh as unknown as THREE.InstancedMesh;
     if (inst.isInstancedMesh) {
       if (!inst.boundingBox) inst.computeBoundingBox();

@@ -3,7 +3,7 @@
  * scena czyta klawisze, woła krok i przepisuje wynik na model i kamerę. Przód wierzchowca to −Z (jak samolot).
  */
 
-export type MountId = 'plane' | 'dragon' | 'horse' | 'sandworm';
+export type MountId = 'plane' | 'dragon' | 'horse' | 'sandworm' | 'horse2' | 'dragon2';
 
 export interface MountLabels {
   /** Podpowiedź wsiadania: `${board}: ${nazwa obiektu}`. */
@@ -20,12 +20,12 @@ export interface MountLabels {
 }
 
 export interface MountSpec {
-  kind: 'air' | 'ground';
+  /** `air` leci jak samolot, `hover` jak śmigłowiec (gaz unosi, zawisa w miejscu), `ground` jedzie po ziemi. */
+  kind: 'air' | 'hover' | 'ground';
   maxSpeed: number; // m/s
   accel: number; // tempo dochodzenia prędkości do celu (lambda tłumienia)
   reach: number; // m od siodła (w poziomie), z których da się wsiąść
-  /** Siła nośna z gazu, nie z prędkości: start pionowy i zawis (smok). */
-  hover?: boolean;
+  climb?: number; // śmigłowiec: m/s wznoszenia i opadania przy pełnym gazie
   takeoff?: number; // poniżej tej prędkości maszyna toczy się po ziemi i nie reaguje na ster wysokości
   stall?: number; // poniżej: brak siły nośnej, maszyna opada
   ceiling?: number;
@@ -37,7 +37,7 @@ export interface MountSpec {
   labels: MountLabels;
 }
 
-export const MOUNT_SPECS: Record<MountId, MountSpec> = {
+export const MOUNT_SPECS = {
   plane: {
     kind: 'air',
     maxSpeed: 24,
@@ -56,21 +56,19 @@ export const MOUNT_SPECS: Record<MountId, MountSpec> = {
     },
   },
   dragon: {
-    kind: 'air',
-    maxSpeed: 20,
-    accel: 0.6,
+    kind: 'hover',
+    maxSpeed: 18,
+    accel: 1.2,
     reach: 3.5,
-    hover: true,
-    takeoff: 6,
-    stall: 8,
+    climb: 6,
     ceiling: 90,
     labels: {
       board: 'Dosiądź',
       leave: 'Zsiądź ze smoka',
-      hintKeys: 'Shift/Ctrl — gaz · W/S — nos · A/D — przechył · Q/E — kierunek · Spacja lub klik — ogień · F — zsiądź lub skok',
-      hintPad: 'R2/L2 — gaz · lewa gałka — nos i przechył · L1/R1 — kierunek · △ — ogień · ▢ — zsiądź lub skok',
-      toastKeys: 'Shift — gaz (smok unosi się bez rozbiegu), W/S — nos, A/D — przechył, Q/E — kierunek, Spacja albo klik — ogień. F na ziemi zsiada, w powietrzu — skok ze spadochronem.',
-      toastPad: 'R2 — gaz (smok unosi się bez rozbiegu), lewa gałka — nos i przechył, L1/R1 — kierunek, △ — ogień. ▢ na ziemi zsiada, w powietrzu — skok ze spadochronem.',
+      hintKeys: 'Shift/Ctrl — w górę i w dół · W/S — do przodu i do tyłu · A/D — skręt · Q/E — obrót w miejscu · Spacja lub klik — ogień · F — zsiądź lub skok',
+      hintPad: 'R2/L2 — w górę i w dół · lewa gałka — lot i skręt · L1/R1 — obrót w miejscu · △ — ogień · ▢ — zsiądź lub skok',
+      toastKeys: 'Shift unosi, Ctrl opuszcza; puszczone — smok zawisa. W/S — do przodu i do tyłu, A/D — skręt, Q/E — obrót w miejscu, Spacja albo klik — ogień. F na ziemi zsiada, w powietrzu — skok ze spadochronem.',
+      toastPad: 'R2 unosi, L2 opuszcza; puszczone — smok zawisa. Lewa gałka — lot i skręt, L1/R1 — obrót w miejscu, △ — ogień. ▢ na ziemi zsiada, w powietrzu — skok ze spadochronem.',
       action: 'Ogień',
     },
   },
@@ -109,7 +107,11 @@ export const MOUNT_SPECS: Record<MountId, MountSpec> = {
       action: 'Wyskok',
     },
   },
-};
+} as Record<MountId, MountSpec>;
+
+// wierzchowce z plików GLB dzielą dynamikę i teksty z proceduralnymi odpowiednikami
+MOUNT_SPECS.horse2 = { ...MOUNT_SPECS.horse, reach: 2.8 };
+MOUNT_SPECS.dragon2 = { ...MOUNT_SPECS.dragon, reach: 3.5 };
 
 export function isMount(type: string): type is MountId {
   return Object.prototype.hasOwnProperty.call(MOUNT_SPECS, type);
@@ -123,7 +125,7 @@ export interface RideState {
   pitch: number;
   roll: number;
   speed: number;
-  throttle: number; // 0..1 (samolot, smok, czerw)
+  throttle: number; // 0..1 (samolot, czerw); śmigłowiec: 0,5 to zawis, wyżej wznoszenie, niżej opadanie (przyciski telefonu)
   onGround: boolean;
   /** Gracz siedzi w siodle. Po skoku maszyna leci sama: lekki gaz, wyrównany lot, aż stanie na ziemi. */
   pilot: boolean;
@@ -134,8 +136,8 @@ export interface RideState {
 }
 
 export interface RideInput {
-  throttle: number; // −1..1: gaz i hamowanie (samolot, smok, czerw) albo naprzód i wstecz (koń)
-  pitch: number; // −1..1: nos w górę (+, klawisz S) i w dół (−, klawisz W) — jak drążek
+  throttle: number; // −1..1: gaz i hamowanie (samolot, czerw), w górę i w dół (śmigłowiec) albo naprzód i wstecz (koń)
+  pitch: number; // −1..1: nos w górę (+, klawisz S) i w dół (−, klawisz W) — jak drążek; śmigłowiec: do przodu (+) i do tyłu (−)
   roll: number; // −1..1: przechył w prawo (+)
   yaw: number; // −1..1: ster kierunku w prawo (+)
   turn: number; // −1..1: skręt na ziemi w prawo (+)
@@ -160,8 +162,8 @@ const FIRE_TIME = 1.2; // s jednego zionięcia
 const GRAVITY = 20; // m/s² jak w `physics.stepCharacter`
 const LEAP_MIN_SPEED = 4; // czerw wyskakuje dopiero rozpędzony
 
-export function newRideState(x: number, y: number, z: number, yaw: number): RideState {
-  return { x, y, z, yaw, pitch: 0, roll: 0, speed: 0, throttle: 0, onGround: true, pilot: true, vy: 0, phase: 0, leapT: -1, fire: 0 };
+export function newRideState(x: number, y: number, z: number, yaw: number, spec?: MountSpec): RideState {
+  return { x, y, z, yaw, pitch: 0, roll: 0, speed: 0, throttle: spec?.kind === 'hover' ? 0.5 : 0, onGround: true, pilot: true, vy: 0, phase: 0, leapT: -1, fire: 0 };
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -199,11 +201,10 @@ export function stepAir(r: RideState, input: RideInput, spec: MountSpec, env: Ri
   const pitchIn = r.pilot ? input.pitch : 0;
   const rollIn = r.pilot ? input.roll : 0;
   const yawIn = r.pilot ? input.yaw : 0;
-  const hover = !!spec.hover && r.pilot;
-  // stery działają tym mocniej, im większy opływ — przy postoju maszyna nie reaguje; smok macha skrzydłami, więc zawsze
-  const auth = hover ? 1 : clamp(r.speed / takeoff, 0, 1);
+  // stery działają tym mocniej, im większy opływ — przy postoju maszyna nie reaguje
+  const auth = clamp(r.speed / takeoff, 0, 1);
 
-  if (!hover && r.onGround && r.speed < takeoff) {
+  if (r.onGround && r.speed < takeoff) {
     r.pitch = damp(r.pitch, 0, 6, dt);
     r.roll = damp(r.roll, 0, 6, dt);
     r.yaw -= (yawIn * 0.9 + rollIn * 0.7) * Math.min(r.speed / 5, 1) * dt; // kołowanie kółkiem ogonowym
@@ -221,14 +222,11 @@ export function stepAir(r: RideState, input: RideInput, spec: MountSpec, env: Ri
     }
   }
 
-  const slow = 1 - clamp(r.speed / stall, 0, 1);
-  // zawis: gaz zastępuje opływ, a nadmiar gazu ponad ćwierć unosi maszynę pionowo
-  const lift = hover ? Math.max(1 - slow, clamp(r.throttle / 0.3, 0, 1)) : 1 - slow;
-  const vert = hover ? (r.throttle - 0.25) * 4 * slow : 0;
+  const lift = clamp(r.speed / stall, 0, 1);
   const horiz = Math.cos(r.pitch) * r.speed;
   r.x -= Math.sin(r.yaw) * horiz * dt;
   r.z -= Math.cos(r.yaw) * horiz * dt;
-  r.y += (Math.sin(r.pitch) * r.speed - (1 - lift) * 7 + vert) * dt;
+  r.y += (Math.sin(r.pitch) * r.speed - (1 - lift) * 7) * dt;
 
   r.y = Math.min(r.y, ceiling);
   if (!r.pilot && env.clampToBoard) {
@@ -247,6 +245,47 @@ export function stepAir(r: RideState, input: RideInput, spec: MountSpec, env: Ri
     }
     r.onGround = true;
   } else r.onGround = false;
+}
+
+/**
+ * Śmigłowiec: smok. Gaz unosi i opuszcza, a puszczony zostawia maszynę w zawisie; W/S przesuwa do przodu
+ * i do tyłu, A/D skręca w locie (z przechyłem), Q/E obraca w miejscu. Bez pilota smok opada i siada.
+ */
+export function stepHover(r: RideState, input: RideInput, spec: MountSpec, env: RideEnv, dt: number) {
+  const climb = spec.climb ?? 5;
+  const ceiling = spec.ceiling ?? 90;
+  // przyciski telefonu przestawiają `throttle` na stałe; klawisz i spust działają, póki są trzymane
+  const vertIn = r.pilot ? clamp(input.throttle + (r.throttle - 0.5) * 2, -1, 1) : -0.3;
+  const fwdIn = r.pilot ? input.pitch : 0;
+  const turnIn = r.pilot ? input.roll : 0;
+  const yawIn = r.pilot ? input.yaw : 0;
+
+  const target = fwdIn > 0 ? spec.maxSpeed * fwdIn : fwdIn < 0 ? spec.maxSpeed * 0.4 * fwdIn : 0;
+  r.speed = damp(r.speed, target, spec.accel, dt);
+  // na ziemi smok tylko się obraca; w locie skręca z przechyłem
+  const airborne = !r.onGround;
+  r.yaw -= (yawIn * 1.4 + (airborne ? turnIn * 1.1 : 0)) * dt;
+  r.pitch = damp(r.pitch, airborne ? -0.28 * (r.speed / spec.maxSpeed) : 0, 3, dt); // nos w dół, gdy leci do przodu
+  r.roll = damp(r.roll, airborne ? -turnIn * 0.45 : 0, 3, dt);
+
+  r.vy = damp(r.vy, vertIn * climb, 4, dt);
+  r.x -= Math.sin(r.yaw) * r.speed * dt;
+  r.z -= Math.cos(r.yaw) * r.speed * dt;
+  r.y += r.vy * dt;
+  r.y = Math.min(r.y, ceiling);
+  if (!r.pilot && env.clampToBoard) {
+    const [bx, bz] = env.clampToBoard(r.x, r.z);
+    r.x = bx;
+    r.z = bz;
+  }
+  finishStep(r, input, env, dt);
+  const gy = env.groundAt(r.x, r.z);
+  if (r.y <= gy && r.vy <= 0) {
+    r.y = gy;
+    r.vy = 0;
+    r.onGround = true;
+    if (!r.pilot) r.speed = damp(r.speed, 0, 3, dt);
+  } else r.onGround = r.y <= gy;
 }
 
 /**
@@ -321,6 +360,7 @@ export function stepGround(r: RideState, input: RideInput, spec: MountSpec, env:
 
 export function stepRide(r: RideState, input: RideInput, spec: MountSpec, env: RideEnv, dt: number) {
   if (spec.kind === 'air') stepAir(r, input, spec, env, dt);
+  else if (spec.kind === 'hover') stepHover(r, input, spec, env, dt);
   else stepGround(r, input, spec, env, dt);
 }
 

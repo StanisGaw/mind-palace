@@ -7,6 +7,7 @@ import { Noise2D } from './noise';
 import { grainTexture, textureById } from './textures';
 import { MATERIAL_DEFAULTS, MATERIAL_ROLES, paletteOf, type MaterialRole } from '../lib/materials';
 import type { MountId } from '../lib/ride';
+import { assetLoaded, cloneAsset } from './assets';
 
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
 export interface MatOpts {
@@ -961,6 +962,63 @@ function buildPlane(g: THREE.Group) {
   add(prop, cyl(0.09, 0.09, 0.1, 8), metal, 0, 0, 0, [Math.PI / 2, 0, 0]);
 }
 
+// ---------- wierzchowce z plików GLB (Poly Pizza, CC0) ----------
+
+/**
+ * Wierzchowce z plików: jak dopasować model do sceny. `height` to docelowa wysokość w metrach,
+ * `yaw` obraca model tak, żeby patrzył w −Z (jak samolot), `clips` to nazwy klipów na postój, marsz i bieg.
+ */
+export interface AssetMount {
+  file: string;
+  height: number;
+  yaw: number;
+  clips: { idle: string; walk?: string; run: string; jump?: string };
+}
+
+export const ASSET_MOUNTS: Record<string, AssetMount> = {
+  horse2: { file: 'horse2.glb', height: 1.9, yaw: Math.PI, clips: { idle: 'Idle', walk: 'Walk', run: 'Gallop', jump: 'Gallop_Jump' } },
+  dragon2: { file: 'dragon2.glb', height: 4.0, yaw: Math.PI, clips: { idle: 'Flying_Idle', run: 'Fast_Flying' } },
+};
+
+/**
+ * Model z pliku: klon wczytanego GLB przeskalowany do `height`, ze stopami na ziemi i przodem w −Z. Zanim plik
+ * dojedzie, zostaje sama bryła zastępcza — scena przebuduje wpis po wczytaniu. Niewidzialne pudło daje bryłę
+ * kolizji i wysokość, bo skórowana siatka nie ma sensownej ramki bez szkieletu.
+ */
+function buildAssetMount(type: string): (g: THREE.Group) => void {
+  return (g) => {
+    const spec = ASSET_MOUNTS[type];
+    const asset = assetLoaded(spec.file);
+    const proxy = new THREE.Mesh(box(1, 1, 1), mat(C.metal));
+    proxy.visible = false;
+    proxy.userData.noPick = true;
+    g.add(proxy);
+    if (!asset) {
+      proxy.scale.set(1.2, spec.height, 2.4);
+      proxy.position.y = spec.height / 2;
+      g.userData.asset = 0;
+      return;
+    }
+    const b = asset.bounds;
+    const size = b.getSize(new THREE.Vector3());
+    const k = spec.height / size.y;
+    const model = cloneAsset(asset);
+    model.scale.setScalar(k);
+    const center = b.getCenter(new THREE.Vector3());
+    // środek ramki na osi obiektu, spód na ziemi; obrót do −Z po przesunięciu, więc środek zostaje na osi
+    const pivot = new THREE.Group();
+    pivot.rotation.y = spec.yaw;
+    model.position.set(-center.x * k, -b.min.y * k, -center.z * k);
+    pivot.add(model);
+    g.add(pivot);
+    const rot = Math.abs(Math.sin(spec.yaw)) > 0.5;
+    proxy.scale.set((rot ? size.z : size.x) * k, size.y * k, (rot ? size.x : size.z) * k);
+    proxy.position.y = (size.y * k) / 2;
+    g.userData.asset = 1;
+    g.userData.assetModel = model;
+  };
+}
+
 // ---------- wierzchowce (przód −Z, jak samolot; ruchome części mają `userData.rig`) ----------
 
 /** Pivot ruchomej części: scena znajduje go po nazwie i rusza nim w jeździe, a po niej przywraca tę pozę. */
@@ -1277,6 +1335,8 @@ export interface BuildCtx {
   colors?: Record<string, string>;
   /** Wykończenie: tekstura podłogi, ścian wnętrza i elewacji budynku w miejscu; dla ścieżki `floor` to nawierzchnia. */
   finish?: { floor?: string; wall?: string; facade?: string };
+  /** Model z pliku jest już wczytany — zmiana z 0 na 1 przebudowuje wpis, gdy plik dojedzie. */
+  asset?: number;
 }
 
 export type { WallHole };
@@ -2042,6 +2102,8 @@ const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   horse: buildHorse,
   dragon: buildDragonMount,
   sandworm: buildSandworm,
+  horse2: buildAssetMount('horse2'),
+  dragon2: buildAssetMount('dragon2'),
   tree: buildTree,
   cypress: buildCypress,
   bush: buildBush,
@@ -2117,14 +2179,17 @@ export const GATE_SPAWN: [number, number, number] = [0, 0, 1.8];
 
 /**
  * Siodło (oczy jeźdźca) i miejsce, w którym staje po zsiadnięciu — w lokalnych współrzędnych modelu, a gdy
- * podano `seatPart`, w układzie tej ruchomej części (siodło czerwia unosi się razem z głową).
+ * podano `seatPart`, w układzie tej ruchomej części (siodło czerwia unosi się razem z głową). `seatBone` to kość
+ * modelu z pliku: siodło leży `seat` nad jej bieżącym położeniem, więc jeździec kołysze się z animacją.
  * Samolot: fotel w kokpicie, wysiadka obok kadłuba za skrzydłem.
  */
-export const MOUNT_ANCHORS: Record<MountId, { seat: [number, number, number]; exit: [number, number, number]; seatPart?: string }> = {
+export const MOUNT_ANCHORS: Record<MountId, { seat: [number, number, number]; exit: [number, number, number]; seatPart?: string; seatBone?: string }> = {
   plane: { seat: [0, 1.66, 0.16], exit: [-1.9, 0, 1.4] },
   dragon: { seat: [0, 3.15, 0.3], exit: [2.4, 0, 0.5] },
   horse: { seat: [0, 2.4, 0.0], exit: [1.1, 0, 0.2] },
   sandworm: { seat: [0, 2.35, -0.5], exit: [3.4, 0, 1.0], seatPart: 'head' },
+  horse2: { seat: [0, 0.85, -0.2], exit: [1.0, 0, 0.3], seatBone: 'Torso' },
+  dragon2: { seat: [0, 2.15, -0.15], exit: [2.2, 0, 0.6], seatBone: 'Torso' },
 };
 
 /**
@@ -2177,6 +2242,7 @@ export const EMITTER_ANCHORS: Record<string, [number, number, number]> = {
   waterfall: [0, 0.35, 0.6],
   campfire: [0, 0.7, 0],
   dragon: [0, 1.95, -4.35], // pysk smoka wierzchowego (ciało ×1,5)
+  dragon2: [0, 2.7, -1.1], // pysk smoka z pliku (głowa nad tułowiem, model stoi na dwóch łapach)
   sandworm: [0, 0.4, 0.5],
 };
 
@@ -2205,13 +2271,25 @@ export function rolesOf(type: string): MaterialRole[] {
 
 /** Wysokość modelu (do pozycjonowania etykiet). */
 export function modelHeight(g: THREE.Object3D): number {
-  const b = new THREE.Box3().setFromObject(g);
+  const b = new THREE.Box3();
+  g.updateWorldMatrix(true, true);
+  g.traverse((c) => {
+    const m = c as THREE.Mesh;
+    // ramka skórowanej siatki leży w układzie kości (setki metrów) — wysokość daje bryła zastępcza modelu
+    if (!m.isMesh || (m as unknown as THREE.SkinnedMesh).isSkinnedMesh) return;
+    b.expandByObject(m);
+  });
   return Number.isFinite(b.max.y) ? b.max.y : 1;
 }
 
 export function disposeObject(o: THREE.Object3D) {
   o.traverse((c) => {
     const m = c as THREE.Mesh;
+    // klony modelu z pliku dzielą geometrię z cache — zwalnia się z nimi tylko szkielet
+    if (m.userData.sharedGeometry) {
+      if ((m as unknown as THREE.SkinnedMesh).isSkinnedMesh) (m as unknown as THREE.SkinnedMesh).skeleton.dispose();
+      return;
+    }
     if (m.geometry) m.geometry.dispose();
     // materiały są współdzielone (cache) — nie usuwamy; wyjątek: własne klony (szyba okna)
     if (m.userData.ownMaterial && m.material) (m.material as THREE.Material).dispose();

@@ -330,7 +330,7 @@ export function Viewport() {
                   mgrRef.current?.throttleStep(0.25);
                 }}
               >
-                Gaz +
+                {mount.kind === 'hover' ? 'W górę' : 'Gaz +'}
               </button>
               <button
                 onPointerDown={(e) => {
@@ -338,7 +338,7 @@ export function Viewport() {
                   mgrRef.current?.throttleStep(-0.25);
                 }}
               >
-                Gaz −
+                {mount.kind === 'hover' ? 'W dół' : 'Gaz −'}
               </button>
             </div>
           )}

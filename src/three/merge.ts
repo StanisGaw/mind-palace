@@ -38,7 +38,8 @@ function collect(node: THREE.Object3D, parentMatrix: THREE.Matrix4, out: Candida
       nested.push(child);
       continue;
     }
-    if (m.isMesh && m.children.length === 0 && !Array.isArray(m.material) && m.geometry && Object.keys(m.geometry.morphAttributes).length === 0) {
+    // skórowana siatka (model z pliku) po scaleniu straciłaby szkielet
+    if (m.isMesh && !(m as THREE.SkinnedMesh).isSkinnedMesh && m.children.length === 0 && !Array.isArray(m.material) && m.geometry && Object.keys(m.geometry.morphAttributes).length === 0) {
       out.push({ mesh: m, matrix });
       continue;
     }

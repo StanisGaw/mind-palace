@@ -7,7 +7,8 @@ import { useStore, descendants, movableRoots, selectionRoots } from '../store';
 import { yawOfObject } from '../lib/transform';
 import type { CameraKind, FurnitureSet, Palace, PalaceObject, RoomSpec, Vec3, ViewMode } from '../types';
 import { AMBIENCES, catalogItem, hasInterior } from '../catalog';
-import { buildModel, buildParachute, disposeObject, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN, MOUNT_ANCHORS, type BuildCtx } from './builders';
+import { buildModel, buildParachute, disposeObject, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN, MOUNT_ANCHORS, ASSET_MOUNTS, type BuildCtx } from './builders';
+import { assetLoaded, findClip, loadAsset } from './assets';
 import { mergeByMaterial } from './merge';
 import { IDLE_INPUT, MOUNT_SPECS, advanceTrail, isMount, newRideState, rideSettled, stepRide, trailPoint, type MountId, type MountSpec, type RideEnv, type RideInput, type RideState } from '../lib/ride';
 import { ART_VARIANTS } from './art';
@@ -53,6 +54,8 @@ interface Entry {
   doorPivot?: THREE.Group;
   /** Ruchome części wierzchowca po nazwie z `userData.rig` (śmigło, skrzydła, nogi, segmenty) — scena rusza nimi w jeździe. */
   parts: Map<string, THREE.Object3D>;
+  /** Model z pliku ze szkieletem: mikser i bieżący klip (postój, stęp, galop, lot). */
+  anim?: { mixer: THREE.AnimationMixer; clips: THREE.AnimationClip[]; current: string | null; action: THREE.AnimationAction | null };
   /** Budynek z wnętrzem w tej samej scenie: dach do schowania, stropy pięter i ściany do chowania od strony kamery. */
   inplace: boolean;
   roof: THREE.Object3D | null;
@@ -346,6 +349,8 @@ export class SceneManager {
   private fpVel = new THREE.Vector3();
   /** Przejażdżka: gracz siedzi w siodle, a `updateRide` prowadzi model i kamerę zamiast `updateFp`. */
   private ride: Ride | null = null;
+  /** Pliki modeli, których wczytanie już ruszyło. */
+  private assetLoads = new Set<string>();
   /** Wejścia jazdy zbierane między klatkami (skok i ogień to zdarzenia, reszta liczona z klawiszy co klatkę). */
   private rideInput: RideInput = { ...IDLE_INPUT };
   private rideEnv: RideEnv = { groundAt: (x, z) => this.groundHeightAt(x, z), radius: 24, scale: 1 };
@@ -1027,6 +1032,20 @@ export class SceneManager {
         });
         // drzwi z Konstrukcji i budynki z wnętrzem w miejscu mają otwierane skrzydło; zagnieżdżone budynki nie (F wchodzi do środka)
         if (o.type === 'door' || e.inplace) model.traverse((c) => { if (c.userData.doorLeaf) e!.doorPivot = c as THREE.Group; });
+        const assetMount = ASSET_MOUNTS[o.type];
+        if (assetMount) {
+          if (model.userData.asset === 0) this.ensureAsset(assetMount.file);
+          else {
+            const root = model.userData.assetModel as THREE.Object3D;
+            const clips = assetLoaded(assetMount.file)?.clips ?? [];
+            e.anim = { mixer: new THREE.AnimationMixer(root), clips, current: null, action: null };
+            this.playClip(e, assetMount.clips.idle, 1);
+            // kości po nazwie: siodło jedzie za tułowiem, który animacja kołysze
+            root.traverse((c) => {
+              if ((c as THREE.Bone).isBone) e!.parts.set(c.name, c);
+            });
+          }
+        }
         if (isMount(o.type)) {
           model.traverse((c) => {
             if (typeof c.userData.rig !== 'string') return;
@@ -1103,13 +1122,48 @@ export class SceneManager {
     // taras: schodki od podłogi parteru do ziemi
     if (o.type === 'terrace' && b) return { ...base, drop: Math.round((buildingFloorY(b, 0) - b.position[1]) * 100) / 100 };
     if (o.type === 'painting') return { ...base, variant: hashString(o.id) % ART_VARIANTS };
+    // model z pliku: klucz zmienia się, gdy plik dojedzie, i wpis buduje się na nowo z prawdziwą siatką
+    if (ASSET_MOUNTS[o.type]) return { ...base, asset: assetLoaded(ASSET_MOUNTS[o.type].file) ? 1 : 0 };
     // regał i stos książek: układ tomów z ziarna obiektu
     if (o.type === 'shelf' || o.type === 'books') return { ...base, variant: hashString(o.id) % 1000 };
     return base;
   }
 
+  /** Model z pliku dojeżdża w tle; po wczytaniu wpisy tego typu przebudowują się przez zmianę klucza budowy. */
+  private ensureAsset(file: string) {
+    if (this.assetLoads.has(file)) return;
+    this.assetLoads.add(file);
+    loadAsset(file)
+      .then(() => {
+        if (this.disposed || !this.lastPalace) return;
+        this.syncObjects(this.lastPalace);
+      })
+      .catch((err) => console.warn('Nie udało się wczytać modelu', file, err));
+  }
+
+  /** Przełącza klip z krótkim przenikaniem; ten sam klip tylko zmienia tempo. */
+  private playClip(e: Entry, name: string, timeScale: number) {
+    const a = e.anim;
+    if (!a) return;
+    if (a.current !== name) {
+      const clip = findClip(a.clips, name);
+      if (!clip) return;
+      const next = a.mixer.clipAction(clip);
+      next.reset().setEffectiveWeight(1).fadeIn(0.25).play();
+      a.action?.fadeOut(0.25);
+      a.action = next;
+      a.current = name;
+    }
+    if (a.action) a.action.timeScale = timeScale;
+  }
+
   private removeEntry(e: Entry) {
     if (this.ride?.id === e.id) this.cancelRide();
+    if (e.anim) {
+      e.anim.mixer.stopAllAction();
+      e.anim.mixer.uncacheRoot(e.anim.mixer.getRoot() as THREE.Object3D);
+      e.anim = undefined;
+    }
     if (e.label) {
       e.group.remove(e.label);
       e.label.element.remove();
@@ -3097,7 +3151,7 @@ export class SceneManager {
 
   private fpInteract(id: string | null) {
     if (this.riding) {
-      if (MOUNT_SPECS[this.ride!.mount].hover) this.rideInput.fire = true;
+      if (MOUNT_SPECS[this.ride!.mount].kind === 'hover') this.rideInput.fire = true;
       return;
     }
     if (this.descent) return;
@@ -3456,7 +3510,10 @@ export class SceneManager {
     if (hadFlash !== this.weather.flash) this.applyLighting();
     if (hadFlash === 0 && this.weather.flash > 0) this.sounds.thunder();
     this.sounds.update(dt);
-    for (const e of this.entries.values()) e.emitter?.update(dt, camWorldPos);
+    for (const e of this.entries.values()) {
+      e.emitter?.update(dt, camWorldPos);
+      e.anim?.mixer.update(dt);
+    }
     if (this.mode !== 'editor' && this.wildlife.creatures.length > 0) {
       // świat przeliczamy rzadziej niż ruch zwierząt — obiekty i tak stoją w miejscu
       if (++this.wildlifeTick % 30 === 0) this.cachedWorld = this.worldInfo();
@@ -3696,7 +3753,7 @@ export class SceneManager {
     const useB = edge(1);
     // w kokpicie ✕ nic nie robi; na koniu i czerwiu skacze; w spadku otwiera spadochron
     if (jump && (!this.riding || MOUNT_SPECS[this.ride!.mount].kind === 'ground')) this.jump();
-    if (edge(3) && this.riding && MOUNT_SPECS[this.ride!.mount].hover) this.rideInput.fire = true; // △ — smok zionie ogniem
+    if (edge(3) && this.riding && MOUNT_SPECS[this.ride!.mount].kind === 'hover') this.rideInput.fire = true; // △ — smok zionie ogniem
     if (useA || useB) {
       if (this.riding) this.leaveMount();
       else this.useDoor();
@@ -3779,6 +3836,16 @@ export class SceneManager {
   /** Siodło w świecie: z modelu albo z ruchomej części (głowa czerwia unosi jeźdźca, prostując się). */
   private seatWorld(e: Entry, mount: MountId, out: THREE.Vector3): THREE.Vector3 {
     const a = MOUNT_ANCHORS[mount];
+    const bone = a.seatBone ? e.parts.get(a.seatBone) : undefined;
+    if (bone) {
+      // kość ma własne, dowolne osie — przesunięcie siodła liczymy w układzie obiektu, nie kości
+      bone.getWorldPosition(out);
+      e.group.worldToLocal(out);
+      out.x += a.seat[0];
+      out.y += a.seat[1];
+      out.z += a.seat[2];
+      return e.group.localToWorld(out);
+    }
     const node = (a.seatPart && e.parts.get(a.seatPart)) || e.group;
     return node.localToWorld(out.set(a.seat[0], a.seat[1], a.seat[2]));
   }
@@ -3802,7 +3869,7 @@ export class SceneManager {
     if (!e || !o || !isMount(e.type)) return;
     const spec = MOUNT_SPECS[e.type];
     const p = e.group.position;
-    this.ride = { id, mount: e.type, state: newRideState(p.x, p.y, p.z, o.rotation[1]), trail: [], anim: 0 };
+    this.ride = { id, mount: e.type, state: newRideState(p.x, p.y, p.z, o.rotation[1], spec), trail: [], anim: 0 };
     if (spec.leap) this.resetTrail(e, this.ride);
     // plansza nie zmienia się w trakcie jazdy, więc zacisk maszyny bez pilota powstaje raz
     const area = this.walkArea;
@@ -3857,7 +3924,7 @@ export class SceneManager {
     if (!force) {
       // w powietrzu zsiadanie to skok ze spadochronem; z konia w skoku i czerwia w wyskoku nie da się zejść
       if (!s.onGround) {
-        if (spec.kind === 'air') return this.bailOut();
+        if (spec.kind !== 'ground') return this.bailOut();
         st.showToast('Poczekaj, aż wierzchowiec opadnie na ziemię.');
         return false;
       }
@@ -3926,6 +3993,8 @@ export class SceneManager {
     }
     e.model.position.set(0, 0, 0);
     this.setEmitterOpacity(e, 0);
+    const assetMount = ASSET_MOUNTS[e.type];
+    if (assetMount) this.playClip(e, assetMount.clips.idle, 1);
   }
 
   private setEmitterOpacity(e: Entry, opacity: number) {
@@ -4113,7 +4182,8 @@ export class SceneManager {
       inp.yaw = 0;
     } else {
       inp.throttle = clamp(shift - ctrl + this.padThrottle, -1, 1);
-      inp.pitch = clamp(sKey - w + this.joystick.y + this.pad.y, -1, 1);
+      // śmigłowiec: W/S to lot do przodu i do tyłu (gałki jak w spacerze, do przodu to ujemne Y)
+      inp.pitch = spec.kind === 'hover' ? clamp(w - sKey - this.joystick.y - this.pad.y, -1, 1) : clamp(sKey - w + this.joystick.y + this.pad.y, -1, 1);
       inp.roll = clamp(dKey - aKey + this.joystick.x + this.pad.x, -1, 1);
       inp.yaw = clamp(eKey - q + this.padYaw, -1, 1);
       inp.turn = spec.leap ? clamp(inp.roll + inp.yaw, -1, 1) : 0; // czerw: A/D i Q/E skręcają
@@ -4151,12 +4221,26 @@ export class SceneManager {
     const s = r.state;
     const parts = e.parts;
     const damp = THREE.MathUtils.damp;
+    const assetMount = ASSET_MOUNTS[r.mount];
+    if (assetMount && e.anim) {
+      // model z pliku: klipy zamiast pivotów — tempo klipu idzie za prędkością
+      const c = assetMount.clips;
+      const v = Math.abs(s.speed);
+      if (spec.kind === 'hover') {
+        this.playClip(e, !s.onGround && v > 6 ? c.run : c.idle, s.onGround ? 0.6 : 1);
+        this.setEmitterOpacity(e, s.fire > 0 ? 0.75 : 0);
+      } else if (!s.onGround) this.playClip(e, c.jump ?? c.run, 1);
+      else if (v < 0.3) this.playClip(e, c.idle, 1);
+      else if (c.walk && v < 5) this.playClip(e, c.walk, Math.max(0.5, v / 3.5));
+      else this.playClip(e, c.run, THREE.MathUtils.clamp(v / spec.maxSpeed * 1.2, 0.6, 1.4));
+      return;
+    }
     const prop = parts.get('propeller');
     if (prop) prop.rotation.z = (prop.rotation.z + (1.5 + s.speed * 1.6) * dt) % (Math.PI * 2);
 
-    if (spec.hover) {
-      // smok: na ziemi skrzydła wracają do złożonych, w powietrzu machają tym szybciej, im więcej gazu
-      r.anim += dt * (4 + s.throttle * 5);
+    if (spec.kind === 'hover') {
+      // smok: na ziemi skrzydła wracają do złożonych, w powietrzu machają tym szybciej, im szybciej się wznosi
+      r.anim += dt * (5 + Math.max(0, s.vy) * 0.8);
       const flap = Math.sin(r.anim) * 0.5;
       for (const [name, sign] of [['wingL', -1], ['wingR', 1]] as [string, number][]) {
         const wing = parts.get(name);
@@ -4294,7 +4378,7 @@ export class SceneManager {
     }
     if (this.riding) {
       const spec = MOUNT_SPECS[this.ride!.mount];
-      if (spec.hover) this.rideInput.fire = true; // smok zionie
+      if (spec.kind === 'hover') this.rideInput.fire = true; // smok zionie
       else if (spec.kind === 'air') this.throttleStep(0.25);
       else this.rideInput.jump = true; // koń skacze, czerw wyskakuje z piasku
       return;

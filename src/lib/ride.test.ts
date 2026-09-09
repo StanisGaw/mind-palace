@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { CATALOG, CATEGORY_LABELS, CATEGORY_ORDER } from '../catalog';
-import { IDLE_INPUT, MOUNT_SPECS, advanceTrail, isMount, newRideState, rideSettled, stepAir, stepGround, trailPoint, type MountId, type RideEnv, type RideInput, type RideState } from './ride';
+import { IDLE_INPUT, MOUNT_SPECS, advanceTrail, isMount, newRideState, rideSettled, stepAir, stepGround, stepHover, trailPoint, type MountId, type RideEnv, type RideInput, type RideState } from './ride';
 
 const flat: RideEnv = { groundAt: () => 0, radius: 200 };
 const input = (over: Partial<RideInput>): RideInput => ({ ...IDLE_INPUT, ...over });
@@ -15,6 +15,7 @@ function run(r: RideState, inp: RideInput, mount: MountId, env: RideEnv, seconds
   const spec = MOUNT_SPECS[mount];
   for (let t = 0; t < seconds; t += dt) {
     if (spec.kind === 'air') stepAir(r, inp, spec, env, dt);
+    else if (spec.kind === 'hover') stepHover(r, inp, spec, env, dt);
     else stepGround(r, inp, spec, env, dt);
   }
   return r;
@@ -93,32 +94,65 @@ describe('samolot', () => {
   });
 });
 
-describe('smok wierzchowy', () => {
-  it('unosi się z postoju na samym gazie, bez rozbiegu', () => {
-    const r = newRideState(0, 0, 0, 0);
-    run(r, input({ throttle: 1 }), 'dragon', flat, 1.5);
-    expect(r.y).toBeGreaterThan(0.3);
+describe('smok wierzchowy (śmigłowiec)', () => {
+  const dragon = () => newRideState(0, 0, 0, 0, MOUNT_SPECS.dragon);
+
+  it('unosi się pionowo na gazie i bez ruchu w poziomie', () => {
+    const r = dragon();
+    run(r, input({ throttle: 1 }), 'dragon', flat, 2);
+    expect(r.y).toBeGreaterThan(5);
     expect(r.onGround).toBe(false);
-    expect(r.speed).toBeLessThan(MOUNT_SPECS.dragon.takeoff!);
+    expect(Math.hypot(r.x, r.z)).toBeLessThan(0.01);
   });
 
-  it('przy małej prędkości zawisa, gdy gaz jest wciśnięty, i opada bez gazu', () => {
-    const r = newRideState(0, 20, 0, 0);
+  it('po puszczeniu gazu zawisa w miejscu, a Ctrl opuszcza aż do lądowania', () => {
+    const r = dragon();
+    r.y = 20;
     r.onGround = false;
-    r.speed = 3;
-    r.throttle = 0.4;
-    run(r, IDLE_INPUT, 'dragon', flat, 1);
-    expect(r.y).toBeGreaterThan(19);
-    run(r, input({ throttle: -1 }), 'dragon', flat, 3);
-    expect(r.y).toBeLessThan(18);
+    run(r, IDLE_INPUT, 'dragon', flat, 3);
+    expect(r.y).toBeCloseTo(20, 1);
+    run(r, input({ throttle: -1 }), 'dragon', flat, 6);
+    expect(r.y).toBe(0);
+    expect(r.onGround).toBe(true);
   });
 
-  it('po zeskoku szybuje jak samolot i ląduje', () => {
-    const r = newRideState(0, 25, 0, 0);
+  it('W leci do przodu z nosem w dół, S cofa wolniej, A/D skręca tylko w locie', () => {
+    const fwd = dragon();
+    fwd.y = 10;
+    fwd.onGround = false;
+    run(fwd, input({ pitch: 1 }), 'dragon', flat, 3);
+    expect(fwd.z).toBeLessThan(-20);
+    expect(fwd.pitch).toBeLessThan(-0.1);
+    expect(fwd.y).toBeCloseTo(10, 1);
+    const back = dragon();
+    back.y = 10;
+    back.onGround = false;
+    run(back, input({ pitch: -1 }), 'dragon', flat, 3);
+    expect(back.z).toBeGreaterThan(0);
+    expect(back.z).toBeLessThan(-fwd.z * 0.6);
+    const ground = dragon();
+    run(ground, input({ roll: 1 }), 'dragon', flat, 1);
+    expect(ground.yaw).toBe(0);
+    const air = dragon();
+    air.y = 10;
+    air.onGround = false;
+    run(air, input({ roll: 1 }), 'dragon', flat, 1);
+    expect(air.yaw).toBeLessThan(-0.5);
+  });
+
+  it('przyciski gazu na telefonie ustawiają wznoszenie na stałe', () => {
+    const r = dragon();
+    r.throttle = 0.75;
+    run(r, IDLE_INPUT, 'dragon', flat, 2);
+    expect(r.y).toBeGreaterThan(2);
+  });
+
+  it('po zeskoku opada i siada', () => {
+    const r = dragon();
+    r.y = 25;
     r.onGround = false;
     r.pilot = false;
-    r.speed = 15;
-    r.throttle = 0.7;
+    r.speed = 12;
     run(r, IDLE_INPUT, 'dragon', flat, 40);
     expect(rideSettled(r)).toBe(true);
   });
