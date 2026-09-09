@@ -274,6 +274,11 @@ export class SceneManager {
   // pierwsza osoba
   private keys = new Set<string>();
   joystick = { x: 0, y: 0 };
+  /** Lewa gałka pada — ten sam układ znaków co joystick dotykowy (w górę = do przodu). */
+  private pad = { x: 0, y: 0 };
+  private padHeld = new Set<number>();
+  private padSprint = false;
+  private padSeen = false;
   /** Dotyk: po postawieniu zostań w trybie stawiania (odpowiednik Shift). */
   stickyPlacing = false;
   private yaw = 0;
@@ -3183,6 +3188,7 @@ export class SceneManager {
     } else if (this.mode === 'fp' || this.mode === 'vr') {
       if (this.jumpBuffer > 0) this.jumpBuffer = Math.max(0, this.jumpBuffer - dt);
       if (presenting) this.readXrInput();
+      else this.readGamepad(dt);
       if (this.flight) this.updateFlight(dt);
       else this.updateFp(dt);
       if (this.debugPhysics && ++this.debugTick % 10 === 0) this.updatePhysicsDebug();
@@ -3416,6 +3422,58 @@ export class SceneManager {
     if (this.physics && o) this.physics.setLeaf(id, !opening, e.group.position, e.group.quaternion, e.group.scale, leafFor(o.type));
   }
 
+  /**
+   * Zwykły pad (DualSense, Xbox) przez Gamepad API: lewa gałka chodzi, prawa rozgląda, krzyżyk skacze,
+   * kwadrat i kółko otwierają drzwi albo wysadzają z samolotu, spusty biegną. Kontrolery gogli mają
+   * własną ścieżkę w `readXrInput` — tu czytamy pady tylko poza sesją XR.
+   */
+  private readGamepad(dt: number) {
+    const list = navigator.getGamepads?.() ?? [];
+    let gp: Gamepad | null = null;
+    for (const g of list) if (g?.connected && g.mapping === 'standard') gp = gp ?? g;
+    for (const g of list) if (g?.connected) gp = gp ?? g;
+    if (!gp) {
+      this.pad.x = 0;
+      this.pad.y = 0;
+      this.padSprint = false;
+      this.padHeld.clear();
+      return;
+    }
+    if (!this.padSeen) {
+      this.padSeen = true;
+      useStore.getState().showToast('Pad podłączony: lewa gałka chodzi, prawa rozgląda, ✕ skacze, ▢ otwiera drzwi.');
+    }
+    // martwa strefa liczona proporcjonalnie, żeby zaraz za nią ruch zaczynał się od zera, a nie skokiem
+    const dead = (v: number) => (Math.abs(v) < 0.18 ? 0 : (v - Math.sign(v) * 0.18) / 0.82);
+    this.pad.x = dead(gp.axes[0] ?? 0);
+    this.pad.y = dead(gp.axes[1] ?? 0);
+    const lookX = dead(gp.axes[2] ?? 0);
+    const lookY = dead(gp.axes[3] ?? 0);
+    if (lookX !== 0 || lookY !== 0) this.look(lookX * 2.6 * dt, lookY * 2.0 * dt);
+    const down = (i: number) => !!gp.buttons[i]?.pressed;
+    const edge = (i: number) => {
+      if (!down(i)) {
+        this.padHeld.delete(i);
+        return false;
+      }
+      if (this.padHeld.has(i)) return false;
+      this.padHeld.add(i);
+      return true;
+    };
+    this.padSprint = down(6) || down(7) || down(10);
+    const jump = edge(0);
+    const useA = edge(2);
+    const useB = edge(1);
+    if (jump) this.jump();
+    if (useA || useB) {
+      if (this.flight) this.leavePlane();
+      else this.useDoor();
+    }
+    // krzyżak w locie dokłada i ujmuje gazu
+    if (edge(12)) this.throttleStep(0.1);
+    if (edge(13)) this.throttleStep(-0.1);
+  }
+
   /** Joystick lewego kontrolera przesuwa, prawy obraca skokowo o 30°. */
   private readXrInput() {
     const session = this.renderer.xr.getSession();
@@ -3588,8 +3646,8 @@ export class SceneManager {
     f.throttle = clamp(f.throttle + thr * dt * 0.5, 0, 1);
     f.speed = damp(f.speed, f.throttle * PLANE_MAX_SPEED, 0.5, dt);
 
-    const pitchIn = clamp((k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) - (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) + this.joystick.y, -1, 1);
-    const rollIn = clamp((k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) + this.joystick.x, -1, 1);
+    const pitchIn = clamp((k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) - (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) + this.joystick.y + this.pad.y, -1, 1);
+    const rollIn = clamp((k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) + this.joystick.x + this.pad.x, -1, 1);
     const yawIn = (k.has('KeyE') ? 1 : 0) - (k.has('KeyQ') ? 1 : 0);
     // stery działają tym mocniej, im większy opływ — przy postoju maszyna nie reaguje
     const auth = clamp(f.speed / PLANE_TAKEOFF, 0, 1);
@@ -3649,8 +3707,8 @@ export class SceneManager {
 
   private updateFp(dt: number) {
     const k = this.keys;
-    let mx = this.joystick.x + this.xrMove.x;
-    let mz = this.joystick.y + this.xrMove.y;
+    let mx = this.joystick.x + this.xrMove.x + this.pad.x;
+    let mz = this.joystick.y + this.xrMove.y + this.pad.y;
     // Cardboard: idziemy tam, gdzie patrzymy, ale dopiero po chwili przytrzymania —
     // inaczej samo rozglądanie albo krótkie dotknięcie przesuwałoby gracza
     if (this.touchHold && performance.now() - this.touchStart > 180) mz -= 1;
@@ -3665,7 +3723,7 @@ export class SceneManager {
       mx /= len;
       mz /= len;
     }
-    const speed = (k.has('ShiftLeft') || k.has('ShiftRight') ? 6.5 : 3.6);
+    const speed = k.has('ShiftLeft') || k.has('ShiftRight') || this.padSprint ? 6.5 : 3.6;
     const target = tmpV.set(mx, 0, mz).multiplyScalar(speed);
     // kierunek względem obrotu rigu (VR: względem głowy)
     // w goglach i w trybie stereo idziemy tam, gdzie patrzy głowa

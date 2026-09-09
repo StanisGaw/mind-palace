@@ -19,6 +19,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
           <li>Kliknij scenę, aby zablokować kursor. <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> — chodzenie, <kbd>Shift</kbd> — bieg, <kbd>Q</kbd>/<kbd>E</kbd> — obrót, <kbd>Spacja</kbd> — skok.</li>
           <li>Obowiązuje grawitacja i kolizje: da się wejść po schodach, wskoczyć na ławkę czy głaz i wspiąć się na wzgórze.</li>
           <li>W spacerze też stawiasz obiekty: wybierz coś z Biblioteki, a półprzezroczysty podgląd idzie za celownikiem — klik stawia, <kbd>R</kbd> obraca, <kbd>Esc</kbd> albo prawy przycisk anuluje. Wewnątrz budynku biblioteka pokazuje tylko to, co pasuje do pokoju (bez drzew, gór czy studni; kot i pies mogą wejść), a elewację (okno, balkon, taras) stawiasz na murze od środka.</li>
+          <li>Na <b>padzie</b> (DualSense, Xbox — podłącz przez Bluetooth i naciśnij dowolny przycisk, żeby przeglądarka go zobaczyła): lewa gałka chodzi, prawa rozgląda, <kbd>✕</kbd> skacze, <kbd>▢</kbd> albo <kbd>◯</kbd> otwiera drzwi i wysadza z samolotu, spusty biegną. W locie krzyżak w górę i w dół zmienia gaz. Pad działa w spacerze; edytorem sterujesz myszą albo dotykiem.</li>
           <li>Na telefonie: joystick po lewej, przeciąganie po prawej, przycisk <b>Skok</b> po prawej na dole, dotknięcie obiektu — wybór. W edytorze pasek stawiania ma „Obróć”, „Wiele” i „Anuluj”, a w rzucie z góry palec przesuwa planszę. Obróć telefon poziomo: belki znikają, menu i panele są pod ikonami przy lewej krawędzi.</li>
         </ul>
         <h3>Samolot</h3>

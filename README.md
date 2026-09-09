@@ -105,6 +105,9 @@ npm run build        # produkcyjny build do dist/
   książki nie leżą na biurku, a to, co wisi (obraz, lustro, zegar, zasłony), nie zasłania okna — także okna
   postawionego z biblioteki. Podgląd robi się czerwony, klik nie stawia obiektu, a przeciągnięty mebel spada
   na podłogę swojego piętra.
+- **Pad** — zwykły kontroler (DualSense, Xbox) przez Gamepad API: lewa gałka chodzi, prawa rozgląda, krzyżyk
+  skacze, kwadrat i kółko otwierają drzwi albo wysadzają z samolotu, spusty biegną, a w locie krzyżak zmienia gaz.
+  Działa w spacerze i w trybie stereo; kontrolery gogli mają osobną ścieżkę (`readXrInput`).
 - **Krajobraz** — proceduralny pierścień terenu wokół planszy (łąki, góry, wybrzeże, pustynia) z losowanym
   ukształtowaniem oraz kategoria „Krajobraz" w bibliotece: góra, wulkan z dymem, głaz, wzgórze, staw, wodospad.
 - **Pogoda i pora dnia** — niezależne ustawienia: cztery klimaty i sześć rodzajów pogody (chmury, deszcz,
