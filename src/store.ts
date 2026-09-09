@@ -421,6 +421,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   enterInterior(objectId) {
+    set({ groundBrush: false }); // pędzel planszy nie ma sensu w innej scenie, a zostawiony blokowałby obracanie widoku
     const d = get().data;
     const parent = get().palace();
     const obj = parent.objects.find((o) => o.id === objectId);
@@ -476,6 +477,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   exitInterior() {
+    set({ groundBrush: false }); // pędzel planszy nie ma sensu w innej scenie, a zostawiony blokowałby obracanie widoku
     const d = get().data;
     const cur = get().palace();
     if (!cur.parentId || !d.palaces.some((p) => p.id === cur.parentId)) return;
@@ -1092,7 +1094,8 @@ export const useStore = create<State>((set, get) => ({
     set({ tool });
   },
   setViewMode(viewMode) {
-    set({ viewMode });
+    // poza edytorem przeciągnięcie po scenie znaczy co innego, więc pędzel planszy gaśnie
+    set({ viewMode, ...(viewMode === 'editor' ? {} : { groundBrush: false }) });
   },
   setLeftTab(leftTab) {
     set({ leftTab });
@@ -1143,6 +1146,7 @@ export const useStore = create<State>((set, get) => ({
     scheduleSave(get, set);
   },
   switchPalace(id) {
+    set({ groundBrush: false }); // pędzel planszy nie ma sensu w innej scenie, a zostawiony blokowałby obracanie widoku
     const d = get().data;
     if (!d.palaces.some((p) => p.id === id)) return;
     set({ data: { ...d, currentId: id }, selectedIds: [], undoStack: [], redoStack: [], review: null, editFloor: 0, focusRequest: get().focusRequest + 1 });

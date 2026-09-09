@@ -71,6 +71,12 @@ const ANCHOR_DENY: Record<string, string[]> = {
   books: ['desk'],
 };
 
+/**
+ * Co naprawdę zasłania okno. Zegar stojący i zasłony są w `WALL_HUNG`, bo stoją przy ścianie, ale zasłony
+ * przy oknie są na miejscu, a zegar można postawić w rogu pod parapetem — blokujemy tylko to, co zakryłoby szybę.
+ */
+const COVERS_WINDOW = new Set(['painting', 'mirror']);
+
 /** Nazwy mebli w dopełniaczu — do komunikatu „na stole ani biurku". */
 const DENY_LABEL: Record<string, string> = {
   table: 'na stole',
@@ -92,7 +98,7 @@ export function placementBlock(
   if (deny && ctx.anchorType && deny.includes(ctx.anchorType)) {
     return `${catalogItem(type).name}: nie stawiamy tego ${DENY_LABEL[ctx.anchorType] ?? 'na meblu'}.`;
   }
-  if (WALL_HUNG.has(type) && ctx.windows) {
+  if (COVERS_WINDOW.has(type) && ctx.windows) {
     const half = (catalogItem(type).footprint * 0.9) / 2;
     if (ctx.windows.some((w) => Math.hypot(w.x - ctx.x, w.z - ctx.z) < w.half + half)) {
       return `${catalogItem(type).name}: na oknie nie da się nic powiesić.`;

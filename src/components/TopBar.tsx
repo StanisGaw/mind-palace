@@ -96,7 +96,7 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
   );
 }
 
-/** Wczytanie pliku pałacu: stary format idzie od razu, plik z presetami czeka na wybór w dialogu. */
+/** Wczytanie pliku pałacu: stary format idzie od razu, plik z zestawami czeka na wybór w dialogu. */
 export function useImportFile() {
   const importPalaces = useStore((s) => s.importPalaces);
   const showToast = useStore((s) => s.showToast);
@@ -222,7 +222,7 @@ export function SubBar() {
   );
 }
 
-/** Plik zawiera własne presety — pyta osobno o pałac (dodaj / zastąp / pomiń) i o presety (importuj / pomiń). */
+/** Plik zawiera własne zestawy — pyta osobno o pałac (dodaj / zastąp / pomiń) i o zestawy (importuj / pomiń). */
 /** Belka telefonu w pionie: dom, nazwa, spacer i menu z resztą działań. */
 export function PhoneBar({ onMenu }: { onMenu: () => void }) {
   const palace = useCurrentPalace();

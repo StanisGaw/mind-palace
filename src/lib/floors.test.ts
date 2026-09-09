@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SHELLS, basementHoles, buildingFloorHeight, buildingFloorY, buildingOpenings, facadeFloorOk, floorBaseOf, floorOfIn, orphanStairs, orphanStairsIn, stairOpenings } from './rooms';
+import { SHELLS, basementHoles, localXZ, buildingFloorHeight, buildingFloorY, buildingOpenings, facadeFloorOk, floorBaseOf, floorOfIn, orphanStairs, orphanStairsIn, stairOpenings } from './rooms';
 import { findStairsSpot } from './layout';
 import { ROOMS } from '../catalog';
 import type { PalaceObject, Vec3 } from '../types';
@@ -138,11 +138,21 @@ describe('piwnica (poziom −1)', () => {
     expect(h.z1 - h.z0).toBeCloseTo(spec.inner.d * b.scale[2], 6);
   });
 
-  it('obrócony budynek dostaje otwór opisany na wnętrzu', () => {
+  it('otwór pod obróconym budynkiem mieści się w jego obrysie', () => {
     const b = { ...dom(true), rotation: [0, Math.PI / 4, 0] } as PalaceObject;
     const spec = SHELLS.house;
-    const [h] = basementHoles([b]);
-    const przekatna = (spec.inner.w * b.scale[0] + spec.inner.d * b.scale[2]) / Math.SQRT2;
-    expect(h.x1 - h.x0).toBeCloseTo(przekatna, 4);
+    const hw = (spec.inner.w * b.scale[0]) / 2;
+    const hd = (spec.inner.d * b.scale[2]) / 2;
+    const holes = basementHoles([b]);
+    expect(holes.length, 'obrócony budynek dostaje pasy, nie jeden prostokąt').toBeGreaterThan(1);
+    for (const h of holes) {
+      for (const [x, z] of [[h.x0, h.z0], [h.x1, h.z0], [h.x1, h.z1], [h.x0, h.z1]]) {
+        const [lx, lz] = localXZ(b, x, z);
+        // gdyby otwór wystawał poza mur, dałoby się spaść z planszy tuż obok budynku
+        expect(Math.abs(lx * b.scale[0]) <= hw + 0.01 && Math.abs(lz * b.scale[2]) <= hd + 0.01, `róg (${x.toFixed(2)}, ${z.toFixed(2)}) poza budynkiem`).toBe(true);
+      }
+    }
+    const pole = holes.reduce((a, h) => a + (h.x1 - h.x0) * (h.z1 - h.z0), 0);
+    expect(pole / (4 * hw * hd), 'otwór ma pokryć większość wnętrza').toBeGreaterThan(0.85);
   });
 });

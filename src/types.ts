@@ -110,6 +110,8 @@ export interface SetObject {
   scale?: Vec3;
   length?: number; // ścianka: długość w metrach (zestaw ma stałe wymiary, nie ułamki pokoju)
   anchor?: number; // indeks obiektu w zestawie, na którym stoi ten obiekt (wazon na kredensie)
+  colors?: Record<string, string>; // nadpisane kolory warstw, jak w `PalaceObject`
+  finish?: { floor?: string; wall?: string; facade?: string };
 }
 
 /** Gotowy zestaw mebli: wbudowany albo zapisany przez użytkownika. Ten sam w każdym rodzaju budynku. */
@@ -117,7 +119,7 @@ export interface FurnitureSet {
   id: string;
   name: string;
   description: string;
-  /** Obrys w metrach — pierścień podglądu, przyciąganie do ściany i sprawdzanie, czy się mieści. */
+  /** Obrys w metrach — pierścień podglądu i przyciąganie tyłem do ściany. */
   width: number;
   depth: number;
   back?: boolean; // zestaw ma tył (krawędź −Z) do przystawienia do ściany

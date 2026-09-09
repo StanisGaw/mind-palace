@@ -12,7 +12,8 @@ export function FurnitureSets() {
   const saveSelectionAsSet = useStore((s) => s.saveSelectionAsSet);
   const deleteCustomSet = useStore((s) => s.deleteCustomSet);
   const selectedIds = useStore((s) => s.selectedIds);
-  // we wnętrzu (ładowanym albo odsłoniętym budynku) stawiamy meble, na planszy tylko zestawy ogrodowe
+  // we wnętrzu stawiamy meble, na planszy zestawy ogrodowe; własne zestawy widać wszędzie, bo tylko
+  // użytkownik wie, gdzie ich chciał użyć
   const inside = !!palace.interior || (!!activeBuildingId && palace.objects.some((o) => o.id === activeBuildingId && isInPlace(o)));
   const list = [...FURNITURE_SETS, ...customSets].filter((s) => (inside ? !s.outdoor : s.outdoor || s.custom));
 

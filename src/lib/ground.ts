@@ -1,5 +1,5 @@
 import type { GroundShape, GroundSpec } from '../types';
-import { clampToRect, mergeTiles, rectDistance, tileOutlines, type Rect } from './rects';
+import { clampToRect, convexStrips, mergeTiles, rectDistance, tileOutlines, type Rect } from './rects';
 
 /** Bok kafla narysowanej planszy w metrach. */
 export const GROUND_TILE = 4;
@@ -17,45 +17,6 @@ export function groundRects(g: GroundSpec): Rect[] {
   if (isDrawnGround(g)) return mergeTiles(g.tiles!, GROUND_TILE);
   if (g.shape === 'rect') return [{ x0: -g.width / 2, x1: g.width / 2, z0: -g.depth / 2, z1: g.depth / 2 }];
   return convexStrips(groundPolygon(g), 1);
-}
-
-/** Wielokąt wypukły pocięty na poziome pasy o wysokości `step` — przybliżenie do koliderów pudełkowych. */
-function convexStrips(poly: [number, number][], step: number): Rect[] {
-  const zs = poly.map(([, z]) => z);
-  const z0 = Math.min(...zs);
-  const z1 = Math.max(...zs);
-  const out: Rect[] = [];
-  for (let z = z0; z < z1 - 1e-6; z += step) {
-    const zb = Math.min(z + step, z1);
-    // pas bierzemy po węższym z dwóch brzegów, żeby nie wystawał poza obrys
-    let lo = Infinity;
-    let hi = -Infinity;
-    for (const zz of [z, zb]) {
-      let a = Infinity;
-      let b = -Infinity;
-      for (let i = 0; i < poly.length; i++) {
-        const p = poly[i];
-        const q = poly[(i + 1) % poly.length];
-        if ((p[1] - zz) * (q[1] - zz) > 0) continue;
-        if (p[1] === q[1]) continue;
-        const t = (zz - p[1]) / (q[1] - p[1]);
-        const x = p[0] + (q[0] - p[0]) * t;
-        a = Math.min(a, x);
-        b = Math.max(b, x);
-      }
-      lo = Math.min(lo, a === Infinity ? 0 : a);
-      hi = Math.max(hi, b === -Infinity ? 0 : b);
-      if (zz === z) {
-        lo = a === Infinity ? 0 : a;
-        hi = b === -Infinity ? 0 : b;
-      } else {
-        lo = Math.max(lo, a === Infinity ? lo : a);
-        hi = Math.min(hi, b === -Infinity ? hi : b);
-      }
-    }
-    if (hi - lo > 0.01) out.push({ x0: lo, x1: hi, z0: z, z1: zb });
-  }
-  return out;
 }
 
 /** Obrys planszy do rysowania: dla kafli może być wklęsły i wieloczęściowy, inaczej jeden wielokąt wypukły. */

@@ -216,13 +216,15 @@ describe('reguły rozmieszczenia', () => {
     expect(placementBlock('books', { anchorType: 'shelf', x: 0, z: 0 })).toBeNull();
   });
 
-  it('obrazu, lustra ani zegara nie da się powiesić na oknie, obok wolno', () => {
-    for (const type of ['painting', 'mirror', 'clock', 'curtains']) {
+  it('obrazu ani lustra nie da się powiesić na oknie, obok wolno', () => {
+    for (const type of ['painting', 'mirror']) {
       expect(placementBlock(type, { windows: win, x: 0, z: -3 }), `${type} na oknie`).not.toBeNull();
       expect(placementBlock(type, { windows: win, x: 2, z: -3 }), `${type} obok okna`).toBeNull();
     }
-    // stojący mebel oknu nie przeszkadza — reguła dotyczy tego, co wisi na murze
-    expect(placementBlock('sideboard', { windows: win, x: 0, z: -3 })).toBeNull();
+    // zasłony przy oknie są na miejscu, zegar stojący można postawić pod parapetem, a kredens nic nie zasłania
+    for (const type of ['curtains', 'clock', 'sideboard']) {
+      expect(placementBlock(type, { windows: win, x: 0, z: -3 }), `${type} przy oknie`).toBeNull();
+    }
   });
 
   it('okno postawione z biblioteki też blokuje wieszanie', () => {

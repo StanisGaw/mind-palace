@@ -13,8 +13,6 @@ export function LeftPanel() {
   const setTab = useStore((s) => s.setLeftTab);
   const palace = useCurrentPalace();
   const [q, setQ] = useState('');
-  // zestawy są wszędzie: we wnętrzu meblowe, na planszy ogrodowe — zakładka nigdy nie znika
-  const activeTab = tab;
 
   return (
     <aside className="panel left">
@@ -22,26 +20,26 @@ export function LeftPanel() {
         <div className="eyebrow">Twoja wyobraźnia, Twoje zasady</div>
         <div className="headline">Zbuduj swoje miejsce.</div>
         <div className="tabs">
-          <button className={'tab' + (activeTab === 'library' ? ' active' : '')} onClick={() => setTab('library')}>
+          <button className={'tab' + (tab === 'library' ? ' active' : '')} onClick={() => setTab('library')}>
             Biblioteka
           </button>
-          <button className={'tab' + (activeTab === 'scene' ? ' active' : '')} onClick={() => setTab('scene')}>
+          <button className={'tab' + (tab === 'scene' ? ' active' : '')} onClick={() => setTab('scene')}>
             Na scenie <span className="count">{palace.objects.length}</span>
           </button>
-          <button className={'tab' + (activeTab === 'sets' ? ' active' : '')} onClick={() => setTab('sets')}>
+          <button className={'tab' + (tab === 'sets' ? ' active' : '')} onClick={() => setTab('sets')}>
             Zestawy
           </button>
         </div>
       </div>
       <div className="scroll">
-        {activeTab !== 'sets' && (
+        {tab !== 'sets' && (
           <label className="search">
             <I.Search width={14} height={14} />
             <input placeholder="Znajdź coś wyjątkowego…" value={q} onChange={(e) => setQ(e.target.value)} />
             <kbd>/</kbd>
           </label>
         )}
-        {activeTab === 'library' ? <Library q={q} /> : activeTab === 'scene' ? <SceneList q={q} /> : <FurnitureSets />}
+        {tab === 'library' ? <Library q={q} /> : tab === 'scene' ? <SceneList q={q} /> : <FurnitureSets />}
       </div>
       <div className="tip-card">
         <I.Spark className="ico" width={20} height={20} />

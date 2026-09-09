@@ -214,6 +214,7 @@ export class SceneManager {
   private brushPreview: THREE.LineSegments | null = null;
   private brushTiles: Map<string, [number, number]> | null = null;
   private brushErase = false;
+  private brushLast: [number, number] | null = null;
   /** Powód, dla którego podglądu nie wolno postawić (świeca na blacie, obraz na oknie). */
   private placeBlockReason = '';
   private ghostFootprint = 1;
@@ -446,6 +447,11 @@ export class SceneManager {
       this.ground.geometry.dispose();
       this.slab.geometry.dispose();
       this.grid.geometry.dispose();
+      // materiały płyty giną razem z nią; nawierzchnia to klon tekstury, więc też trzeba ją zwolnić
+      const top = this.ground.material as THREE.MeshStandardMaterial;
+      top.map?.dispose();
+      top.dispose();
+      (this.slab.material as THREE.Material).dispose();
       (this.grid.material as THREE.Material).dispose();
     }
     const size = groundExtent(spec);
@@ -457,7 +463,7 @@ export class SceneManager {
     // UV takie same jak w `ShapeGeometry` (współrzędne świata), żeby `applyGroundTexture` działało tak samo
     const topGeo = drawn
       ? rectsGeometry(holes.reduce((acc, h) => subtractRect(acc, h), rects))
-      : new THREE.ShapeGeometry(shapeWithHoles(poly, holes));
+      : new THREE.ShapeGeometry(shapeWithHoles(poly, holes, true));
     topGeo.rotateX(-Math.PI / 2);
     this.ground = new THREE.Mesh(topGeo, new THREE.MeshStandardMaterial({ color: amb.ground, roughness: 1 }));
     this.ground.receiveShadow = true;
@@ -465,7 +471,9 @@ export class SceneManager {
     this.scene.add(this.ground);
 
     // bok płyty: dla narysowanej planszy pionowe ścianki tylko wzdłuż krawędzi bez sąsiada
-    const slabGeo = drawn ? skirtGeometry(groundOutlines(spec), 0.6) : rotatedExtrude(poly, holes, 0.6);
+    const slabGeo = drawn
+      ? skirtGeometry([...groundOutlines(spec), ...holes.map(rectRing)], 0.6)
+      : rotatedExtrude(poly, holes, 0.6);
     this.slab = new THREE.Mesh(slabGeo, new THREE.MeshStandardMaterial({ color: '#b7bba9', roughness: 1, side: THREE.DoubleSide }));
     this.slab.position.y = -0.01;
     this.slab.receiveShadow = true;
@@ -577,6 +585,13 @@ export class SceneManager {
     if (s.selectedIds !== prev.selectedIds || s.hoverId !== prev.hoverId) this.applySelection(s.selectedIds, s.hoverId);
     if (s.tool !== prev.tool || s.review !== prev.review) this.syncGizmo();
     if (placingKey(s.placing) !== placingKey(prev.placing)) this.setGhost(s.placing);
+    if (!s.groundBrush && prev.groundBrush) {
+      // Esc w trakcie pociągnięcia: bez tego podniesienie przycisku i tak zapisałoby kafle
+      this.brushTiles = null;
+      this.brushLast = null;
+      this.orbit.enabled = this.mode === 'editor';
+      this.clearBrushPreview();
+    }
     if (s.viewMode !== prev.viewMode) this.setMode(s.viewMode);
     if (s.sound !== prev.sound) this.sounds.setLevels(s.sound);
     if (s.fly && s.fly.seq !== this.lastFlySeq) {
@@ -786,20 +801,22 @@ export class SceneManager {
     const g = p.settings.ground;
     const holes = basementHoles(p.objects);
     const holeKey = holes.map((h) => [h.x0, h.x1, h.z0, h.z1].map((v) => v.toFixed(2)).join(':')).sort().join(',');
-    const groundKey = `${g.shape}|${g.width}|${g.depth}|${(g.tiles ?? []).map((t) => t.join(':')).sort().join(',')}|${holeKey}`;
+    const shapeKey = `${g.shape}|${g.width}|${g.depth}|${(g.tiles ?? []).map((t) => t.join(':')).sort().join(',')}`;
+    const groundKey = `${shapeKey}|${holeKey}`;
     if (this.lastGroundKey !== groundKey) {
       this.buildGround(p.settings.ground, holes);
       this.lastGroundKey = groundKey;
       this.lastTextureKey = '';
       this.physicsDirty = true; // zmieniony kształt płyty to inne kolidery pod nogami
     }
-    const terrainKey = `${p.settings.scenery}|${p.settings.seed}|${groundKey}`;
+    // teren zależy od obrysu planszy, nie od otworów pod piwnicami — inaczej przeciąganie budynku przebudowywałoby go co klatkę
+    const terrainKey = `${p.settings.scenery}|${p.settings.seed}|${shapeKey}`;
     if (terrainKey !== this.terrainKey) {
       this.terrainKey = terrainKey;
       this.rebuildTerrain(p);
     }
     if (this.terrain) this.terrain.group.visible = true;
-    const envKey = `out|${p.settings.ambience}|${p.settings.weather}|${groundKey}`;
+    const envKey = `out|${p.settings.ambience}|${p.settings.weather}|${shapeKey}`;
     if (envKey !== this.envKey) {
       this.envKey = envKey;
       this.weather.apply(p.settings.weather, p.settings.ambience, groundExtent(p.settings.ground), true);
@@ -808,7 +825,7 @@ export class SceneManager {
       this.sounds.setEnvironment(p.settings.ambience === 'night', false);
     }
     this.grid.visible = p.settings.grid;
-    const texKey = `out|${p.settings.groundTexture ?? ''}|${groundKey}|${p.settings.ambience}`;
+    const texKey = `out|${p.settings.groundTexture ?? ''}|${shapeKey}|${p.settings.ambience}`;
     if (texKey !== this.lastTextureKey) {
       this.lastTextureKey = texKey;
       this.applyGroundTexture(p);
@@ -1336,9 +1353,11 @@ export class SceneManager {
       // szablon kopii: modele oryginałów w ich wzajemnym układzie, środek pod kursorem
       const inSource = new Set(sources.map((o) => o.id));
       const roots = sources.filter((o) => !o.anchorId || !inSource.has(o.anchorId));
-      const cx = roots.reduce((a, o) => a + o.position[0], 0) / roots.length;
-      const cz = roots.reduce((a, o) => a + o.position[2], 0) / roots.length;
-      const baseY = Math.min(...roots.map((o) => o.position[1]));
+      // zestaw ma własny punkt wstawienia (środek obrysu), a `placeSet` liczy od niego — podgląd nie może
+      // przesuwać go o środek ciężkości, bo meble lądowałyby gdzie indziej, niż pokazuje duch
+      const cx = this.ghostSet ? 0 : roots.reduce((a, o) => a + o.position[0], 0) / roots.length;
+      const cz = this.ghostSet ? 0 : roots.reduce((a, o) => a + o.position[2], 0) / roots.length;
+      const baseY = this.ghostSet ? 0 : Math.min(...roots.map((o) => o.position[1]));
       this.ghostFootprint = 0.4;
       for (const src of sources) {
         const model = buildModel(src.type, this.modelCtx(src, p));
@@ -1777,7 +1796,7 @@ export class SceneManager {
 
   /**
    * Zestaw z tyłem sam staje plecami do najbliższej ściany (mur pokoju albo ścianka działowa) w promieniu
-   * 1,5 m — inaczej obrazy i lustra z zestawu wisiałyby w powietrzu. Ręczny obrót wyłącza to na stałe.
+   * 1,6 m — inaczej obrazy i lustra z zestawu wisiałyby w powietrzu. Ręczny obrót wyłącza to na stałe.
    */
   private snapSetToWall(p: THREE.Vector3) {
     const set = this.ghostSet;
@@ -1824,6 +1843,7 @@ export class SceneManager {
       this.ghostRot = 0; // z dala od ścian wracamy do ustawienia wyjściowego, inaczej obrót zostałby po chwilowym przyciągnięciu
       return;
     }
+    // domknięcie `take` gubi zawężenie typu, stąd rzutowanie
     const hit = best as { yaw: number; x: number; z: number; dist: number };
     this.ghostRot = hit.yaw;
     p.x = hit.x;
@@ -1908,9 +1928,10 @@ export class SceneManager {
     const room = this.roomForObject(o);
     const why = placementBlock(o.type, { anchorType: anchorId ? st.palace().objects.find((x) => x.id === anchorId)?.type : undefined, windows: room?.windows, x: o.position[0], z: o.position[2] });
     if (why) {
-      // nie zostawiamy obiektu tam, gdzie nie ma prawa stać: spada na podłogę swojego piętra
+      // przeciągnięcie zaczęło się od wpisu cofania, więc obiekt wraca dokładnie tam, gdzie stał;
+      // upuszczenie na podłogę nie pomogłoby przy obrazie, bo ten dalej byłby nad oknem
       st.showToast(why);
-      st.dropToGround(id);
+      st.undo();
       return;
     }
     if (anchorId !== o.anchorId) st.updateObject(id, { anchorId }, { undo: false });
@@ -2485,6 +2506,21 @@ export class SceneManager {
     const p = new THREE.Vector3();
     if (!this.groundPoint(p)) return;
     const [i, j] = tileAt(p.x, p.z);
+    if (this.brushLast && (this.brushLast[0] !== i || this.brushLast[1] !== j)) {
+      // szybkie przeciągnięcie przeskakuje kilka kafli naraz; bez połączenia zostawiałoby dziury
+      // i kafle stykające się tylko rogiem, z których nie da się zrobić sensownego boku płyty
+      const [i0, j0] = this.brushLast;
+      const steps = Math.max(Math.abs(i - i0), Math.abs(j - j0));
+      for (let k = 1; k < steps; k++) {
+        this.addBrushTile(Math.round(i0 + ((i - i0) * k) / steps), Math.round(j0 + ((j - j0) * k) / steps));
+      }
+    }
+    this.brushLast = [i, j];
+    this.addBrushTile(i, j);
+  }
+
+  private addBrushTile(i: number, j: number) {
+    if (!this.brushTiles) return;
     const key = `${i},${j}`;
     if (this.brushTiles.has(key)) return;
     this.brushTiles.set(key, [i, j]);
@@ -2542,6 +2578,7 @@ export class SceneManager {
       this.setPointer(ev);
       this.brushErase = ev.shiftKey;
       this.brushTiles = new Map();
+      this.brushLast = null;
       this.orbit.enabled = false;
       this.brushAt();
       return;
@@ -2795,6 +2832,7 @@ export class SceneManager {
     if (this.brushTiles) {
       const painted = [...this.brushTiles.values()];
       this.brushTiles = null;
+      this.brushLast = null;
       this.orbit.enabled = this.mode === 'editor';
       this.clearBrushPreview();
       useStore.getState().paintGroundTiles(painted, this.brushErase);
@@ -3754,8 +3792,10 @@ function rectsGeometry(rects: { x0: number; x1: number; z0: number; z1: number }
   const pos: number[] = [];
   const uv: number[] = [];
   for (const r of rects) {
-    const quad: [number, number][] = [[r.x0, r.z0], [r.x1, r.z0], [r.x1, r.z1], [r.x0, r.z1]];
-    for (const k of [0, 1, 2, 0, 2, 3]) {
+    // druga współrzędna z odwrotnym znakiem: obrót o −90° wokół X odwzorowuje ją na świat jako −y,
+    // więc dopiero tak blat trafia tam, gdzie leżą kolidery, siatka i bok płyty
+    const quad: [number, number][] = [[r.x0, -r.z0], [r.x1, -r.z0], [r.x1, -r.z1], [r.x0, -r.z1]];
+    for (const k of [0, 2, 1, 0, 3, 2]) {
       pos.push(quad[k][0], quad[k][1], 0);
       uv.push(quad[k][0], quad[k][1]);
     }
@@ -3771,9 +3811,10 @@ function rectsGeometry(rects: { x0: number; x1: number; z0: number; z1: number }
 function skirtGeometry(rings: [number, number][][], depth: number): THREE.BufferGeometry {
   const pos: number[] = [];
   for (const ring of rings) {
-    for (let i = 0; i < ring.length; i++) {
+    // pierścień zaczyna się i kończy w tym samym punkcie, więc każda para sąsiadów to prawdziwa krawędź
+    for (let i = 0; i + 1 < ring.length; i++) {
       const [ax, az] = ring[i];
-      const [bx, bz] = ring[(i + 1) % ring.length];
+      const [bx, bz] = ring[i + 1];
       pos.push(ax, 0, az, bx, 0, bz, bx, -depth, bz);
       pos.push(ax, 0, az, bx, -depth, bz, ax, -depth, az);
     }
@@ -3792,18 +3833,27 @@ function rotatedExtrude(poly: [number, number][], holes: Rect[], depth: number):
   return geo;
 }
 
-/** Obrys planszy z prostokątnymi dziurami (piwnice) jako kształt do wyciągnięcia i triangulacji. */
-function shapeWithHoles(poly: [number, number][], holes: Rect[]): THREE.Shape {
-  const shape = new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, z)));
+/**
+ * Obrys planszy z prostokątnymi dziurami (piwnice). `flipZ` odwraca drugą współrzędną dla geometrii,
+ * którą obracamy o −90° wokół X (blat) — bez tego dziura wypadłaby po przeciwnej stronie planszy.
+ */
+function shapeWithHoles(poly: [number, number][], holes: Rect[], flipZ = false): THREE.Shape {
+  const f = flipZ ? -1 : 1;
+  const shape = new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, f * z)));
   for (const h of holes) {
     const path = new THREE.Path();
     // dziura obiegana w drugą stronę niż obrys, inaczej triangulacja jej nie wytnie
-    path.moveTo(h.x0, h.z0);
-    path.lineTo(h.x0, h.z1);
-    path.lineTo(h.x1, h.z1);
-    path.lineTo(h.x1, h.z0);
+    path.moveTo(h.x0, f * h.z0);
+    path.lineTo(h.x0, f * h.z1);
+    path.lineTo(h.x1, f * h.z1);
+    path.lineTo(h.x1, f * h.z0);
     path.closePath();
     shape.holes.push(path);
   }
   return shape;
+}
+
+/** Prostokąt jako zamknięty pierścień punktów (bok płyty wokół otworu piwnicy). */
+function rectRing(r: Rect): [number, number][] {
+  return [[r.x0, r.z0], [r.x1, r.z0], [r.x1, r.z1], [r.x0, r.z1], [r.x0, r.z0]];
 }

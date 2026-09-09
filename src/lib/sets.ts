@@ -170,6 +170,8 @@ export function instantiateSet(set: FurnitureSet, makeId: () => string = uid): P
       scale,
       anchorId: so.anchor !== undefined && so.anchor !== i ? ids[so.anchor] : undefined,
       groupId,
+      ...(so.colors ? { colors: so.colors } : {}),
+      ...(so.finish ? { finish: so.finish } : {}),
     };
   });
 }
@@ -184,6 +186,10 @@ export function captureSet(name: string, objects: PalaceObject[]): FurnitureSet 
   const baseY = Math.min(...objects.map((o) => o.position[1]));
   const setObjects: SetObject[] = objects.map((o) => {
     const so: SetObject = { type: o.type, dx: o.position[0] - cx, dz: o.position[2] - cz, rotationY: o.rotation[1] };
+    // własna nazwa niesie skojarzenie, a kolory i wykończenie decydują o wyglądzie — zestaw ma je zachować
+    if (o.name && o.name !== catalogItem(o.type).name) so.name = o.name;
+    if (o.colors && Object.keys(o.colors).length > 0) so.colors = { ...o.colors };
+    if (o.finish && Object.keys(o.finish).length > 0) so.finish = { ...o.finish };
     const dy = o.position[1] - baseY;
     if (Math.abs(dy) > 0.001) so.dy = dy;
     const anchor = o.anchorId ? indexOf.get(o.anchorId) : undefined;

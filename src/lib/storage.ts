@@ -4,7 +4,6 @@ import { uid } from './ids';
 import { hashString } from '../three/noise';
 import { FLOOR_MAX, SHELLS, attachLegacyDoors, buildingOf, facadeSnap, isFacade, localXZ, mergePathObjects, roomLamps, worldXZ } from './rooms';
 import { yawRotation } from './transform';
-import { isDrawnGround, tileAt } from './ground';
 import { asSet } from './setStore';
 
 const KEY = 'mneme.data.v1';
@@ -45,7 +44,8 @@ export function loadData(): AppData | null {
 
 /**
  * Plansza musi pomieścić budynki: po powiększeniu powłok bryły postawione przy krawędzi wychodziłyby poza płytę,
- * więc raz ją poszerzamy do ich zasięgu (najwyżej do 80 m, jak suwak w panelu otoczenia).
+ * więc raz ją poszerzamy do ich zasięgu (najwyżej do 80 m, jak suwak w panelu otoczenia). Wołane wyłącznie
+ * z migracji starych zapisów, a te są sprzed rysowanej planszy — kafli nie ruszamy.
  */
 function growGroundForBuildings(p: Palace) {
   if (p.interior) return;
@@ -59,29 +59,6 @@ function growGroundForBuildings(p: Palace) {
     needZ = Math.max(needZ, (Math.abs(o.position[2]) + reach) * 2);
   }
   const g = p.settings.ground;
-  if (isDrawnGround(g)) {
-    // narysowana plansza rośnie kaflami tam, gdzie stoi bryła — suwaki jej nie dotyczą
-    const has = new Set(g.tiles!.map(([i, j]) => `${i},${j}`));
-    const add: [number, number][] = [];
-    for (const o of p.objects) {
-      const shell = SHELLS[o.type];
-      if (!shell) continue;
-      const rx = (shell.inner.w * o.scale[0]) / 2 + 1.5;
-      const rz = (shell.inner.d * o.scale[2]) / 2 + 1.5;
-      const [i0, j0] = tileAt(o.position[0] - rx, o.position[2] - rz);
-      const [i1, j1] = tileAt(o.position[0] + rx, o.position[2] + rz);
-      for (let i = i0; i <= i1; i++) {
-        for (let j = j0; j <= j1; j++) {
-          const key = `${i},${j}`;
-          if (has.has(key)) continue;
-          has.add(key);
-          add.push([i, j]);
-        }
-      }
-    }
-    if (add.length > 0) p.settings = { ...p.settings, ground: { ...g, tiles: [...g.tiles!, ...add] } };
-    return;
-  }
   // koło i sześciokąt biorą średnicę z `width`, `depth` jest wtedy nieużywane — muszą urosnąć po dłuższej osi
   const round = g.shape !== 'rect';
   const even = (v: number) => Math.ceil(v / 2) * 2; // suwak planszy chodzi co 2 m

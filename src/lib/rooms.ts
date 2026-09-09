@@ -1,5 +1,5 @@
 import { ROOMS, catalogItem } from '../catalog';
-import type { Rect } from './rects';
+import { convexStrips, type Rect } from './rects';
 import type { Palace, PalaceObject, RoomSpec, Vec3 } from '../types';
 
 /** Najwyższe piętro, jakie można ustawić budynkowi. */
@@ -184,13 +184,14 @@ export function collinearSegments(a: PalaceObject, b: PalaceObject): boolean {
 export const collinearWalls = collinearSegments;
 
 /**
- * Czy dwie ścieżki wolno scalić w jedną: muszą leżeć w jednej linii, mieć tę samą szerokość i nawierzchnię
- * (inaczej scalenie zmieniłoby wygląd) i nie nieść notatki — obiekt ze wspomnieniem nigdy nie znika po cichu.
+ * Czy dwie ścieżki wolno scalić w jedną: muszą leżeć w jednej linii, mieć tę samą szerokość, nawierzchnię
+ * i kolory (inaczej scalenie zmieniłoby wygląd) i nie nieść notatki — obiekt ze wspomnieniem nigdy nie znika po cichu.
  */
 export function mergeablePaths(a: PalaceObject, b: PalaceObject): boolean {
   if (a.note || b.note) return false;
   if (Math.abs(a.scale[2] - b.scale[2]) > 0.01) return false;
   if ((a.finish?.floor ?? '') !== (b.finish?.floor ?? '')) return false;
+  if (JSON.stringify(a.colors ?? {}) !== JSON.stringify(b.colors ?? {})) return false;
   return collinearSegments(a, b);
 }
 
@@ -255,10 +256,13 @@ export function mergePathObjects(objects: PalaceObject[], makeId: () => string =
     return [a0, a1].some(([x, z]) => [b0, b1].some(([px, pz]) => Math.hypot(px - x, pz - z) < 0.25));
   };
   const groups = new Map<string, string>();
+  // grupa nadaje się do przejęcia tylko wtedy, gdy należą do niej same ścieżki — inaczej ciąg wciągnąłby
+  // obiekt zgrupowany przez użytkownika (latarnię przy ścieżce) i odtąd znikałby razem z nim
+  const ownGroup = (gid: string) => next.every((o) => o.groupId !== gid || o.type === 'pathway');
   for (const chain of segmentChains(left, near)) {
     if (chain.length < 2) continue;
     // zachowujemy grupę, którą ciąg już ma — dzięki temu ponowne scalanie niczego nie zmienia
-    const gid = chain.find((o) => o.groupId)?.groupId ?? makeId();
+    const gid = chain.find((o) => o.groupId && ownGroup(o.groupId))?.groupId ?? makeId();
     for (const o of chain) groups.set(o.id, gid);
   }
   next = next.map((o) => (groups.has(o.id) && o.groupId !== groups.get(o.id) ? { ...o, groupId: groups.get(o.id) } : o));
@@ -381,9 +385,13 @@ export function floorBaseOf(b: Pick<PalaceObject, 'basement'>): number {
  * potrafią zostać kilkanaście centymetrów niżej i bez zapasu wpadałyby piętro niżej (albo do piwnicy).
  */
 export function floorOfIn(b: PalaceObject, y: number): number {
+  return Math.min(Math.max(floorBaseOf(b), rawFloorIn(b, y)), Math.max(1, b.floors ?? 1) - 1);
+}
+
+/** To samo bez przycięcia do zakresu pięter — potrzebne tam, gdzie liczba pięter właśnie się zmienia. */
+export function rawFloorIn(b: PalaceObject, y: number): number {
   const H = buildingFloorHeight(b);
-  const k = Math.floor((y - buildingFloorY(b, 0) + Math.min(0.4, H * 0.15)) / H);
-  return Math.min(Math.max(floorBaseOf(b), k), Math.max(1, b.floors ?? 1) - 1);
+  return Math.floor((y - buildingFloorY(b, 0) + Math.min(0.4, H * 0.15)) / H);
 }
 
 /** Budynek z wnętrzem w miejscu, w którym stoi obiekt (przez łańcuch kotwic), albo `undefined`. */
@@ -420,17 +428,15 @@ export function worldXZ(b: PalaceObject, lx: number, lz: number): [number, numbe
 
 /**
  * Schody, które po zmianie budynku wisiałyby w powietrzu: prowadziłyby w sufit (piętro docelowe poza budynkiem)
- * albo stały na piętrze, którego już nie ma (zasypana piwnica). Piętro liczymy z surowej wysokości, nie przez
- * `floorOfIn` — ten przycina wynik do bieżącego zakresu, więc po zmianie dawałby złą odpowiedź. `lowest` to
+ * albo stały na piętrze, którego już nie ma (zasypana piwnica). Liczymy `rawFloorIn` — tym samym zapasem co
+ * `floorOfIn`, ale bez przycięcia do bieżącego zakresu, który właśnie się zmienia. `lowest` to
  * najniższe piętro po zmianie (0 albo −1). Wieża ma bieg wbudowany w mur i żadnych schodów-obiektów.
  */
 export function orphanStairs(objects: PalaceObject[], b: PalaceObject, floors: number, lowest = floorBaseOf(b)): string[] {
-  const H = buildingFloorHeight(b);
-  const base = buildingFloorY(b, 0);
   return objects
     .filter((o) => {
       if (o.type !== 'stairs' || buildingOf(objects, o)?.id !== b.id) return false;
-      const floor = floorOf(o.position[1] - base, H);
+      const floor = rawFloorIn(b, o.position[1]);
       return floor < lowest || floor + 1 > floors - 1;
     })
     .map((o) => o.id);
@@ -482,18 +488,23 @@ export function basementHoles(objects: PalaceObject[]): Rect[] {
     const spec = SHELLS[b.type] ?? SHELLS.house;
     const hw = spec.inner.w / 2;
     const hd = spec.inner.d / 2;
-    const corners = [
+    const corners: [number, number][] = [
       worldXZ(b, spec.cx - hw, spec.cz - hd),
       worldXZ(b, spec.cx + hw, spec.cz - hd),
       worldXZ(b, spec.cx + hw, spec.cz + hd),
       worldXZ(b, spec.cx - hw, spec.cz + hd),
     ];
-    out.push({
-      x0: Math.min(...corners.map((c) => c[0])),
-      x1: Math.max(...corners.map((c) => c[0])),
-      z0: Math.min(...corners.map((c) => c[1])),
-      z1: Math.max(...corners.map((c) => c[1])),
-    });
+    // budynek ustawiony prosto daje jeden prostokąt; obrócony — pasy wpisane w obrys, bo prostokąt opisany
+    // wycinałby grunt kilka metrów poza murem i dało się przez to spaść z planszy
+    const yaw = ((b.rotation[1] % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
+    if (Math.min(yaw, Math.PI / 2 - yaw) < 0.01) {
+      out.push({
+        x0: Math.min(...corners.map((c) => c[0])),
+        x1: Math.max(...corners.map((c) => c[0])),
+        z0: Math.min(...corners.map((c) => c[1])),
+        z1: Math.max(...corners.map((c) => c[1])),
+      });
+    } else out.push(...convexStrips(corners, 0.5));
   }
   return out;
 }
