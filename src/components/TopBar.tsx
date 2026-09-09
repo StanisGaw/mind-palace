@@ -3,6 +3,7 @@ import { useCurrentPalace, useStore, dueCount } from '../store';
 import { chainOf, downloadText, exportPalaceJson, parseImport, rootOf } from '../lib/storage';
 import type { Palace, FurnitureSet } from '../types';
 import { I } from './Icons';
+import { NewPalaceDialog } from './NewPalaceDialog';
 import { Tip } from './Tip';
 
 export function TopBar({ onHelp }: { onHelp: () => void }) {
@@ -11,9 +12,9 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
   const currentId = useStore((s) => s.data.currentId);
   const currentRootId = rootOf(currentId, allPalaces).id;
   const switchPalace = useStore((s) => s.switchPalace);
-  const createPalace = useStore((s) => s.createPalace);
   const deletePalace = useStore((s) => s.deletePalace);
   const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const current = allPalaces.find((p) => p.id === currentId);
 
@@ -73,8 +74,7 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
               <button
                 className="item"
                 onClick={() => {
-                  const name = prompt('Nazwa nowego pałacu', 'Nowy pałac');
-                  if (name !== null) createPalace(name.trim() || undefined);
+                  setCreating(true);
                   setOpen(false);
                 }}
               >
@@ -92,6 +92,7 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
         </button>
       </Tip>
       <div className="avatar">JA</div>
+      {creating && <NewPalaceDialog onClose={() => setCreating(false)} />}
     </header>
   );
 }

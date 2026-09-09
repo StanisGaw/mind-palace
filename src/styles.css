@@ -249,6 +249,14 @@ input, textarea, select { outline: none; }
 .modal p, .modal li { color: var(--muted); font-size: 13px; }
 .modal kbd { background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; font-family: inherit; font-size: 12px; color: var(--text); }
 .modal .close { float: right; }
+/* wybór zawartości nowego pałacu */
+.tpl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.tpl-card { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 14px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel-2); }
+.tpl-card:hover { border-color: var(--border-2); background: #fff; }
+.tpl-card.on { border-color: var(--accent); background: var(--accent-soft); }
+.tpl-card .tpl-emoji { font-size: 22px; line-height: 1.1; }
+.tpl-card b { font-size: 14px; }
+.tpl-card .tpl-desc { font-size: 12px; color: var(--muted); line-height: 1.4; }
 
 @media (max-width: 1100px) {
   .main { grid-template-columns: 260px 1fr 290px; }

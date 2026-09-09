@@ -1,8 +1,9 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useCurrentPalace, useStore, dueCount } from '../store';
 import { downloadText, exportPalaceJson, rootOf } from '../lib/storage';
 import { ImportDialog, useImportFile } from './TopBar';
+import { NewPalaceDialog } from './NewPalaceDialog';
 import { I } from './Icons';
 
 /** Menu pałacu na telefonie: nazwa, główne działania i lista pałaców w jednym arkuszu. */
@@ -14,7 +15,6 @@ export function MobileMenu({ onClose, onHelp }: { onClose: () => void; onHelp: (
   const saved = useStore((s) => s.saved);
   const renamePalace = useStore((s) => s.renamePalace);
   const switchPalace = useStore((s) => s.switchPalace);
-  const createPalace = useStore((s) => s.createPalace);
   const deletePalace = useStore((s) => s.deletePalace);
   const exitInterior = useStore((s) => s.exitInterior);
   const camera = useStore((s) => s.camera);
@@ -24,6 +24,7 @@ export function MobileMenu({ onClose, onHelp }: { onClose: () => void; onHelp: (
   const customSets = useStore((s) => s.customSets);
   const due = dueCount(palace, allPalaces);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [creating, setCreating] = useState(false);
   const { onImport, pendingImport, setPendingImport } = useImportFile();
 
   const Row = ({ icon, label, hint, onClick, kind }: { icon: ReactNode; label: string; hint?: ReactNode; onClick: () => void; kind?: 'primary' | 'danger' }) => (
@@ -107,15 +108,7 @@ export function MobileMenu({ onClose, onHelp }: { onClose: () => void; onHelp: (
               )}
             </div>
           ))}
-          <Row
-            icon={<I.Plus />}
-            label="Nowy pałac"
-            onClick={() => {
-              const name = prompt('Nazwa nowego pałacu', 'Nowy pałac');
-              if (name !== null) createPalace(name.trim() || undefined);
-              onClose();
-            }}
-          />
+          <Row icon={<I.Plus />} label="Nowy pałac" onClick={() => setCreating(true)} />
         </div>
         <input
           ref={fileRef}
@@ -129,6 +122,7 @@ export function MobileMenu({ onClose, onHelp }: { onClose: () => void; onHelp: (
           }}
         />
         {pendingImport && <ImportDialog data={pendingImport} onClose={() => { setPendingImport(null); onClose(); }} />}
+        {creating && <NewPalaceDialog onClose={() => { setCreating(false); onClose(); }} />}
       </div>
     </div>
   );
