@@ -215,6 +215,8 @@ export class SceneManager {
   private brushTiles: Map<string, [number, number]> | null = null;
   private brushErase = false;
   private brushLast: [number, number] | null = null;
+  /** Miejsce, z którego zaczęło się przeciąganie uchwytem — bez ruchu nie ma czego cofać. */
+  private dragFrom: THREE.Vector3 | null = null;
   /** Powód, dla którego podglądu nie wolno postawić (świeca na blacie, obraz na oknie). */
   private placeBlockReason = '';
   private ghostFootprint = 1;
@@ -366,10 +368,15 @@ export class SceneManager {
         else if (g.object === this.pivot) this.syncGizmo();
       });
       g.addEventListener('objectChange', () => this.onGizmoChange());
-      g.addEventListener('mouseDown', () => this.onGizmoMouseDown());
+      g.addEventListener('mouseDown', () => {
+        const obj = this.gizmo.object as THREE.Group | undefined;
+        this.dragFrom = obj ? obj.position.clone() : null;
+        this.onGizmoMouseDown();
+      });
       g.addEventListener('mouseUp', () => {
         this.multiStart = null;
         this.snapAnchorUnder();
+        this.dragFrom = null;
       });
     }
 
@@ -1927,7 +1934,10 @@ export class SceneManager {
     const anchorId = hit && Math.abs(hit.point.y - obj!.position.y) < 0.2 ? (hit.object.userData.objectId as string) : undefined;
     const room = this.roomForObject(o);
     const why = placementBlock(o.type, { anchorType: anchorId ? st.palace().objects.find((x) => x.id === anchorId)?.type : undefined, windows: room?.windows, x: o.position[0], z: o.position[2] });
-    if (why) {
+    // cofamy tylko ruch, który naprawdę się odbył: samo kliknięcie uchwytu na obiekcie stojącym już źle
+    // (np. z importu) nie może cofać cudzej zmiany
+    const moved = !this.dragFrom || this.dragFrom.distanceToSquared(obj!.position) > 1e-6;
+    if (why && moved) {
       // przeciągnięcie zaczęło się od wpisu cofania, więc obiekt wraca dokładnie tam, gdzie stał;
       // upuszczenie na podłogę nie pomogłoby przy obrazie, bo ten dalej byłby nad oknem
       st.showToast(why);
