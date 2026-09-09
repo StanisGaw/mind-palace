@@ -64,11 +64,37 @@ function buildTrimesh(root: THREE.Object3D, scale: THREE.Vector3): { vertices: F
   return { vertices: new Float32Array(verts), indices: new Uint32Array(idx) };
 }
 
-/** Ramka ograniczająca modelu w jego lokalnych współrzędnych. */
+/**
+ * Ramka ograniczająca modelu w jego lokalnych współrzędnych. Liczona względem `matrixWorld` korzenia, a nie
+ * przez `Box3.setFromObject` — tamto zwraca ramkę w układzie świata, więc po pierwszej wyrenderowanej klatce
+ * (gdy grupa obiektu ma już prawdziwą macierz) pudełko lądowało z podwojonym przesunięciem: niewidzialna
+ * ściana obok obiektu, a sam obiekt bez kolizji.
+ */
 function localBox(root: THREE.Object3D, scale: THREE.Vector3) {
-  const box = new THREE.Box3().setFromObject(root);
-  const size = box.getSize(new THREE.Vector3()).multiply(scale);
-  const center = box.getCenter(new THREE.Vector3()).multiply(scale);
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const box = new THREE.Box3();
+  const part = new THREE.Box3();
+  const m = new THREE.Matrix4();
+  root.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const inst = mesh as unknown as THREE.InstancedMesh;
+    if (inst.isInstancedMesh) {
+      if (!inst.boundingBox) inst.computeBoundingBox();
+      if (!inst.boundingBox) return;
+      part.copy(inst.boundingBox);
+    } else {
+      const geo = mesh.geometry;
+      if (!geo) return;
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      if (!geo.boundingBox) return;
+      part.copy(geo.boundingBox);
+    }
+    box.union(part.applyMatrix4(m.copy(inv).multiply(mesh.matrixWorld)));
+  });
+  const size = box.isEmpty() ? new THREE.Vector3() : box.getSize(new THREE.Vector3()).multiply(scale);
+  const center = box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3()).multiply(scale);
   return { size, center };
 }
 
