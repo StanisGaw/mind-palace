@@ -173,3 +173,46 @@ export function convexStrips(poly: [number, number][], step: number): Rect[] {
   }
   return out;
 }
+
+/**
+ * Część wspólna dwóch wielokątów wypukłych (Sutherland–Hodgman). Pusta tablica, gdy nie mają wspólnego pola.
+ * Otwór piwnicy trzeba tak przyciąć do planszy: dziura wychodząca poza obrys rozkłada triangulację blatu
+ * i zostawia klin płyty wiszący nad terenem.
+ */
+export function clipPolygon(subject: [number, number][], clip: [number, number][]): [number, number][] {
+  let out = subject;
+  for (let i = 0; i < clip.length && out.length > 0; i++) {
+    const a = clip[i];
+    const b = clip[(i + 1) % clip.length];
+    // strona krawędzi, po której leży wnętrze obcinającego wielokąta (obieg przeciwnie do wskazówek zegara)
+    const side = (p: [number, number]) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+    const next: [number, number][] = [];
+    for (let k = 0; k < out.length; k++) {
+      const cur = out[k];
+      const prev = out[(k + out.length - 1) % out.length];
+      const sc = side(cur);
+      const sp = side(prev);
+      if (sc >= 0) {
+        if (sp < 0) next.push(crossPoint(prev, cur, a, b));
+        next.push(cur);
+      } else if (sp >= 0) next.push(crossPoint(prev, cur, a, b));
+    }
+    out = next;
+  }
+  return out;
+}
+
+/** Przecięcie prostej `p→q` z prostą `a→b` (wołane tylko dla odcinków, które faktycznie się przecinają). */
+function crossPoint(p: [number, number], q: [number, number], a: [number, number], b: [number, number]): [number, number] {
+  const r: [number, number] = [q[0] - p[0], q[1] - p[1]];
+  const s: [number, number] = [b[0] - a[0], b[1] - a[1]];
+  const den = r[0] * s[1] - r[1] * s[0];
+  if (Math.abs(den) < 1e-12) return q;
+  const t = ((a[0] - p[0]) * s[1] - (a[1] - p[1]) * s[0]) / den;
+  return [p[0] + r[0] * t, p[1] + r[1] * t];
+}
+
+/** Prostokąt jako wielokąt przeciwnie do wskazówek zegara. */
+export function rectPolygon(r: Rect): [number, number][] {
+  return [[r.x0, r.z0], [r.x1, r.z0], [r.x1, r.z1], [r.x0, r.z1]];
+}

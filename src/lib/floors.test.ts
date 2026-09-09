@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SHELL_WALL_T, SHELLS, basementHoles, localXZ, worldXZ, buildingFloorHeight, buildingFloorY, buildingOpenings, facadeFloorOk, floorBaseOf, floorOfIn, orphanStairs, orphanStairsIn, stairOpenings } from './rooms';
+import { SHELL_WALL_T, SHELLS, basementHoles, basementQuads, localXZ, worldXZ, buildingFloorHeight, buildingFloorY, buildingOpenings, facadeFloorOk, floorBaseOf, floorOfIn, orphanStairs, orphanStairsIn, stairOpenings } from './rooms';
 import { findStairsSpot } from './layout';
 import { ROOMS } from '../catalog';
 import type { PalaceObject, Vec3 } from '../types';
@@ -136,6 +136,19 @@ describe('piwnica (poziom −1)', () => {
     const spec = SHELLS.house;
     expect(h.x1 - h.x0).toBeCloseTo(spec.inner.w * b.scale[0], 6);
     expect(h.z1 - h.z0).toBeCloseTo(spec.inner.d * b.scale[2], 6);
+  });
+
+  it('obrys otworu do rysowania to dokładnie wnętrze budynku', () => {
+    const b = { ...dom(true), rotation: [0, 0.6, 0] } as PalaceObject;
+    const spec = SHELLS.house;
+    const [quad] = basementQuads([b]);
+    expect(quad, 'jeden czworokąt na budynek').toHaveLength(4);
+    for (const [x, z] of quad) {
+      const [lx, lz] = localXZ(b, x, z);
+      expect(Math.abs(lx * b.scale[0])).toBeCloseTo((spec.inner.w * b.scale[0]) / 2, 6);
+      expect(Math.abs(lz * b.scale[2])).toBeCloseTo((spec.inner.d * b.scale[2]) / 2, 6);
+    }
+    expect(basementQuads([dom(false)]), 'bez piwnicy nie ma otworu').toEqual([]);
   });
 
   it('otwór pod obróconym budynkiem nie wychodzi poza mur i zostawia najwyżej wąski pasek przy ścianie', () => {

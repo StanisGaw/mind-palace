@@ -19,7 +19,10 @@ export function groundRects(g: GroundSpec): Rect[] {
   return convexStrips(groundPolygon(g), 1);
 }
 
-/** Obrys planszy do rysowania: dla kafli może być wklęsły i wieloczęściowy, inaczej jeden wielokąt wypukły. */
+/**
+ * Obrys planszy do rysowania. Dla kafli: pierścienie domknięte powtórzonym punktem, możliwe kilka
+ * i możliwe wklęsłe. Dla kształtu: jeden wielokąt wypukły, otwarty (bez powtórzonego punktu na końcu).
+ */
 export function groundOutlines(g: GroundSpec): [number, number][][] {
   return isDrawnGround(g) ? tileOutlines(g.tiles!, GROUND_TILE) : [groundPolygon(g)];
 }

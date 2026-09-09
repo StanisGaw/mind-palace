@@ -21,7 +21,7 @@ import { GROUND_TILE, clampToGround, clipSegment, groundBounds, groundExtent, gr
 import { DOOR_SLOT, WALL_SEGMENT, WALL_THICKNESS, buildingFloorHeight, buildingFloorY, buildingOf, buildingOpenings, facadeFloorOk, facadeHoles, facadeSlotFree, facadeSnap, basementHoles, basementQuads, isDrawn, isFacade, doorOffsets, doorRange, doorSlotFree, floorOf, floorOfIn, isInPlace, localXZ, roomSpecFor, stairOpenings, wallLength, wallOffsetOf, wallPointAt, SHELLS, TOWER_R, type Opening } from '../lib/rooms';
 import { SET_WALL_GAP, furnitureSet, instantiateSet } from '../lib/sets';
 import { boxLocal, boxPoint, insideRoom, placementBlock, roomOfBuilding, roomOfSpec, type RoomShape } from '../lib/layout';
-import { subtractRect, type Rect } from '../lib/rects';
+import { clipPolygon, rectPolygon, subtractRect, type Rect } from '../lib/rects';
 import { getTexture } from './textures';
 import { Wildlife, type SpawnInfo, type WorldInfo } from './wildlife';
 import { Soundscape } from './soundscape';
@@ -809,10 +809,14 @@ export class SceneManager {
     // klucz musi objąć narysowane kafle, inaczej dorysowany kawałek planszy nie przebudowałby płyty ani kolizji
     const g = p.settings.ground;
     const holes = basementHoles(p.objects);
-    const outlines = basementQuads(p.objects);
-    // ćwierć metra zaokrąglenia: przeciąganie budynku z piwnicą nie przebudowuje płyty na każdą klatkę,
-    // a różnica w położeniu otworu jest niewidoczna
-    const holeKey = outlines.flat().map(([x, z]) => `${Math.round(x * 4)}:${Math.round(z * 4)}`).join(',');
+    // ćwierć metra zaokrąglenia: przeciąganie budynku z piwnicą nie przebudowuje płyty na każdą klatkę.
+    // Zaokrąglamy raz i tego samego obrysu używamy do klucza i do geometrii, żeby po zatrzymaniu ruchu
+    // otwór leżał dokładnie tam, gdzie mówi klucz
+    const snap = (v: number) => Math.round(v * 4) / 4;
+    const outlines = basementQuads(p.objects)
+      .map((ring) => ring.map(([x, z]) => [snap(x), snap(z)] as [number, number]))
+      .flatMap((ring) => clipToGround(ring, g));
+    const holeKey = outlines.flat().map(([x, z]) => `${x}:${z}`).join(',');
     const shapeKey = `${g.shape}|${g.width}|${g.depth}|${(g.tiles ?? []).map((t) => t.join(':')).sort().join(',')}`;
     const groundKey = `${shapeKey}|${holeKey}`;
     if (this.lastGroundKey !== groundKey) {
@@ -3797,11 +3801,6 @@ export class SceneManager {
   }
 }
 
-/** Prostokąt jako wielokąt przeciwnie do wskazówek zegara (do przycinania linii siatki). */
-function rectPolygon(r: { x0: number; x1: number; z0: number; z1: number }): [number, number][] {
-  return [[r.x0, r.z0], [r.x1, r.z0], [r.x1, r.z1], [r.x0, r.z1]];
-}
-
 /** Blat płyty z listy prostokątów: dwa trójkąty na prostokąt, UV we współrzędnych świata (jak `ShapeGeometry`). */
 function rectsGeometry(rects: { x0: number; x1: number; z0: number; z1: number }[]): THREE.BufferGeometry {
   const pos: number[] = [];
@@ -3851,7 +3850,8 @@ function rotatedExtrude(poly: [number, number][], holes: [number, number][][], d
 /**
  * Obrys planszy z dziurami (piwnice) jako kształt do triangulacji i wyciągnięcia. `flipZ` odwraca drugą
  * współrzędną dla geometrii, którą obracamy o −90° wokół X (blat) — bez tego dziura wypadłaby po przeciwnej
- * stronie planszy. Dziura musi być obiegana w drugą stronę niż obrys, inaczej triangulacja jej nie wytnie.
+ * stronie planszy. Kierunek obiegu dziury prostujemy sami: `ShapeGeometry` robi to za nas, ale
+ * `ExtrudeGeometry` tylko wtedy, gdy obrys zewnętrzny nie jest zgodny z zegarem — a to zależy od `groundPolygon`.
  */
 function shapeWithHoles(poly: [number, number][], holes: [number, number][][], flipZ = false): THREE.Shape {
   const f = flipZ ? -1 : 1;
@@ -3874,6 +3874,17 @@ function signedArea(pts: THREE.Vector2[]): number {
     a += p.x * q.y - q.x * p.y;
   }
   return a;
+}
+
+/**
+ * Otwór przycięty do planszy: poza jej obrysem nie ma czego wycinać, a dziura wystająca poza kontur
+ * zostawia klin płyty wiszący nad terenem. Plansza z kafli bywa wklęsła, więc tniemy po jej prostokątach.
+ */
+function clipToGround(ring: [number, number][], g: GroundSpec): [number, number][][] {
+  const parts = isDrawnGround(g)
+    ? groundRects(g).map((r) => clipPolygon(ring, rectPolygon(r)))
+    : [clipPolygon(ring, groundPolygon(g))];
+  return parts.filter((p) => p.length >= 3);
 }
 
 /** Wielokąt domknięty powtórzonym punktem — `skirtGeometry` rysuje ściankę pod każdą parą sąsiadów. */

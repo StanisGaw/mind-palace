@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GROUND_TILE, clampToGround, groundBounds, groundExtent, groundOutlines, groundRects, insideGround, isDrawnGround, outsideDistance, tileAt, tilesFromShape } from './ground';
-import { mergeTiles, tileOutlines } from './rects';
+import { clipPolygon, mergeTiles, rectPolygon, tileOutlines } from './rects';
 import type { GroundSpec } from '../types';
 
 /**
@@ -90,6 +90,19 @@ describe('plansza z kafli', () => {
       const sasiedzi = tiles.filter(([i, j]) => have.has(`${i + 1},${j}`)).length + tiles.filter(([i, j]) => have.has(`${i},${j + 1}`)).length;
       expect(n, `${nazwa}: liczba krawędzi obrysu`).toBe(tiles.length * 4 - sasiedzi * 2);
     }
+  });
+
+  it('otwór przycięty do planszy nie wystaje poza jej obrys', () => {
+    const plansza: [number, number][] = [[-10, -10], [10, -10], [10, 10], [-10, 10]];
+    const wSrodku: [number, number][] = [[-2, -2], [2, -2], [2, 2], [-2, 2]];
+    expect(clipPolygon(wSrodku, plansza), 'otwór w całości na planszy zostaje bez zmian').toEqual(wSrodku);
+    // otwór wystający poza planszę zostaje przycięty do jej krawędzi
+    const naKrawedzi = clipPolygon([[6, -2], [14, -2], [14, 2], [6, 2]], plansza);
+    expect(Math.max(...naKrawedzi.map(([x]) => x))).toBeCloseTo(10, 6);
+    expect(clipPolygon([[20, 20], [24, 20], [24, 24]], plansza), 'otwór poza planszą znika').toEqual([]);
+    // ten sam mechanizm dla planszy z kafli: tniemy po prostokątach
+    const kafel = rectPolygon({ x0: 0, x1: 4, z0: 0, z1: 4 });
+    expect(clipPolygon([[2, 2], [8, 2], [8, 6], [2, 6]], kafel).length).toBeGreaterThan(2);
   });
 
   it('scalanie jest odporne na powtórzone kafle', () => {
