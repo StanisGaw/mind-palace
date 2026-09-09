@@ -5,7 +5,9 @@ import { TexturePicker } from './TexturePicker';
 import { allLandscapes, removeLandscape, saveLandscape, type LandscapePreset } from '../lib/landscapes';
 import type { Scenery, SoundLevels, Weather } from '../types';
 import { useCurrentPalace, useStore } from '../store';
-import { SceneManager } from '../three/SceneManager';
+import { SceneManager, activeScene } from '../three/SceneManager';
+import { QUALITY_LABELS, type Quality } from '../lib/quality';
+import { usePref } from '../lib/prefs';
 import { I } from './Icons';
 import { catalogItem } from '../catalog';
 import { COARSE_Q, useMediaQuery } from '../lib/media';
@@ -391,6 +393,7 @@ function EnvironmentMenu() {
           {palace.interior ? <FloorsSection /> : <GroundSection />}
           {!palace.interior && <ActiveBuildingSection />}
           <TextureSection />
+          <QualitySection />
           {!palace.interior && <LandscapeSection />}
         </div>
       )}
@@ -611,6 +614,35 @@ function GroundSection() {
 }
 
 /** Nawierzchnia planszy albo podłoga i ściany pokoju ładowanego. */
+/** Jakość obrazu: ustawienie urządzenia, nie pałacu. Ten sam pałac ogląda się na telefonie i na komputerze. */
+function QualitySection() {
+  const [quality, setQuality] = usePref<Quality>('quality', 'auto');
+  return (
+    <div className="env-section">
+      <span className="env-title">Jakość obrazu</span>
+      <label>
+        <select
+          value={quality}
+          onChange={(e) => {
+            const q = e.target.value as Quality;
+            setQuality(q);
+            activeScene()?.setQuality(q);
+          }}
+        >
+          {(Object.keys(QUALITY_LABELS) as Quality[]).map((q) => (
+            <option key={q} value={q}>
+              {QUALITY_LABELS[q]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span className="env-title" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>
+        Niższa jakość zmniejsza rozdzielczość i upraszcza cienie. Przy spadku płynności rozdzielczość obniża się sama.
+      </span>
+    </div>
+  );
+}
+
 function TextureSection() {
   const palace = useCurrentPalace();
   const setSettings = useStore((s) => s.setSettings);
