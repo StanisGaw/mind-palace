@@ -53,6 +53,8 @@ interface State {
   doorPrompt: { kind: 'enter' | 'exit' | 'door' | 'board' | 'leave'; objectId?: string; label: string } | null;
   /** Gracz siedzi w samolocie (spacer zamienia się w lot) — steruje podpowiedziami interfejsu. */
   flying: boolean;
+  /** Gracz wyskoczył z samolotu: spada swobodnie albo wisi na spadochronie. */
+  descent: 'fall' | 'chute' | null;
   /** Pad zauważony w tej sesji — pasek podpowiedzi pokazuje wtedy przyciski pada zamiast klawiszy. */
   padSeen: boolean;
   /** Budynek z wnętrzem w miejscu, w którym stoi gracz w spacerze (biblioteka ogranicza się do wyposażenia wnętrz). */
@@ -77,6 +79,7 @@ interface State {
   setInsideBuilding(id: string | null): void;
   setDoorPrompt(p: State['doorPrompt']): void;
   setFlying(v: boolean): void;
+  setDescent(v: State['descent']): void;
   setPadSeen(): void;
   setEditFloor(n: number): void;
   setActiveBuilding(id: string | null): void;
@@ -384,6 +387,7 @@ export const useStore = create<State>((set, get) => ({
   sceneEntry: null,
   doorPrompt: null,
   flying: false,
+  descent: null,
   padSeen: false,
   insideBuildingId: null,
   placing: null,
@@ -790,6 +794,9 @@ export const useStore = create<State>((set, get) => ({
   },
   setPadSeen() {
     if (!get().padSeen) set({ padSeen: true });
+  },
+  setDescent(v) {
+    if (get().descent !== v) set({ descent: v });
   },
   setFlying(v) {
     if (get().flying !== v) set({ flying: v });

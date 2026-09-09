@@ -1956,6 +1956,51 @@ export const PLANE_SEAT: [number, number, number] = [0, 1.66, 0.16];
 /** Miejsce, w którym pilot staje po wysiadce — obok kadłuba, za skrzydłem. */
 export const PLANE_EXIT: [number, number, number] = [-1.9, 0, 1.4];
 
+/**
+ * Czasza spadochronu nad graczem: półkula z klinami na przemian w dwóch kolorach i linki do ramion.
+ * Zaczepiona w rigu (punkt między stopami), więc obraca się z graczem; skalę 0 → 1 nadaje otwarcie.
+ * Materiały są własne, nie z cache `mat` — kliny idą przez kolory wierzchołków, a zwalnia je scena.
+ */
+export function buildParachute(): THREE.Group {
+  const g = new THREE.Group();
+  const R = 3.0;
+  const top = 6.0; // szczyt czaszy nad stopami; obrzeże wypada 1,4 m nad oczami, linki mają gdzie zbiec
+  // bez indeksów: sąsiednie kliny nie dzielą wierzchołków, więc kolor jest ostry, a nie rozmyty w gradient
+  const canopy = new THREE.SphereGeometry(R, 16, 5, 0, Math.PI * 2, 0, Math.PI / 2).toNonIndexed();
+  const pos = canopy.getAttribute('position');
+  const colors = new Float32Array(pos.count * 3);
+  const a = new THREE.Color('#d9573b');
+  const b = new THREE.Color('#f4efe4');
+  for (let i = 0; i < pos.count; i += 3) {
+    // klin po kącie środka trójkąta wokół osi; parzyste ciemne, nieparzyste jasne
+    const cx = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3;
+    const cz = (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3;
+    const ang = Math.atan2(cx, cz) + Math.PI;
+    const wedge = Math.floor((ang / (Math.PI * 2)) * 16) % 2 === 0 ? a : b;
+    for (let v = 0; v < 3; v++) {
+      colors[(i + v) * 3] = wedge.r;
+      colors[(i + v) * 3 + 1] = wedge.g;
+      colors[(i + v) * 3 + 2] = wedge.b;
+    }
+  }
+  canopy.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const canopyMat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.9, flatShading: true });
+  const canopyMesh = new THREE.Mesh(canopy, canopyMat);
+  canopyMesh.position.y = top - R;
+  canopyMesh.castShadow = true;
+  g.add(canopyMesh);
+  // linki: od obrzeża czaszy do ramion
+  const pts: number[] = [];
+  for (let i = 0; i < 8; i++) {
+    const ang = (i / 8) * Math.PI * 2;
+    pts.push(Math.cos(ang) * R * 0.98, top - R + 0.1, Math.sin(ang) * R * 0.98, Math.cos(ang) * 0.22, 1.35, Math.sin(ang) * 0.22);
+  }
+  const lines = new THREE.BufferGeometry();
+  lines.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  g.add(new THREE.LineSegments(lines, new THREE.LineBasicMaterial({ color: '#e6e0d2' })));
+  return g;
+}
+
 export const EMITTER_ANCHORS: Record<string, [number, number, number]> = {
   volcano: [0, 3.7, 0],
   waterfall: [0, 0.35, 0.6],

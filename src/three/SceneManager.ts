@@ -7,7 +7,7 @@ import { useStore, descendants, movableRoots, selectionRoots } from '../store';
 import { yawOfObject } from '../lib/transform';
 import type { CameraKind, FurnitureSet, Palace, PalaceObject, RoomSpec, Vec3, ViewMode } from '../types';
 import { AMBIENCES, catalogItem, hasInterior } from '../catalog';
-import { buildModel, disposeObject, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN, PLANE_SEAT, PLANE_EXIT, type BuildCtx } from './builders';
+import { buildModel, buildParachute, disposeObject, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN, PLANE_SEAT, PLANE_EXIT, type BuildCtx } from './builders';
 import { ART_VARIANTS } from './art';
 import { hashString } from './noise';
 import { makeTextPanel, disposeTextPanel } from './text';
@@ -94,7 +94,23 @@ interface Flight {
   speed: number;
   throttle: number; // 0..1
   onGround: boolean;
+  /** Gracz siedzi za sterami. Po skoku maszyna leci sama: lekki gaz, wyrównany lot, aż stanie na ziemi. */
+  pilot: boolean;
 }
+/** Zeskok z samolotu: spadek swobodny, potem spadochron. `pos` to stopy gracza. */
+interface Descent {
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+  chute: boolean;
+  opened: number; // s od otwarcia czaszy
+}
+const CHUTE_FALL = 3.2; // m/s opadania na otwartej czaszy
+const CHUTE_DRIFT = 5; // m/s sterowania czaszą
+const CHUTE_OPEN_TIME = 0.8; // s — czasza łapie powietrze, prędkość wygasa płynnie, nie skokiem
+const FREEFALL_MAX = 28; // m/s prędkość graniczna spadku swobodnego
+const FREEFALL_DRIFT = 2; // m/s — spadającym ciałem steruje się ledwo
+const BAIL_MIN_HEIGHT = 5; // m nad ziemią; niżej skok nie ma sensu — ląduj
+const CHUTE_AUTO = 20; // m nad ziemią czasza otwiera się sama: z 28 m/s hamuje przez kilkanaście metrów
 const TOP_VIEW_FOV = 18; // wąski kąt = obraz niemal ortograficzny
 const tmpV = new THREE.Vector3();
 const tmpV2 = new THREE.Vector3();
@@ -316,6 +332,9 @@ export class SceneManager {
   private fpVel = new THREE.Vector3();
   /** Lot samolotem: gracz siedzi w kokpicie, a `updateFlight` prowadzi model i kamerę zamiast `updateFp`. */
   private flight: Flight | null = null;
+  private descent: Descent | null = null;
+  /** Czasza spadochronu, budowana przy pierwszym otwarciu; między skokami tylko ukryta. */
+  private chute: THREE.Group | null = null;
   private xrMove = new THREE.Vector2();
   private snapTurnArmed = false;
   private touchHold = false;
@@ -618,7 +637,7 @@ export class SceneManager {
     this.sun.intensity = this.baseLight.sun * f + flash * 1.2;
     const base = this.weather.fog ?? this.ambienceFog;
     // z powietrza widać dużo dalej — mgła dobrana do spaceru zamieniłaby lot w mleczną pustkę
-    const k = this.flight ? 3 : 1;
+    const k = this.piloting || this.descent ? 3 : 1;
     const fog = { color: base.color, near: base.near * k, far: base.far * k };
     if (!this.scene.fog || !(this.scene.fog instanceof THREE.Fog)) this.scene.fog = new THREE.Fog(fog.color, fog.near, fog.far);
     else {
@@ -2057,7 +2076,10 @@ export class SceneManager {
 
   private setMode(mode: ViewMode) {
     const prevMode = this.mode;
-    if (this.flight && mode === 'editor') this.leavePlane(true);
+    if (mode === 'editor') {
+      this.abortDescent();
+      if (this.flight) this.piloting ? this.leavePlane(true) : this.parkPlane();
+    }
     if (mode !== 'editor' && this.topView) this.leaveTopView(true);
     if (mode === 'vr') {
       this.mode = 'vr';
@@ -2262,7 +2284,7 @@ export class SceneManager {
       window.removeEventListener('deviceorientation', this.onOrientation, true);
       this.camera.rotation.set(this.pitch, 0, 0);
       // w kokpicie kamera siedzi w środku riga; poza nim musi wrócić na wysokość oczu
-      if (!this.flight) this.camera.position.set(0, EYE, 0);
+      if (!this.piloting) this.camera.position.set(0, EYE, 0);
       this.rig.rotation.set(0, this.yaw, 0);
       if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined);
       try {
@@ -3029,7 +3051,7 @@ export class SceneManager {
   }
 
   private fpInteract(id: string | null) {
-    if (this.flight) return;
+    if (this.piloting || this.descent) return;
     const st = useStore.getState();
     // zaczepienie zwierzęcia: reaguje, a jeśli punkt ma notatkę, obsługujemy ją dalej jak zwykle
     if (id) this.wildlife.poke(id);
@@ -3063,7 +3085,7 @@ export class SceneManager {
 
   private look(dx: number, dy: number) {
     this.pitch = THREE.MathUtils.clamp(this.pitch - dy, -1.3, 1.3);
-    if (this.flight) {
+    if (this.piloting) {
       // w kokpicie obrót prowadzi maszyna: rozglądanie zostaje w kamerze, względem kadłuba
       this.yaw = THREE.MathUtils.clamp(this.yaw - dx, -2.2, 2.2);
       this.camera.rotation.set(this.pitch, this.yaw, 0);
@@ -3163,7 +3185,7 @@ export class SceneManager {
       if (ev.code === 'KeyF') st.camera('center');
       if (ev.code === 'KeyT') st.camera('topView');
     }
-    if (ev.code === 'KeyF' && this.mode === 'fp' && this.flight) {
+    if (ev.code === 'KeyF' && this.mode === 'fp' && this.piloting) {
       ev.preventDefault();
       this.leavePlane();
       return;
@@ -3243,17 +3265,18 @@ export class SceneManager {
       if (presenting) this.readXrInput();
       this.readGamepad(dt);
       if (this.flight) this.updateFlight(dt);
-      else this.updateFp(dt);
+      if (this.descent) this.updateDescent(dt);
+      else if (!this.piloting) this.updateFp(dt);
       if (this.debugPhysics && ++this.debugTick % 10 === 0) this.updatePhysicsDebug();
       if (this.stereo && this.deviceOrient.active) this.applyDeviceOrientation();
     }
 
     if (this.mode !== 'editor' && ++this.doorCheck % 6 === 0) {
       this.updateDoorPrompt();
-      if (!this.flight) this.updateInsideBuilding();
+      if (!this.piloting && !this.descent) this.updateInsideBuilding();
     }
     // spacer: podgląd stawianego obiektu idzie za celownikiem (środek ekranu)
-    if (this.ghost && this.mode === 'fp' && !this.flight) {
+    if (this.ghost && this.mode === 'fp' && !this.piloting && !this.descent) {
       this.pointer.set(0, 0);
       this.updateGhost();
     }
@@ -3387,8 +3410,12 @@ export class SceneManager {
     const st = useStore.getState();
     const p = this.lastPalace;
     if (!p) return;
-    if (this.flight) {
-      const f = this.flight;
+    if (this.descent) {
+      st.setDoorPrompt(null);
+      return;
+    }
+    if (this.piloting) {
+      const f = this.flight!;
       const ready = f.onGround && f.speed < 1.2 && (!this.walkArea || insideGround(this.walkArea, f.pos.x, f.pos.z));
       st.setDoorPrompt(ready ? { kind: 'leave', objectId: f.id, label: 'Wysiądź z samolotu' } : null);
       return;
@@ -3535,9 +3562,9 @@ export class SceneManager {
     const jump = edge(0);
     const useA = edge(2);
     const useB = edge(1);
-    if (jump && !this.flight) this.jump(); // w kokpicie nie ma z czego skakać
+    if (jump && !this.piloting) this.jump(); // w kokpicie ✕ nic nie robi; w spadku otwiera spadochron
     if (useA || useB) {
-      if (this.flight) this.leavePlane();
+      if (this.piloting) this.leavePlane();
       else this.useDoor();
     }
     // krzyżak w locie dokłada i ujmuje gazu
@@ -3626,6 +3653,7 @@ export class SceneManager {
   }
 
   private boardPlane(id: string) {
+    if (this.descent) return;
     const e = this.entries.get(id);
     const o = this.lastPalace?.objects.find((x) => x.id === id);
     if (!e || !o) return;
@@ -3638,6 +3666,7 @@ export class SceneManager {
       speed: 0,
       throttle: 0,
       onGround: true,
+      pilot: true,
     };
     // bryła kolizji zostałaby na miejscu postoju — na czas lotu znika, a po wysiadce wraca z nowej pozycji
     this.physics?.removeStatic(id);
@@ -3651,8 +3680,8 @@ export class SceneManager {
     st.setPlacing(null);
     st.showToast(
       this.padSeen
-        ? 'R2 — gaz, L2 — wolniej, lewa gałka — nos i przechył, L1/R1 — kierunek. Wyląduj i naciśnij ▢, żeby wysiąść.'
-        : 'Shift — gaz, Ctrl — wolniej, W/S — nos, A/D — przechył, Q/E — kierunek. Wyląduj i naciśnij F, żeby wysiąść.',
+        ? 'R2 — gaz, L2 — wolniej, lewa gałka — nos i przechył, L1/R1 — kierunek. ▢ na ziemi wysiada, w powietrzu — skok ze spadochronem.'
+        : 'Shift — gaz, Ctrl — wolniej, W/S — nos, A/D — przechył, Q/E — kierunek. F na ziemi wysiada, w powietrzu — skok ze spadochronem.',
     );
     this.applyLighting();
   }
@@ -3660,11 +3689,16 @@ export class SceneManager {
   /** Przerywa lot bez zapisywania pozycji: samolot zniknął ze sceny (zmiana pałacu, usunięcie obiektu). */
   private cancelFlight() {
     if (!this.flight) return;
+    const pilot = this.flight.pilot;
     this.flight = null;
     useStore.getState().setFlying(false);
     this.applyLighting();
     // rig ma obrót maszyny (z przechyłem) — bez tego spacer zaczynałby się z przekrzywionym horyzontem
-    this.placeRig(this.spawnPose());
+    if (pilot) this.placeRig(this.spawnPose());
+  }
+
+  private get piloting(): boolean {
+    return !!this.flight?.pilot;
   }
 
   /**
@@ -3673,11 +3707,13 @@ export class SceneManager {
    */
   leavePlane(force = false): boolean {
     const f = this.flight;
-    if (!f) return false;
+    if (!f || !f.pilot) return false;
     const st = useStore.getState();
     if (!force) {
-      if (!f.onGround || f.speed > 1.2) {
-        st.showToast('Najpierw wyląduj i zatrzymaj maszynę.');
+      // w powietrzu wysiadka to skok ze spadochronem
+      if (!f.onGround) return this.bailOut();
+      if (f.speed > 1.2) {
+        st.showToast('Najpierw zatrzymaj maszynę.');
         return false;
       }
       if (this.walkArea && !insideGround(this.walkArea, f.pos.x, f.pos.z)) {
@@ -3685,13 +3721,27 @@ export class SceneManager {
         return false;
       }
     }
+    const yaw = f.yaw;
+    const stand = this.parkPlane();
+    st.setFlying(false);
+    st.setDoorPrompt(null);
+    this.applyLighting();
+    // twarzą do maszyny: lokalne +X samolotu
+    this.placeRig({ x: stand[0], z: stand[1], yaw: yaw - Math.PI / 2 });
+    return true;
+  }
+
+  /**
+   * Koniec lotu: samolot zostaje tam, gdzie stanął — wyrównany, na ziemi, z kolizją i zapisem w pałacu.
+   * Wspólne dla wysiadki i dla maszyny, która po skoku pilota wytoczyła się sama. Zwraca miejsce obok kadłuba.
+   */
+  private parkPlane(): [number, number] {
+    const f = this.flight!;
+    const st = useStore.getState();
     const e = this.entries.get(f.id);
     const pos: Vec3 = [f.pos.x, this.groundHeightAt(f.pos.x, f.pos.z), f.pos.z];
     const yaw = f.yaw;
     this.flight = null;
-    st.setFlying(false);
-    st.setDoorPrompt(null);
-    this.applyLighting();
     let stand: [number, number] = [pos[0], pos[2]];
     if (e) {
       e.group.position.set(pos[0], pos[1], pos[2]);
@@ -3711,15 +3761,152 @@ export class SceneManager {
       o.rotation = [0, yaw, 0];
       delete o.anchorId; // po locie samolot nie stoi już na tym, na czym zaparkował
     });
-    // twarzą do maszyny: lokalne +X samolotu
-    this.placeRig({ x: stand[0], z: stand[1], yaw: yaw - Math.PI / 2 });
+    return stand;
+  }
+
+  // ---------- skok ze spadochronem ----------
+
+  /** Skok z samolotu: gracz wypada z fotela z pędem maszyny, a ta leci dalej sama. */
+  private bailOut(): boolean {
+    const f = this.flight;
+    const e = f && this.entries.get(f.id);
+    if (!f || !e) return false;
+    const st = useStore.getState();
+    if (f.pos.y - this.groundHeightAt(f.pos.x, f.pos.z) < BAIL_MIN_HEIGHT) {
+      st.showToast('Za nisko na skok — nabierz wysokości albo wyląduj.');
+      return false;
+    }
+    if (this.walkArea && !insideGround(this.walkArea, f.pos.x, f.pos.z)) {
+      st.showToast('Skoczyć można tylko nad planszą — poza nią nie da się chodzić.');
+      return false;
+    }
+    f.pilot = false;
+    const seat = e.group.localToWorld(tmpV.set(PLANE_SEAT[0], PLANE_SEAT[1], PLANE_SEAT[2]));
+    const horiz = Math.cos(f.pitch) * f.speed;
+    this.descent = {
+      pos: new THREE.Vector3(seat.x, seat.y - EYE, seat.z),
+      vel: new THREE.Vector3(-Math.sin(f.yaw) * horiz, Math.sin(f.pitch) * f.speed, -Math.cos(f.yaw) * horiz),
+      chute: false,
+      opened: 0,
+    };
+    // rig prostuje się do kursu maszyny; w kokpicie kamera siedziała w jego środku, teraz wraca na oczy
+    this.yaw = f.yaw;
+    this.pitch = -0.35;
+    this.rig.position.copy(this.descent.pos);
+    this.rig.rotation.set(0, this.yaw, 0);
+    if (!this.renderer.xr.isPresenting) {
+      this.camera.position.set(0, EYE, 0);
+      if (!this.stereo) this.camera.rotation.set(this.pitch, 0, 0);
+    }
+    st.setFlying(false);
+    st.setDescent('fall');
+    st.setDoorPrompt(null);
+    st.showToast(this.padSeen ? 'Spadasz! ✕ otwiera spadochron.' : 'Spadasz! Spacja otwiera spadochron.');
     return true;
+  }
+
+  openChute() {
+    const d = this.descent;
+    if (!d || d.chute) return;
+    d.chute = true;
+    d.opened = 0;
+    if (!this.chute) {
+      this.chute = buildParachute();
+      this.rig.add(this.chute);
+    }
+    this.chute.visible = true;
+    this.chute.scale.setScalar(0.05);
+    useStore.getState().setDescent('chute');
+  }
+
+  private updateDescent(dt: number) {
+    const d = this.descent!;
+    const k = this.keys;
+    let mx = this.joystick.x + this.xrMove.x + this.pad.x;
+    let mz = this.joystick.y + this.xrMove.y + this.pad.y;
+    if (k.has('KeyW') || k.has('ArrowUp')) mz -= 1;
+    if (k.has('KeyS') || k.has('ArrowDown')) mz += 1;
+    if (k.has('KeyA') || k.has('ArrowLeft')) mx -= 1;
+    if (k.has('KeyD') || k.has('ArrowRight')) mx += 1;
+    if (k.has('KeyQ')) this.look(-1.6 * dt, 0);
+    if (k.has('KeyE')) this.look(1.6 * dt, 0);
+    const len = Math.hypot(mx, mz);
+    if (len > 1) {
+      mx /= len;
+      mz /= len;
+    }
+    // jak w spacerze: w goglach i stereo kierunek nadaje głowa
+    const headDriven = this.stereo || this.renderer.xr.isPresenting;
+    const yaw = headDriven
+      ? yawOf(this.renderer.xr.isPresenting ? this.renderer.xr.getCamera().getWorldQuaternion(tmpQ) : this.camera.getWorldQuaternion(tmpQ))
+      : this.rig.rotation.y;
+    const target = tmpV.set(mx, 0, mz).multiplyScalar(d.chute ? CHUTE_DRIFT : FREEFALL_DRIFT).applyAxisAngle(UP, yaw);
+    const damp = THREE.MathUtils.damp;
+    if (d.chute) {
+      d.opened += dt;
+      const grip = Math.min(d.opened / CHUTE_OPEN_TIME, 1);
+      d.vel.x = damp(d.vel.x, target.x, 1 + 3 * grip, dt);
+      d.vel.z = damp(d.vel.z, target.z, 1 + 3 * grip, dt);
+      d.vel.y = damp(d.vel.y, -CHUTE_FALL, 1 + 4 * grip, dt);
+      if (this.chute) {
+        const sm = grip * grip * (3 - 2 * grip);
+        this.chute.scale.setScalar(0.05 + 0.95 * sm);
+        // czasza pochyla się pod ruch: prędkość w układzie riga
+        const ry = this.rig.rotation.y;
+        const lx = d.vel.x * Math.cos(ry) - d.vel.z * Math.sin(ry);
+        const lz = d.vel.x * Math.sin(ry) + d.vel.z * Math.cos(ry);
+        this.chute.rotation.set(lz * 0.04, 0, -lx * 0.04);
+      }
+    } else {
+      d.vel.x = damp(d.vel.x, target.x, 0.5, dt);
+      d.vel.z = damp(d.vel.z, target.z, 0.5, dt);
+      d.vel.y = Math.max(d.vel.y - 9.8 * dt, -FREEFALL_MAX);
+    }
+    d.pos.addScaledVector(d.vel, dt);
+    // w powietrzu ta sama granica co na ziemi: poza planszą nie da się chodzić, więc nie ma gdzie lądować
+    const [cx, cz] = this.clampXZ(d.pos.x, d.pos.z);
+    d.pos.x = cx;
+    d.pos.z = cz;
+    const gy = this.groundHeightAt(cx, cz);
+    if (!d.chute && d.pos.y - gy < CHUTE_AUTO) {
+      this.openChute();
+      useStore.getState().showToast('Spadochron otworzył się sam.');
+    }
+    if (d.pos.y <= gy) {
+      this.land(gy);
+      return;
+    }
+    this.rig.position.copy(d.pos);
+  }
+
+  /** Przyziemienie: fizyka odbiera postać tam, gdzie stanęła, czasza znika. */
+  private land(gy: number) {
+    const d = this.descent!;
+    const hard = !d.chute || d.vel.y < -7;
+    this.descent = null;
+    if (this.chute) this.chute.visible = false;
+    const [x, z] = this.clampXZ(d.pos.x, d.pos.z);
+    this.rig.position.set(x, gy, z);
+    this.physics?.teleport(tmpV3.set(x, gy, z));
+    const st = useStore.getState();
+    st.setDescent(null);
+    this.applyLighting();
+    st.showToast(hard ? 'Twarde lądowanie. Na szczęście to tylko pałac pamięci.' : 'Miękkie lądowanie.');
+  }
+
+  /** Powrót do edytora w trakcie zeskoku: wejście do świata i tak zaczyna od punktu startu. */
+  private abortDescent() {
+    if (!this.descent) return;
+    this.descent = null;
+    if (this.chute) this.chute.visible = false;
+    useStore.getState().setDescent(null);
   }
 
   /** Skokowa zmiana gazu — przyciski na telefonie i Spacja. */
   throttleStep(d: number) {
-    if (!this.flight) return;
-    this.flight.throttle = THREE.MathUtils.clamp(this.flight.throttle + d, 0, 1);
+    const f = this.flight;
+    if (!f?.pilot) return;
+    f.throttle = THREE.MathUtils.clamp(f.throttle + d, 0, 1);
   }
 
   private updateFlight(dt: number) {
@@ -3734,13 +3921,19 @@ export class SceneManager {
     const clamp = THREE.MathUtils.clamp;
     const damp = THREE.MathUtils.damp;
 
-    const thr = clamp((k.has('ShiftLeft') || k.has('ShiftRight') ? 1 : 0) - (k.has('ControlLeft') || k.has('ControlRight') ? 1 : 0) + this.padThrottle, -1, 1);
-    f.throttle = clamp(f.throttle + thr * dt * 0.5, 0, 1);
+    if (f.pilot) {
+      const thr = clamp((k.has('ShiftLeft') || k.has('ShiftRight') ? 1 : 0) - (k.has('ControlLeft') || k.has('ControlRight') ? 1 : 0) + this.padThrottle, -1, 1);
+      f.throttle = clamp(f.throttle + thr * dt * 0.5, 0, 1);
+    } else {
+      // bez pilota: w powietrzu lekki gaz (0,3 — poniżej prędkości przeciągnięcia) daje długie, płaskie
+      // szybowanie zamiast pionowego spadku po utracie siły nośnej; na ziemi gaz do zera, maszyna staje
+      f.throttle = damp(f.throttle, f.onGround ? 0 : 0.3, 1.5, dt);
+    }
     f.speed = damp(f.speed, f.throttle * PLANE_MAX_SPEED, 0.5, dt);
 
-    const pitchIn = clamp((k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) - (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) + this.joystick.y + this.pad.y, -1, 1);
-    const rollIn = clamp((k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) + this.joystick.x + this.pad.x, -1, 1);
-    const yawIn = clamp((k.has('KeyE') ? 1 : 0) - (k.has('KeyQ') ? 1 : 0) + this.padYaw, -1, 1);
+    const pitchIn = f.pilot ? clamp((k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) - (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) + this.joystick.y + this.pad.y, -1, 1) : 0;
+    const rollIn = f.pilot ? clamp((k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) + this.joystick.x + this.pad.x, -1, 1) : 0;
+    const yawIn = f.pilot ? clamp((k.has('KeyE') ? 1 : 0) - (k.has('KeyQ') ? 1 : 0) + this.padYaw, -1, 1) : 0;
     // stery działają tym mocniej, im większy opływ — przy postoju maszyna nie reaguje
     const auth = clamp(f.speed / PLANE_TAKEOFF, 0, 1);
 
@@ -3753,7 +3946,8 @@ export class SceneManager {
       f.roll = clamp(f.roll - rollIn * 1.7 * auth * dt, -1.1, 1.1);
       // puszczone stery same wracają do lotu poziomego — inaczej łatwo wpaść w spiralę
       if (pitchIn === 0) f.pitch = damp(f.pitch, 0, 0.6, dt);
-      if (rollIn === 0) f.roll = damp(f.roll, 0, 0.9, dt);
+      if (!f.pilot) f.roll = damp(f.roll, -0.5, 1.5, dt); // porzucona maszyna krąży, zamiast odlecieć za horyzont
+      else if (rollIn === 0) f.roll = damp(f.roll, 0, 0.9, dt);
       f.yaw += (Math.sin(f.roll) * 0.9 * auth - yawIn * 0.8) * dt; // przechył zakręca
       if (f.onGround) {
         f.roll = damp(f.roll, 0, 5, dt);
@@ -3774,6 +3968,12 @@ export class SceneManager {
       f.pos.z *= r / d;
     }
     f.pos.y = Math.min(f.pos.y, PLANE_CEILING);
+    // bez pilota maszyna nie opuszcza planszy: gdzie stanie, tam trzeba do niej dojść
+    if (!f.pilot && this.walkArea) {
+      const [bx, bz] = clampToGround(this.walkArea, f.pos.x, f.pos.z, 0);
+      f.pos.x = bx;
+      f.pos.z = bz;
+    }
     const gy = this.groundHeightAt(f.pos.x, f.pos.z);
     if (f.pos.y <= gy) {
       f.pos.y = gy;
@@ -3785,6 +3985,12 @@ export class SceneManager {
       f.onGround = true;
     } else f.onGround = false;
 
+    // maszyna bez pilota: po wytoczeniu staje i wraca do pałacu jako zwykły obiekt
+    if (!f.pilot && f.onGround && f.speed < 0.3) {
+      this.parkPlane();
+      return;
+    }
+
     // kąty zawijamy do pełnego obrotu: po długim locie trafiają do zapisu pałacu i do macierzy
     f.yaw = Math.atan2(Math.sin(f.yaw), Math.cos(f.yaw));
     e.group.position.copy(f.pos);
@@ -3793,8 +3999,10 @@ export class SceneManager {
     if (e.propeller) e.propeller.rotation.z = (e.propeller.rotation.z + (1.5 + f.speed * 1.6) * dt) % (Math.PI * 2);
 
     // kamera siedzi w kokpicie: rig przejmuje pełny obrót maszyny, rozglądanie zostaje w kamerze
-    this.rig.position.copy(e.group.localToWorld(tmpV.set(PLANE_SEAT[0], PLANE_SEAT[1], PLANE_SEAT[2])));
-    this.rig.quaternion.copy(e.group.quaternion);
+    if (f.pilot) {
+      this.rig.position.copy(e.group.localToWorld(tmpV.set(PLANE_SEAT[0], PLANE_SEAT[1], PLANE_SEAT[2])));
+      this.rig.quaternion.copy(e.group.quaternion);
+    }
   }
 
   private updateFp(dt: number) {
@@ -3849,7 +4057,11 @@ export class SceneManager {
 
   /** Skok — także z przycisku na telefonie. */
   jump() {
-    if (this.flight) {
+    if (this.descent) {
+      this.openChute();
+      return;
+    }
+    if (this.piloting) {
       this.throttleStep(0.25);
       return;
     }
@@ -3965,6 +4177,11 @@ export class SceneManager {
     this.marquee?.el?.remove();
     this.marquee = null;
     for (const ring of this.selRings) this.scene.remove(ring);
+    if (this.chute) {
+      this.rig.remove(this.chute);
+      disposeObject(this.chute);
+      this.chute = null;
+    }
     this.scene.remove(this.pivot);
     for (const e of [...this.entries.values()]) this.removeEntry(e);
     this.weather.dispose();
