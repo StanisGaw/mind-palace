@@ -21,9 +21,11 @@ const SEG = 96;
 
 /**
  * Pierścień krajobrazu wokół planszy: płaski tuż przy płycie, wznoszący się dalej.
- * Zwraca null dla scenerii 'none'. `holes` to obrysy, w których terenu nie ma — wnętrza budynków z piwnicą:
- * teren leży kilkanaście centymetrów pod zerem, czyli w środku takiej piwnicy, i bez wycięcia zamykałby ją
- * niewidzialną pokrywą (jest też bryłą kolizji), przez którą nie dałoby się zejść schodami.
+ * Zwraca null dla scenerii 'none'. `holes` to obrysy wnętrz budynków z piwnicą: teren leży kilkanaście
+ * centymetrów pod zerem, czyli w środku takiej piwnicy, i bez tego zamykałby ją niewidzialną pokrywą (jest
+ * też bryłą kolizji). Zamiast wycinać trójkąty — bo przy oczku ok. 2 m przy ścianach zostawały resztki,
+ * akurat tam, gdzie stoją schody — wtapiamy wierzchołki głęboko pod ziemię. Siatka zostaje ciągła, więc
+ * nigdzie nie ma dziury, przez którą dałoby się spaść.
  */
 export function buildTerrain(ground: GroundSpec, scenery: Scenery, seed: number, holes: [number, number][][] = []): Terrain | null {
   if (scenery === 'none') return null;
@@ -85,9 +87,21 @@ export function buildTerrain(ground: GroundSpec, scenery: Scenery, seed: number,
   }
   pos.needsUpdate = true;
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  // pełny indeks trzymamy z boku: podmiana otworów przelicza tylko jego, bez ponownego liczenia szumu
-  const baseIndex = new Uint32Array(geo.getIndex()!.array as ArrayLike<number>);
-  cutHoles(geo, baseIndex, holes);
+  // zapas półtora oczka: trójkąt dotykający obrysu ma wtedy wszystkie wierzchołki wtopione, więc żaden
+  // jego skrawek nie zostaje w piwnicy
+  const margin = step * 1.5;
+  const applyHoles = (list: [number, number][][]) => {
+    for (let idx = 0; idx < pos.count; idx++) {
+      const i = idx % (SEG + 1);
+      const j = Math.floor(idx / (SEG + 1));
+      const x = -half + i * step;
+      const z = -half + j * step;
+      pos.setY(idx, inHole(list, x, z, margin) ? SUNK_Y : heights[j * (SEG + 1) + i]);
+    }
+    pos.needsUpdate = true;
+  };
+  let holeList = holes;
+  if (holes.length > 0) applyHoles(holes);
   geo.computeVertexNormals();
 
   const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }));
@@ -112,6 +126,7 @@ export function buildTerrain(ground: GroundSpec, scenery: Scenery, seed: number,
   }
 
   const heightAt = (x: number, z: number): number => {
+    if (inHole(holeList, x, z, step * 1.5)) return SUNK_Y - 0.08; // pod piwnicą nie ma po czym chodzić
     const fx = (x + half) / step;
     const fz = (z + half) / step;
     if (fx < 0 || fz < 0 || fx > SEG || fz > SEG) return -0.05;
@@ -133,7 +148,8 @@ export function buildTerrain(ground: GroundSpec, scenery: Scenery, seed: number,
     size,
     heightAt,
     setHoles(next) {
-      cutHoles(geo, baseIndex, next);
+      holeList = next;
+      applyHoles(next);
       geo.computeVertexNormals();
       if (!water || waterY === null) return;
       water.geometry.dispose();
@@ -152,24 +168,27 @@ export function buildTerrain(ground: GroundSpec, scenery: Scenery, seed: number,
   };
 }
 
-/** Zostawia w siatce tylko te trójkąty pełnego indeksu, których środek nie wpada w żaden obrys — razem z kolizją. */
-function cutHoles(geo: THREE.BufferGeometry, baseIndex: Uint32Array, holes: [number, number][][]) {
-  const pos = geo.attributes.position as THREE.BufferAttribute;
-  if (holes.length === 0) {
-    geo.setIndex(Array.from(baseIndex));
-    return;
+/** Głębokość, na którą chowa się teren pod piwnicą — niżej niż najgłębsza możliwa podłoga poziomu −1. */
+const SUNK_Y = -12;
+
+/** Czy punkt leży w którymś z obrysów albo bliżej niż `margin` od jego krawędzi. */
+function inHole(holes: [number, number][][], x: number, z: number, margin: number): boolean {
+  for (const h of holes) {
+    if (pointInPolygon(h, x, z)) return true;
+    for (let i = 0; i < h.length; i++) {
+      if (segmentDistance(h[i], h[(i + 1) % h.length], x, z) < margin) return true;
+    }
   }
-  const kept: number[] = [];
-  for (let t = 0; t < baseIndex.length; t += 3) {
-    const a = baseIndex[t];
-    const b = baseIndex[t + 1];
-    const c = baseIndex[t + 2];
-    const cx = (pos.getX(a) + pos.getX(b) + pos.getX(c)) / 3;
-    const cz = (pos.getZ(a) + pos.getZ(b) + pos.getZ(c)) / 3;
-    if (holes.some((h) => pointInPolygon(h, cx, cz))) continue;
-    kept.push(a, b, c);
-  }
-  geo.setIndex(kept);
+  return false;
+}
+
+/** Odległość punktu od odcinka. */
+function segmentDistance(a: [number, number], b: [number, number], x: number, z: number): number {
+  const dx = b[0] - a[0];
+  const dz = b[1] - a[1];
+  const len2 = dx * dx + dz * dz;
+  const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / len2)) : 0;
+  return Math.hypot(x - (a[0] + dx * t), z - (a[1] + dz * t));
 }
 
 /**
