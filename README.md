@@ -130,6 +130,9 @@ npm run build        # produkcyjny build do dist/
 - **VR** — zwykły spacer w goglach: lewy joystick idzie, prawy obraca skokowo, spust działa jak
   kliknięcie, chwyt to skok. Kamera nie przenosi gracza samoczynnie. Gdy przeglądarka nie ma WebXR,
   włącza się tryb stereo (Cardboard): przytrzymanie ekranu idzie do przodu, krótkie dotknięcie to interakcja.
+  Pad działa równolegle z kontrolerami (prawa gałka obraca skokowo tą samą funkcją `snapTurn`). Przełączenie
+  spaceru na VR i z powrotem zachowuje pozycję gracza — punkt startu wyznacza wyłącznie wejście z edytora.
+  Do samolotu można wsiąść w trybie stereo, w goglach nie (`canBoard`): tam wysokość głowy podaje headset.
 - **Zapis** — automatycznie w `localStorage` (wiele pałaców). **Eksport/Import** — plik JSON, dołącza
   własne zestawy mebli; import pliku pyta osobno o pałac (dodaj / zastąp / pomiń) i o zestawy
   (importuj / pomiń). Pliki sprzed zestawów wczytują się dalej — ich układy pokoi zamieniają się w zestawy.

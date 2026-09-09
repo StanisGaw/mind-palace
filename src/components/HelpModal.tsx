@@ -101,6 +101,9 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         <ul>
           <li>Otwórz aplikację na telefonie (na tym samym Wi-Fi) i wybierz <b>VR</b>. Jeśli przeglądarka obsługuje WebXR (Chrome na Androidzie), uruchomi się tryb immersyjny. W innym razie włączy się tryb stereo sterowany czujnikami — włóż telefon do gogli typu Cardboard.</li>
           <li>W VR jedno kliknięcie/naciśnięcie odsłania notatkę, kolejne przenosi do następnego przystanku; przycisk chwytu (grip) to skok. Czujniki i WebXR wymagają połączenia HTTPS: uruchom <kbd>npm run dev:https</kbd>.</li>
+          <li><b>Pad działa też w VR</b> — w trybie stereo tak samo jak w spacerze, a w goglach równolegle z kontrolerami (prawa gałka obraca skokowo o 30°, jak kontroler; płynny obrót w goglach przyprawia o mdłości).</li>
+          <li>Przełączanie <b>Z oczu</b> ↔ <b>VR</b> nie odsyła na punkt startu — zostajesz tam, gdzie stałeś. Na punkt startu trafiasz tylko, wchodząc do świata z edytora.</li>
+          <li>Do <b>samolotu</b> wsiądziesz także w trybie stereo. W goglach nie: tam wysokość głowy podaje headset, więc nie usiadłbyś na fotelu, tylko stanął nad nim.</li>
         </ul>
         <h3>Zapis i przenoszenie</h3>
         <p>Wszystko zapisuje się automatycznie w tej przeglądarce (localStorage). <b>Eksportuj</b> tworzy plik JSON, a <b>Importuj</b> wczytuje go na innym urządzeniu.</p>
