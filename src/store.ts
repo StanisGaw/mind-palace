@@ -12,6 +12,7 @@ import { findStairsIn, findStairsSpot, roomOfSpec } from './lib/layout';
 import { isDrawnGround, tileAt, tilesFromShape } from './lib/ground';
 import { loadCustomSets, saveCustomSets } from './lib/setStore';
 import { isDue, newSrs, reviewSrs } from './lib/srs';
+import { brokenTileText, describeBrokenTile, makeBrokenTile } from './lib/brokenTiles';
 import { flattenStops, dueInTree, type ReviewStop } from './lib/review';
 
 interface Snapshot {
@@ -64,6 +65,8 @@ interface State {
   placing: { type: string; ids?: string[]; setId?: string } | null;
   /** Rysowanie planszy: przeciągnięcie po scenie dokłada kafle, z Shiftem wymazuje. */
   groundBrush: boolean;
+  /** Zgłaszanie zepsutych kafli: kliknięcie w scenie zapisuje miejsce błędu (patrz `lib/brokenTiles.ts`). */
+  brokenTileMode: boolean;
   sound: SoundLevels; // głośność dźwięków otoczenia; trzymana w preferencjach, nie w danych pałacu
   editFloor: number; // piętro edytowane w edytorze (nieutrwalane — zerowane przy zmianie sceny)
   activeBuildingId: string | null; // budynek z wnętrzem w miejscu, któremu edytor chowa dach (nieutrwalane)
@@ -107,6 +110,10 @@ interface State {
   mergePaths(opts?: { undo?: boolean }): number;
   setPlacing(p: { type: string; ids?: string[]; setId?: string } | null): void;
   setGroundBrush(v: boolean): void;
+  setBrokenTileMode(v: boolean): void;
+  /** Zapisuje zgłoszenie w pałacu, kopiuje je do schowka i potwierdza toastem. */
+  addBrokenTile(point: Vec3): void;
+  removeBrokenTile(id: string): void;
   /** Dokłada albo wymazuje kafle planszy; nie pozwala usunąć kafla, na którym coś stoi. */
   paintGroundTiles(tiles: [number, number][], erase: boolean): void;
   removeObject(id: string): void;
@@ -361,6 +368,23 @@ function scheduleSave(get: () => State, set: (s: Partial<State>) => void) {
 }
 
 let toastTimer: number | undefined;
+
+/** Schowek: API asynchroniczne, a gdy go nie ma (http w sieci lokalnej), dawne execCommand na ukrytym polu. */
+export function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    ok ? resolve() : reject(new Error('copy failed'));
+  });
+}
 let flySeq = 0;
 let camSeq = 0;
 let entrySeq = 0;
@@ -390,6 +414,7 @@ export const useStore = create<State>((set, get) => ({
   insideBuildingId: null,
   placing: null,
   groundBrush: false,
+  brokenTileMode: false,
   sound: initialSound(),
   editFloor: 0,
   activeBuildingId: null,
@@ -428,7 +453,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   enterInterior(objectId) {
-    set({ groundBrush: false }); // pędzel planszy nie ma sensu w innej scenie, a zostawiony blokowałby obracanie widoku
+    set({ groundBrush: false, brokenTileMode: false }); // pędzel planszy i zgłaszanie nie mają sensu w innej scenie, a zostawiony pędzel blokowałby obracanie widoku
     const d = get().data;
     const parent = get().palace();
     const obj = parent.objects.find((o) => o.id === objectId);
@@ -484,7 +509,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   exitInterior() {
-    set({ groundBrush: false }); // pędzel planszy nie ma sensu w innej scenie, a zostawiony blokowałby obracanie widoku
+    set({ groundBrush: false, brokenTileMode: false }); // pędzel planszy i zgłaszanie nie mają sensu w innej scenie, a zostawiony pędzel blokowałby obracanie widoku
     const d = get().data;
     const cur = get().palace();
     if (!cur.parentId || !d.palaces.some((p) => p.id === cur.parentId)) return;
@@ -746,12 +771,12 @@ export const useStore = create<State>((set, get) => ({
   setPlacing(p) {
     const cur = get().placing;
     if (cur?.type === p?.type && cur?.setId === p?.setId && (cur?.ids ?? []).join(',') === (p?.ids ?? []).join(',')) return;
-    set({ placing: p });
+    set({ placing: p, ...(p ? { brokenTileMode: false } : {}) });
   },
 
   setGroundBrush(v) {
     if (get().groundBrush === v) return;
-    set({ groundBrush: v, ...(v ? { placing: null } : {}) });
+    set({ groundBrush: v, ...(v ? { placing: null, brokenTileMode: false } : {}) });
     if (v) {
       const g = get().palace().settings.ground;
       // pierwsze rysowanie przepisuje bieżący kształt na kafle, żeby nie zaczynać od pustej planszy
@@ -785,6 +810,37 @@ export const useStore = create<State>((set, get) => ({
     const same = next.length === (g.tiles?.length ?? -1) && next.every(([i, j]) => (g.tiles ?? []).some(([a, b2]) => a === i && b2 === j));
     if (!same) get().setSettings({ ground: { ...g, tiles: next } });
     if (blocked) get().showToast('Na tym kaflu stoją obiekty — najpierw je przenieś.');
+  },
+
+  setBrokenTileMode(v) {
+    if (get().brokenTileMode === v) return;
+    set({ brokenTileMode: v, ...(v ? { placing: null, groundBrush: false, selectedIds: [] } : {}) });
+    if (v) get().showToast('Kliknij miejsce z błędem. Kliknięcie w czerwony kafel usuwa zgłoszenie, Esc kończy.');
+  },
+
+  addBrokenTile(point) {
+    const p = get().palace();
+    const tile = makeBrokenTile(point, p.objects, uid('bt'));
+    // stos cofania obejmuje tylko obiekty i trasę, więc zgłoszenie nie zostawia na nim pustego kroku
+    get().setPalace((pl) => {
+      pl.brokenTiles = [...(pl.brokenTiles ?? []), tile];
+    }, { undo: false });
+    const where = describeBrokenTile(tile);
+    copyText(brokenTileText(p, tile)).then(
+      () => get().showToast(`Zapisano lokalizację błędu: ${where}. Skopiowano do schowka.`),
+      () => get().showToast(`Zapisano lokalizację błędu: ${where}. Schowek niedostępny — skopiuj z panelu.`),
+    );
+  },
+
+  removeBrokenTile(id) {
+    const t = get().palace().brokenTiles?.find((b) => b.id === id);
+    if (!t) return;
+    get().setPalace((pl) => {
+      const rest = (pl.brokenTiles ?? []).filter((b) => b.id !== id);
+      if (rest.length > 0) pl.brokenTiles = rest;
+      else delete pl.brokenTiles;
+    }, { undo: false });
+    get().showToast(`Usunięto zgłoszenie: ${describeBrokenTile(t)}.`);
   },
 
   setInsideBuilding(id) {
@@ -1113,7 +1169,7 @@ export const useStore = create<State>((set, get) => ({
   },
   setViewMode(viewMode) {
     // poza edytorem przeciągnięcie po scenie znaczy co innego, więc pędzel planszy gaśnie
-    set({ viewMode, ...(viewMode === 'editor' ? {} : { groundBrush: false }) });
+    set({ viewMode, ...(viewMode === 'editor' ? {} : { groundBrush: false, brokenTileMode: false }) });
   },
   setLeftTab(leftTab) {
     set({ leftTab });
@@ -1165,7 +1221,7 @@ export const useStore = create<State>((set, get) => ({
     scheduleSave(get, set);
   },
   switchPalace(id) {
-    set({ groundBrush: false }); // pędzel planszy nie ma sensu w innej scenie, a zostawiony blokowałby obracanie widoku
+    set({ groundBrush: false, brokenTileMode: false }); // pędzel planszy i zgłaszanie nie mają sensu w innej scenie, a zostawiony pędzel blokowałby obracanie widoku
     const d = get().data;
     if (!d.palaces.some((p) => p.id === id)) return;
     set({ data: { ...d, currentId: id }, selectedIds: [], undoStack: [], redoStack: [], review: null, editFloor: 0, focusRequest: get().focusRequest + 1 });

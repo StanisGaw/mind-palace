@@ -96,6 +96,31 @@ export interface Palace {
   parentId?: string; // pałac nadrzędny (gdy to wnętrze)
   parentObjectId?: string; // budynek, w którym jest to wnętrze
   interior?: { buildingType: string; floors: number; lamps?: true }; // `lamps`: lampy są już obiektami (migracja)
+  /** Zgłoszone „zepsute kafle" — miejsca z niewidzialną ścianą albo innym błędem, do dochodzenia (patrz `lib/brokenTiles.ts`). */
+  brokenTiles?: BrokenTile[];
+}
+
+/** Obiekt w pobliżu zgłoszonego kafla — migawka z chwili zgłoszenia, bo obiekty mogą się potem przesunąć. */
+export interface BrokenTileNeighbour {
+  id: string;
+  type: string;
+  name: string;
+  position: Vec3;
+  rotationY: number;
+  scale: Vec3;
+  /** Odległość w rzucie od punktu zgłoszenia, w metrach. */
+  distance: number;
+}
+
+/** Zgłoszenie błędu w konkretnym miejscu sceny: dokładny punkt kliknięcia i kafel siatki 1 × 1 m, w którym leży. */
+export interface BrokenTile {
+  id: string;
+  point: Vec3;
+  /** Kafel siatki metrowej: [floor(x), floor(z)]. */
+  tile: [number, number];
+  createdAt: number;
+  note?: string;
+  nearby: BrokenTileNeighbour[];
 }
 
 /** Obiekt zestawu we współrzędnych względem punktu wstawienia, w METRACH (patrz `lib/sets.ts`). */

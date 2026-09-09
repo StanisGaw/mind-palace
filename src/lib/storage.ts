@@ -1,6 +1,7 @@
 import type { AppData, FurnitureSet, GroundSpec, Palace, PalaceObject, PalaceSettings, RoomSpec, Vec3 } from '../types';
 import { catalogItem, ROOMS } from '../catalog';
 import { uid } from './ids';
+import { isBrokenTile } from './brokenTiles';
 import { hashString } from '../three/noise';
 import { FLOOR_MAX, SHELLS, attachLegacyDoors, buildingOf, facadeSnap, isFacade, localXZ, mergePathObjects, roomLamps, worldXZ } from './rooms';
 import { yawRotation } from './transform';
@@ -186,7 +187,14 @@ export function normalizePalace(p: Partial<Palace>): Palace {
     path: Array.isArray(p.path) ? p.path.filter((id) => ids.has(id) && alive.has(id)) : [],
     // ziarno starych pałaców wyliczamy z id, żeby teren nie zmieniał się przy każdym otwarciu
     settings: normalizeSettings(p.settings, p.id ?? base.id),
+    ...normalizeBrokenTiles(p.brokenTiles),
   };
+}
+
+/** Zgłoszenia zepsutych kafli: klucz znika z zapisu, gdy nie ma ani jednego poprawnego wpisu. */
+function normalizeBrokenTiles(raw: unknown): Pick<Palace, 'brokenTiles'> {
+  const list = Array.isArray(raw) ? raw.filter(isBrokenTile) : [];
+  return list.length > 0 ? { brokenTiles: list } : {};
 }
 
 function normalizeInterior(raw: Partial<{ buildingType: string; floors: number }> | undefined): Palace['interior'] {
