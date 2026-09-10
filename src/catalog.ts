@@ -35,7 +35,10 @@ export const CATALOG: CatalogItem[] = [
   { id: 'temple', name: 'Świątynia', category: 'building', emoji: '⛩️', description: 'Mały pawilon z dachem dwuspadowym.', footprint: 3.0 },
   { id: 'tower', name: 'Wieża', category: 'building', emoji: '🗼', description: 'Wysoka wieża widoczna z każdego miejsca.', footprint: 2.4 },
   { id: 'house', name: 'Domek', category: 'building', emoji: '🏠', description: 'Przytulny domek z kominem.', footprint: 3.4 },
+  { id: 'block', name: 'Blok', category: 'building', emoji: '🏢', description: 'Betonowa bryła z płaskim dachem, ciemną elewacją, neonem nad wejściem i klimatyzatorami na dachu — miejski odpowiednik domku, też z wnętrzem.', footprint: 3.4 },
   { id: 'gazebo', name: 'Altana', category: 'building', emoji: '⛺', description: 'Otwarta altana ogrodowa.', footprint: 1.5, collider: 'trimesh' },
+  { id: 'skyscraper', name: 'Wieżowiec', category: 'building', emoji: '🏙️', description: 'Szklana wieża 30 m z podświetlonymi oknami, neonowymi pasami i iglicą. Bez wnętrza — powiększ ją suwakiem, żeby zbudować panoramę miasta.', footprint: 4.2, maxScale: 6, collider: 'box', outdoorOnly: true },
+  { id: 'megatower', name: 'Megawieżowiec', category: 'building', emoji: '🌆', description: 'Schodkowy kolos 36 m z trzema kondygnacjami tarasów, ekranem reklamowym na fasadzie i neonowymi krawędziami. Bez wnętrza.', footprint: 5.5, maxScale: 6, collider: 'box', outdoorOnly: true },
   // Przedmioty
   { id: 'fountain', name: 'Fontanna', category: 'object', emoji: '⛲', description: 'Woda w centrum ogrodu.', footprint: 1.4, collider: 'trimesh', outdoorOnly: true },
   { id: 'bench', name: 'Ławka', category: 'object', emoji: '🪑', description: 'Miejsce, by usiąść z myślą.', footprint: 0.8, collider: 'trimesh' },
@@ -45,9 +48,11 @@ export const CATALOG: CatalogItem[] = [
   { id: 'obelisk', name: 'Obelisk', category: 'object', emoji: '🔺', description: 'Kamienny znak pamięci.', footprint: 0.6, outdoorOnly: true },
   { id: 'chest', name: 'Skrzynia', category: 'object', emoji: '🧰', description: 'Skrzynia na sekrety.', footprint: 0.6 },
   { id: 'signpost', name: 'Drogowskaz', category: 'object', emoji: '🪧', description: 'Wskazuje kierunek historii.', footprint: 0.4, outdoorOnly: true },
+  { id: 'billboard', name: 'Ekran reklamowy', category: 'object', emoji: '📺', description: 'Wielki świecący ekran na dwóch słupach — hologramowa reklama nad ulicą.', footprint: 2.0, collider: 'box' },
   { id: 'well', name: 'Studnia', category: 'object', emoji: '🪣', description: 'Głębokie skojarzenia.', footprint: 0.8, collider: 'trimesh', outdoorOnly: true },
   // Pojazdy i wierzchowce — w spacerze F wsiada, sterowanie i wysiadka w `lib/ride.ts`
   { id: 'plane', name: 'Samolot', category: 'vehicle', emoji: '✈️', description: 'Mały samolot z otwartym kokpitem. W spacerze podejdź i naciśnij F, żeby wsiąść i polecieć.', footprint: 2.4, maxScale: 2, collider: 'trimesh', outdoorOnly: true },
+  { id: 'hovercar', name: 'Taksówka latająca', category: 'vehicle', emoji: '🚕', description: 'Żółta taksówka bez kół, na czterech silnikach odrzutowych. Wsiądź w spacerze: unosi się jak śmigłowiec i zawisa w miejscu.', footprint: 2.4, maxScale: 2, collider: 'box', outdoorOnly: true },
   { id: 'dragon', name: 'Smok wierzchowy', category: 'vehicle', emoji: '🐲', description: 'Smok z siodłem. Dosiądź go w spacerze: startuje pionowo, zawisa w miejscu i zionie ogniem.', footprint: 3.6, maxScale: 2, collider: 'trimesh', emitter: 'fire', outdoorOnly: true },
   { id: 'horse', name: 'Koń', category: 'vehicle', emoji: '🐎', description: 'Koń pod siodłem (model Poly Pizza, Quaternius, CC0) ze stępem, galopem i skokiem. W spacerze podejdź i naciśnij F, żeby dosiąść.', footprint: 1.2, maxScale: 2, collider: 'box', outdoorOnly: true },
   { id: 'sandworm', name: 'Czerw pustynny', category: 'vehicle', emoji: '🪱', description: 'Olbrzymi czerw wyłaniający się z ziemi. Dosiądź głowy i płyń po planszy, wyskakując z piasku.', footprint: 4, maxScale: 3, collider: 'trimesh', emitter: 'sand', outdoorOnly: true },
@@ -90,6 +95,8 @@ export const CATALOG: CatalogItem[] = [
   // Oświetlenie
   { id: 'lantern', name: 'Latarnia', category: 'lighting', emoji: '🏮', description: 'Światło prowadzące ścieżką.', footprint: 0.4 },
   { id: 'torch', name: 'Pochodnia', category: 'lighting', emoji: '🔥', description: 'Płomień na drewnianym drzewcu.', footprint: 0.3 },
+  { id: 'neon', name: 'Neon', category: 'lighting', emoji: '🪩', description: 'Szyld na słupie: świecące rurki układają się w znaki, różowe światło pada na ulicę.', footprint: 0.5 },
+  { id: 'streetlamp', name: 'Latarnia uliczna', category: 'lighting', emoji: '🔦', description: 'Wysoki słup z wysięgnikiem i zimnym światłem LED nad jezdnią.', footprint: 0.4 },
   { id: 'lampion', name: 'Lampion', category: 'lighting', emoji: '🎐', description: 'Papierowa kula światła na słupku.', footprint: 0.35 },
   { id: 'ceiling_lamp', name: 'Lampa sufitowa', category: 'lighting', emoji: '💡', description: 'Wisi pod sufitem piętra, na którym stoi.', footprint: 0.4, collider: 'none' },
   { id: 'campfire', name: 'Ognisko', category: 'lighting', emoji: '🪵', description: 'Krąg kamieni i trzaskający ogień.', footprint: 0.9, emitter: 'smoke', collider: 'cylinder', outdoorOnly: true },
@@ -125,6 +132,7 @@ export const ROOMS: Record<string, RoomSpec> = {
   temple: { width: 8, depth: 8, height: 4.2, windows: 2, floor: '#d3cec1', wall: '#efeade' },
   tower: { width: 6, depth: 6, height: 6, windows: 4, floor: '#c9c3b3', wall: '#ece7db' },
   house: { width: 8, depth: 7, height: 3.2, windows: 2, floor: '#c8b294', wall: '#f4efe3' },
+  block: { width: 8, depth: 7, height: 3.2, windows: 2, floor: '#4a4d54', wall: '#d6d8dc' },
 };
 
 /** Rodzaj zwierzęcia dla punktu pojawiania (albo null dla zwykłych obiektów). */

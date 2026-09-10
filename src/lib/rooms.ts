@@ -324,6 +324,8 @@ export const SHELLS: Record<string, ShellSpec> = {
   temple: { inner: { w: 4.8, d: 4.0, h: 1.5 }, cx: 0, cz: 0, floorY: 0.36, minScale: 1.6, defaultFloors: 1, maxFloors: 1 },
   tower: { inner: { w: 4.0, d: 4.0, h: 1.4 }, cx: 0, cz: 0, floorY: 0.3, door: { x: 0, z: 2.0, w: 0.43, h: 1.0 }, minScale: 2.5, defaultFloors: 3, maxFloors: 4 },
 };
+// blok ma powłokę domku (te same wymiary, drzwi i układy mebli), różni się tylko bryłą z zewnątrz
+SHELLS.block = { ...SHELLS.house };
 
 /**
  * Bryły wbudowane w powłokę, które stoją w środku pokoju i zajmują miejsce tak samo jak meble
@@ -641,6 +643,7 @@ export const SHELL_WINDOWS: Record<string, ShellWindow[]> = {
   ],
   temple: [],
 };
+SHELL_WINDOWS.block = SHELL_WINDOWS.house;
 
 export interface WallHole {
   u0: number;

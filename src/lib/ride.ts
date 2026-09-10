@@ -3,7 +3,7 @@
  * scena czyta klawisze, woła krok i przepisuje wynik na model i kamerę. Przód wierzchowca to −Z (jak samolot).
  */
 
-export type MountId = 'plane' | 'dragon' | 'horse' | 'sandworm';
+export type MountId = 'plane' | 'dragon' | 'horse' | 'sandworm' | 'hovercar';
 
 export interface MountLabels {
   /** Podpowiedź wsiadania: `${board}: ${nazwa obiektu}`. */
@@ -105,6 +105,23 @@ export const MOUNT_SPECS: Record<MountId, MountSpec> = {
       toastKeys: 'Shift — rozpęd (czerw rusza powoli), Ctrl — hamowanie, A/D — skręt szerokim łukiem, Spacja — wyskok z piasku. F po zatrzymaniu zsiada.',
       toastPad: 'R2 — rozpęd (czerw rusza powoli), L2 — hamowanie, lewa gałka — skręt, ✕ — wyskok z piasku. ▢ po zatrzymaniu zsiada.',
       action: 'Wyskok',
+    },
+  },
+  // taksówka latająca: dynamika smoka (unosi, zawisa), bez ognia
+  hovercar: {
+    kind: 'hover',
+    maxSpeed: 22,
+    accel: 1.4,
+    reach: 3,
+    climb: 7,
+    ceiling: 90,
+    labels: {
+      board: 'Wsiądź do',
+      leave: 'Wysiądź z taksówki',
+      hintKeys: 'Shift/Ctrl — w górę i w dół · W/S — do przodu i do tyłu · A/D — skręt · Q/E — obrót w miejscu · mysz — rozglądanie · F — wysiądź lub skok',
+      hintPad: 'R2/L2 — w górę i w dół · lewa gałka — lot i skręt · L1/R1 — obrót w miejscu · prawa gałka — rozglądanie · ▢ — wysiądź lub skok',
+      toastKeys: 'Shift unosi, Ctrl opuszcza; puszczone — taksówka zawisa. W/S — do przodu i do tyłu, A/D — skręt, Q/E — obrót w miejscu. F na ziemi wysiada, w powietrzu — skok ze spadochronem.',
+      toastPad: 'R2 unosi, L2 opuszcza; puszczone — taksówka zawisa. Lewa gałka — lot i skręt, L1/R1 — obrót w miejscu. ▢ na ziemi wysiada, w powietrzu — skok ze spadochronem.',
     },
   },
 };

@@ -40,6 +40,8 @@ export const MATERIAL_DEFAULTS = {
   velvet: '#8b3a3f',
   linen: '#efe9dc',
   glass: '#cfe3ef',
+  neon1: '#ff2bd6',
+  neon2: '#2be8ff',
 } as const;
 
 export type MaterialRole = keyof typeof MATERIAL_DEFAULTS;
@@ -88,6 +90,8 @@ export const MATERIAL_LABELS: Record<MaterialRole, string> = {
   velvet: 'Aksamit',
   linen: 'Len',
   glass: 'Szkło',
+  neon1: 'Neon (róż)',
+  neon2: 'Neon (błękit)',
 };
 
 /** Warstwy, które rysują się ze słojami drewna — odcienie drewna ustawiają je parami. */
