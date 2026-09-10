@@ -198,7 +198,14 @@ function buildVillage(name: string): Palace {
   put(o, 'waterfall', [-16, -46], { name: 'Wodospad', yaw: 0.2, scale: 3 });
   put(o, 'hill', [30, -46], { scale: 4 });
   put(o, 'hill', [-42, 8], { scale: 4.5 });
-  for (const [x, z, s] of [[-24, -38, 2], [18, -40, 1.6], [-48, -14, 2.4], [42, 12, 2], [-36, 32, 1.8], [34, 30, 1.5]]) put(o, 'rock', [x, z], { scale: s });
+  // ostatni głaz stoi poza planszą, bo w [34, 30] leżałby na pasie startowym
+  for (const [x, z, s] of [[-24, -38, 2], [18, -40, 1.6], [-48, -14, 2.4], [42, 12, 2], [-36, 32, 1.8], [45, 33, 1.5]]) put(o, 'rock', [x, z], { scale: s });
+
+  // ---------- pas startowy przy południowej krawędzi ----------
+  put(o, 'runway', [22, 33], { name: 'Pas startowy' });
+  put(o, 'plane', [9, 33], { name: 'Samolot', yaw: -Math.PI / 2 }); // nos na wschód, wzdłuż pasa
+  put(o, 'dragon', [36, 21], { name: 'Smok wierzchowy' });
+  put(o, 'horse2', [28, 25], { name: 'Koń' });
 
   // ---------- las i sad ----------
   scatter(o, rand, 'tree', { x0: -33, x1: -23, z0: 4, z1: 26 }, 10, [1.8, 2.4], 0.5); // sad za chatami
@@ -221,20 +228,21 @@ function buildVillage(name: string): Palace {
   return p;
 }
 
+/** Wioska jest pierwsza i domyślna — nowy pałac ma od razu być gotowym miejscem, nie pustą łąką. */
 export const PALACE_TEMPLATES: PalaceTemplate[] = [
+  {
+    id: 'village',
+    name: 'Wioska w dolinie',
+    emoji: '🏘️',
+    description: 'Gotowa osada na planszy 80 × 80 m: brama, droga przez rynek ze studnią, dwór, biblioteka, wieża, trzy chaty, staw, las pod górami i pas startowy z samolotem, smokiem i koniem.',
+    build: buildVillage,
+  },
   {
     id: 'empty',
     name: 'Pusta plansza',
     emoji: '🌾',
     description: 'Sama łąka 40 × 40 m. Wszystko stawiasz od zera — najwięcej miejsca na własny pomysł.',
     build: (name) => makePalace(name),
-  },
-  {
-    id: 'village',
-    name: 'Wioska w dolinie',
-    emoji: '🏘️',
-    description: 'Gotowa osada na planszy 80 × 80 m: brama, droga przez rynek ze studnią, dwór, biblioteka, wieża, trzy chaty, staw i las pod górami.',
-    build: buildVillage,
   },
 ];
 
