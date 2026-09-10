@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PhoneBar, SubBar, TopBar } from './components/TopBar';
 import { LeftPanel } from './components/LeftPanel';
 import { RightPanel } from './components/RightPanel';
@@ -17,13 +17,22 @@ export default function App() {
   const selectedId = useStore((s) => s.selectedIds[0] ?? null);
   const vrActive = useStore((s) => s.vrActive);
   const viewMode = useStore((s) => s.viewMode);
+  const placing = useStore((s) => s.placing);
   const landscape = useMediaQuery(LANDSCAPE_Q);
   const phone = useMediaQuery(PHONE_Q) || landscape;
 
-  // na telefonie: wybór obiektu otwiera panel z notatką (w spacerze nie — zasłaniałby widok)
+  // na telefonie: wybór obiektu otwiera panel z notatką (w spacerze nie — zasłaniałby widok);
+  // obiekt zaznaczony przez postawienie z biblioteki nie otwiera panelu — użytkownik chce widzieć scenę
+  const wasPlacing = useRef(false);
   useEffect(() => {
+    if (wasPlacing.current) return;
     if (selectedId && phone && viewMode === 'editor') setMobile('right');
   }, [selectedId, phone, viewMode]);
+  useEffect(() => {
+    wasPlacing.current = !!placing;
+    // wybrany element do postawienia: szuflada biblioteki znika, zostaje sama scena z podglądem
+    if (placing && phone) setMobile(null);
+  }, [placing, phone]);
   // wejście w spacer chowa szuflady i menu, żeby nic nie zasłaniało sceny
   useEffect(() => {
     if (viewMode !== 'editor') {
