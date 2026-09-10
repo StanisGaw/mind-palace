@@ -48,6 +48,10 @@ interface State {
   fly: FlyRequest | null;
   vrActive: boolean;
   toast: string | null;
+  /** Ekran ładowania: napis widoczny nad sceną, `null` gdy wszystko wczytane. */
+  loading: string | null;
+  /** Trwa odroczona budowa sceny — scena nie może jeszcze schować ekranu ładowania. */
+  loadingHold: boolean;
   focusRequest: number; // licznik: dopasuj kamerę do sceny
   cameraCmd: { kind: CameraKind; seq: number } | null;
   topView: boolean; // aktywny rzut z góry na całą planszę
@@ -129,6 +133,7 @@ interface State {
   setHover(id: string | null): void;
   setTool(t: Tool): void;
   setViewMode(v: ViewMode): void;
+  setLoading(label: string | null): void;
   setLeftTab(t: 'library' | 'scene' | 'sets'): void;
   // notatki
   setNote(id: string, title: string, body: string): void;
@@ -348,6 +353,18 @@ function pruneSelection(get: () => State, set: (s: Partial<State>) => void, snap
 }
 
 let saveTimer: number | undefined;
+/**
+ * Odkłada ciężką pracę do chwili, gdy przeglądarka namaluje bieżącą klatkę (ekran ładowania musi być już
+ * widoczny). Dwa `requestAnimationFrame`: pierwszy trafia przed malowaniem, dopiero drugi po nim.
+ */
+function afterPaint(fn: () => void) {
+  if (typeof requestAnimationFrame !== 'function') {
+    setTimeout(fn, 0);
+    return;
+  }
+  requestAnimationFrame(() => requestAnimationFrame(fn));
+}
+
 function scheduleSave(get: () => State, set: (s: Partial<State>) => void) {
   set({ saved: false });
   window.clearTimeout(saveTimer);
@@ -380,6 +397,8 @@ export const useStore = create<State>((set, get) => ({
   fly: null,
   vrActive: false,
   toast: null,
+  loading: 'Wczytywanie sceny…',
+  loadingHold: false,
   focusRequest: 0,
   cameraCmd: null,
   topView: false,
@@ -1159,18 +1178,32 @@ export const useStore = create<State>((set, get) => ({
   },
 
   createPalace(name, template) {
-    const p = buildFromTemplate(template ?? DEFAULT_TEMPLATE, name ?? `Nowy pałac ${get().data.palaces.length + 1}`);
-    const d = get().data;
-    // gotowa kompozycja zajmuje całą planszę — bez wykadrowania kamera zostałaby w poprzednim ujęciu
-    set({ data: { ...d, palaces: [...d.palaces, p], currentId: p.id }, selectedIds: [], undoStack: [], redoStack: [], review: null, focusRequest: get().focusRequest + 1 });
-    scheduleSave(get, set);
+    // ekran ładowania musi zdążyć się narysować, zanim zacznie się budowa sceny (wioska to setki obiektów),
+    // dlatego sama zmiana danych jest odroczona o chwilę; `loadingHold` trzyma ekran do czasu podmiany pałacu
+    set({ loading: 'Budowanie pałacu…', loadingHold: true });
+    afterPaint(() => {
+      const p = buildFromTemplate(template ?? DEFAULT_TEMPLATE, name ?? `Nowy pałac ${get().data.palaces.length + 1}`);
+      const d = get().data;
+      // gotowa kompozycja zajmuje całą planszę — bez wykadrowania kamera zostałaby w poprzednim ujęciu
+      set({ data: { ...d, palaces: [...d.palaces, p], currentId: p.id }, selectedIds: [], undoStack: [], redoStack: [], review: null, focusRequest: get().focusRequest + 1, loadingHold: false });
+      scheduleSave(get, set);
+    });
   },
   switchPalace(id) {
     set({ groundBrush: false }); // pędzel planszy nie ma sensu w innej scenie, a zostawiony blokowałby obracanie widoku
     const d = get().data;
-    if (!d.palaces.some((p) => p.id === id)) return;
-    set({ data: { ...d, currentId: id }, selectedIds: [], undoStack: [], redoStack: [], review: null, editFloor: 0, focusRequest: get().focusRequest + 1 });
-    scheduleSave(get, set);
+    if (id === d.currentId || !d.palaces.some((p) => p.id === id)) return;
+    set({ loading: 'Wczytywanie pałacu…', loadingHold: true });
+    afterPaint(() => {
+      const cur = get().data;
+      // pałac mógł zniknąć w międzyczasie — wtedy zostajemy tam, gdzie jesteśmy, i tylko zdejmujemy ekran
+      if (!cur.palaces.some((p) => p.id === id)) {
+        set({ loadingHold: false });
+        return;
+      }
+      set({ data: { ...cur, currentId: id }, selectedIds: [], undoStack: [], redoStack: [], review: null, editFloor: 0, focusRequest: get().focusRequest + 1, loadingHold: false });
+      scheduleSave(get, set);
+    });
   },
   renamePalace(name) {
     get().setPalace((pl) => {
@@ -1308,6 +1341,9 @@ export const useStore = create<State>((set, get) => ({
   },
   setVrActive(vrActive) {
     set({ vrActive });
+  },
+  setLoading(label) {
+    if (get().loading !== label) set({ loading: label });
   },
   showToast(msg) {
     set({ toast: msg });

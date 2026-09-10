@@ -11,7 +11,7 @@ import { MOUNT_SPECS } from '../lib/ride';
 import { usePref } from '../lib/prefs';
 import { I } from './Icons';
 import { catalogItem } from '../catalog';
-import { COARSE_Q, useMediaQuery } from '../lib/media';
+import { COARSE_Q, LANDSCAPE_Q, PHONE_Q, useMediaQuery } from '../lib/media';
 import { isDrawn, maxFloorsOf } from '../lib/rooms';
 import { ReviewOverlay } from './ReviewOverlay';
 import { Tip } from './Tip';
@@ -38,10 +38,21 @@ export function Viewport() {
   const mount = riding ? MOUNT_SPECS[riding] : null;
   const descent = useStore((s) => s.descent);
   const padSeen = useStore((s) => s.padSeen);
+  const loading = useStore((s) => s.loading);
   const setSettings = useStore((s) => s.setSettings);
   const palace = useCurrentPalace();
   const activeBuildingId = useStore((s) => s.activeBuildingId);
   const isTouch = useMediaQuery(COARSE_Q);
+  // dwa osobne hooki: `||` pominąłby drugi, a zmienna liczba hooków między renderami wywala React
+  const narrow = useMediaQuery(PHONE_Q);
+  const landscapePhone = useMediaQuery(LANDSCAPE_Q);
+  const phone = narrow || landscapePhone;
+  const focusRequest = useStore((s) => s.focusRequest);
+  // na telefonie edytor zaczyna od rzutu z góry: mały ekran i palec lepiej znoszą planszę niż widok izometryczny;
+  // `focusRequest` (nowy albo przełączony pałac) kadruje scenę i wychodzi z rzutu, więc trzeba do niego wrócić
+  useEffect(() => {
+    if (phone && viewMode === 'editor' && !useStore.getState().topView) camera('topView');
+  }, [phone, viewMode, focusRequest, camera]);
   const placing = useStore((s) => s.placing);
   const setPlacing = useStore((s) => s.setPlacing);
   const [sticky, setSticky] = useState(false);
@@ -54,7 +65,16 @@ export function Viewport() {
 
   useEffect(() => {
     if (!hostRef.current) return;
-    const mgr = new SceneManager(hostRef.current);
+    let mgr: SceneManager;
+    try {
+      mgr = new SceneManager(hostRef.current);
+    } catch (err) {
+      // bez WebGL scena nie powstanie — ekran ładowania nie może wtedy zasłaniać interfejsu na zawsze
+      console.error(err);
+      useStore.getState().setLoading(null);
+      useStore.getState().showToast('Nie udało się uruchomić sceny 3D w tej przeglądarce.');
+      return;
+    }
     mgrRef.current = mgr;
     if (import.meta.env.DEV) (window as unknown as { __scene?: SceneManager }).__scene = mgr;
     setReady(true);
@@ -95,6 +115,13 @@ export function Viewport() {
       }
     >
       <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
+      {loading && (
+        <div className="loading-screen" role="status" aria-live="polite">
+          <div className="loading-mark">m</div>
+          <div className="loading-spinner" />
+          <div className="loading-label">{loading}</div>
+        </div>
+      )}
 
       {/* góra-lewo: tryb */}
       <div className="hud hud-top-left">

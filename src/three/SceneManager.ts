@@ -123,6 +123,8 @@ const FREEFALL_DRIFT = 2; // m/s — spadającym ciałem steruje się ledwo
 const BAIL_MIN_HEIGHT = 5; // m nad ziemią; niżej skok nie ma sensu — ląduj
 const CHUTE_AUTO = 20; // m nad ziemią czasza otwiera się sama: z 28 m/s hamuje przez kilkanaście metrów
 const TOP_VIEW_FOV = 18; // wąski kąt = obraz niemal ortograficzny
+/** Po tylu milisekundach ekran ładowania schodzi mimo trwającego pobierania — dalej dociąga się w tle. */
+const LOADING_TIMEOUT_MS = 20000;
 const tmpV = new THREE.Vector3();
 const tmpV2 = new THREE.Vector3();
 const tmpV3 = new THREE.Vector3();
@@ -351,6 +353,9 @@ export class SceneManager {
   private ride: Ride | null = null;
   /** Pliki modeli, których wczytanie już ruszyło. */
   private assetLoads = new Set<string>();
+  /** Trwające wczytywania (fizyka, modele z plików) — dopóki coś jest w środku, widać ekran ładowania. */
+  private pendingLoads = new Set<string>();
+  private loadingSince = 0;
   /** Wejścia jazdy zbierane między klatkami (skok i ogień to zdarzenia, reszta liczona z klawiszy co klatkę). */
   private rideInput: RideInput = { ...IDLE_INPUT };
   private rideEnv: RideEnv = { groundAt: (x, z) => this.groundHeightAt(x, z), radius: 24, scale: 1 };
@@ -1133,12 +1138,14 @@ export class SceneManager {
   private ensureAsset(file: string) {
     if (this.assetLoads.has(file)) return;
     this.assetLoads.add(file);
+    this.pendingLoads.add(`asset:${file}`);
     loadAsset(file)
       .then(() => {
         if (this.disposed || !this.lastPalace) return;
         this.syncObjects(this.lastPalace);
       })
-      .catch((err) => console.warn('Nie udało się wczytać modelu', file, err));
+      .catch((err) => console.warn('Nie udało się wczytać modelu', file, err))
+      .finally(() => this.pendingLoads.delete(`asset:${file}`));
   }
 
   /** Przełącza klip z krótkim przenikaniem; ten sam klip tylko zmienia tempo. */
@@ -1352,9 +1359,11 @@ export class SceneManager {
       return;
     }
     this.physicsLoading = true;
+    this.pendingLoads.add('physics');
     Physics.load()
       .then((p) => {
         this.physicsLoading = false;
+        this.pendingLoads.delete('physics');
         if (this.disposed) {
           p.dispose();
           return;
@@ -1364,6 +1373,7 @@ export class SceneManager {
       })
       .catch((err) => {
         this.physicsLoading = false;
+        this.pendingLoads.delete('physics');
         console.error(err);
         useStore.getState().showToast('Nie udało się wczytać fizyki — chodzenie działa w trybie uproszczonym.');
       });
@@ -3547,6 +3557,23 @@ export class SceneManager {
       this.renderer.render(this.scene, this.camera);
       if (this.mode === 'editor') this.labelRenderer.render(this.scene, this.camera);
     }
+    this.syncLoadingScreen();
+  }
+
+  /**
+   * Ekran ładowania znika po narysowanej klatce, a wraca na czas wczytywania fizyki albo modeli z plików.
+   * Podczas odroczonej budowy pałacu (`loadingHold`) magazyn sam trzyma ekran — scena go wtedy nie rusza.
+   */
+  private syncLoadingScreen() {
+    const st = useStore.getState();
+    if (st.loadingHold) return;
+    let want = this.pendingLoads.has('physics') ? 'Wczytywanie fizyki…' : this.pendingLoads.size > 0 ? 'Wczytywanie modeli…' : null;
+    // zawieszone pobieranie (sieć bez odrzucenia obietnicy) nie może zasłaniać sceny w nieskończoność
+    if (want) {
+      if (!this.loadingSince) this.loadingSince = performance.now();
+      else if (performance.now() - this.loadingSince > LOADING_TIMEOUT_MS) want = null;
+    } else this.loadingSince = 0;
+    if (st.loading !== want) st.setLoading(want);
   }
 
   /** Opis otoczenia dla zwierząt: przeszkody, miejsca do siadania i ukształtowanie terenu. */

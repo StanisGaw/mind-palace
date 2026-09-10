@@ -117,6 +117,12 @@ input, textarea, select { outline: none; }
 .obj-label .num.dot { background: var(--orange); width: 8px; height: 8px; margin: 0 5px; }
 .obj-label.current { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
 .hud { position: absolute; z-index: 5; }
+/* ekran ładowania: zasłania scenę (pod HUD-em, żeby przyciski trybów zostały dostępne) do pierwszej klatki i podczas wczytywania fizyki albo modeli */
+.loading-screen { position: absolute; inset: 0; z-index: 4; display: grid; place-content: center; justify-items: center; gap: 14px; background: #f3f1ea; color: var(--muted); }
+.loading-mark { width: 46px; height: 46px; border-radius: 14px; background: var(--accent); color: #fff; font-weight: 800; font-size: 26px; display: grid; place-items: center; }
+.loading-spinner { width: 30px; height: 30px; border-radius: 50%; border: 3px solid rgba(47,90,60,0.18); border-top-color: var(--accent); animation: loading-spin 0.9s linear infinite; }
+.loading-label { font-size: 13px; letter-spacing: 0.02em; }
+@keyframes loading-spin { to { transform: rotate(360deg); } }
 .hud-top-left { display: flex; top: 16px; left: 16px; gap: 8px; align-items: center; flex-wrap: wrap; }
 .hud-top-right { display: flex; top: 16px; right: 16px; gap: 8px; }
 .hud-tools-left { top: 70px; left: 16px; }
