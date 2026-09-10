@@ -36,6 +36,12 @@ export function Viewport() {
   const doorPrompt = useStore((s) => s.doorPrompt);
   const riding = useStore((s) => s.riding);
   const mount = riding ? MOUNT_SPECS[riding] : null;
+  // galop z przycisku trzyma się do ponownego dotknięcia; nowa jazda zaczyna stępem
+  const [gallop, setGallop] = useState(false);
+  useEffect(() => {
+    setGallop(false);
+    if (mgrRef.current) mgrRef.current.touchSprint = false;
+  }, [riding]);
   const descent = useStore((s) => s.descent);
   const padSeen = useStore((s) => s.padSeen);
   const loading = useStore((s) => s.loading);
@@ -327,7 +333,7 @@ export function Viewport() {
           <div className="crosshair" />
           {!isTouch && <FpLockHint />}
           {isTouch && <Joystick onChange={(x, y) => { if (mgrRef.current) mgrRef.current.joystick = { x, y }; }} />}
-          {isTouch && (!mount || (mount.labels.action && mount.kind !== 'air' && !mount.leap)) && descent !== 'chute' && (
+          {isTouch && !mount && descent !== 'chute' && (
             <button
               className="jump-btn"
               onPointerDown={(e) => {
@@ -335,10 +341,10 @@ export function Viewport() {
                 mgrRef.current?.jump();
               }}
             >
-              {descent === 'fall' ? 'Spadochron' : (mount?.labels.action ?? 'Skok')}
+              {descent === 'fall' ? 'Spadochron' : 'Skok'}
             </button>
           )}
-          {isTouch && mount && (mount.kind === 'air' || mount.leap) && (
+          {isTouch && mount && (
             <div className="throttle-btns">
               {mount.labels.action && (
                 <button
@@ -351,22 +357,39 @@ export function Viewport() {
                   {mount.labels.action}
                 </button>
               )}
-              <button
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  mgrRef.current?.throttleStep(0.25);
-                }}
-              >
-                {mount.kind === 'hover' ? 'W górę' : 'Gaz +'}
-              </button>
-              <button
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  mgrRef.current?.throttleStep(-0.25);
-                }}
-              >
-                {mount.kind === 'hover' ? 'W dół' : 'Gaz −'}
-              </button>
+              {mount.kind === 'air' || mount.kind === 'hover' || mount.leap ? (
+                <>
+                  <button
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      mgrRef.current?.throttleStep(0.25);
+                    }}
+                  >
+                    {mount.kind === 'hover' ? 'W górę' : 'Gaz +'}
+                  </button>
+                  <button
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      mgrRef.current?.throttleStep(-0.25);
+                    }}
+                  >
+                    {mount.kind === 'hover' ? 'W dół' : 'Gaz −'}
+                  </button>
+                </>
+              ) : (
+                <button
+                  className={gallop ? 'active' : ''}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    setGallop((v) => {
+                      if (mgrRef.current) mgrRef.current.touchSprint = !v;
+                      return !v;
+                    });
+                  }}
+                >
+                  Galop
+                </button>
+              )}
             </div>
           )}
         </>

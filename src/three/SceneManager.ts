@@ -7,8 +7,9 @@ import { useStore, descendants, movableRoots, selectionRoots } from '../store';
 import { yawOfObject } from '../lib/transform';
 import type { CameraKind, FurnitureSet, Palace, PalaceObject, RoomSpec, Vec3, ViewMode } from '../types';
 import { AMBIENCES, catalogItem, hasInterior } from '../catalog';
-import { buildModel, buildParachute, disposeObject, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN, MOUNT_ANCHORS, ASSET_MOUNTS, type BuildCtx } from './builders';
+import { buildModel, buildParachute, disposeObject, modelBounds, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN, MOUNT_ANCHORS, ASSET_MOUNTS, type BuildCtx } from './builders';
 import { assetLoaded, findClip, loadAsset } from './assets';
+import { pushOut, type Obstacle } from '../lib/obstacles';
 import { mergeByMaterial } from './merge';
 import { IDLE_INPUT, MOUNT_SPECS, advanceTrail, isMount, newRideState, rideSettled, stepRide, trailPoint, type MountId, type MountSpec, type RideEnv, type RideInput, type RideState } from '../lib/ride';
 import { ART_VARIANTS } from './art';
@@ -54,6 +55,8 @@ interface Entry {
   doorPivot?: THREE.Group;
   /** Ruchome części wierzchowca po nazwie z `userData.rig` (śmigło, skrzydła, nogi, segmenty) — scena rusza nimi w jeździe. */
   parts: Map<string, THREE.Object3D>;
+  /** Ramka modelu w jego układzie — obrys przeszkody dla zwierząt i wierzchowców. */
+  bounds: THREE.Box3;
   /** Model z pliku ze szkieletem: mikser i bieżący klip (postój, stęp, galop, lot). */
   anim?: { mixer: THREE.AnimationMixer; clips: THREE.AnimationClip[]; current: string | null; action: THREE.AnimationAction | null };
   /** Budynek z wnętrzem w tej samej scenie: dach do schowania, stropy pięter i ściany do chowania od strony kamery. */
@@ -353,6 +356,11 @@ export class SceneManager {
   private ride: Ride | null = null;
   /** Pliki modeli, których wczytanie już ruszyło. */
   private assetLoads = new Set<string>();
+  /** Obrysy obiektów dla zwierząt i jazdy; liczone na nowo po każdej zmianie pałacu. */
+  private obstacleCache: Obstacle[] | null = null;
+  /** Galop z przycisku na telefonie (odpowiednik trzymanego Shift). */
+  touchSprint = false;
+  private rideHit: string | null = null;
   /** Trwające wczytywania (fizyka, modele z plików) — dopóki coś jest w środku, widać ekran ładowania. */
   private pendingLoads = new Set<string>();
   private loadingSince = 0;
@@ -1028,7 +1036,7 @@ export class SceneManager {
         group.traverse((c) => (c.userData.objectId = o.id));
         this.scene.add(group);
         const item = catalogItem(o.type);
-        e = { id: o.id, type: o.type, group, model, height: modelHeight(model), footprint: item.footprint, label: null, labelEl: null, labelKey: '', panel: null, panelKey: '', transformKey: '', emitter: null, buildKey: key, inplace: isInPlace(o), roof: null, slabs: [], walls: [], lights: [], parts: new Map() };
+        e = { id: o.id, type: o.type, group, model, height: modelHeight(model), footprint: item.footprint, label: null, labelEl: null, labelKey: '', panel: null, panelKey: '', transformKey: '', emitter: null, buildKey: key, inplace: isInPlace(o), roof: null, slabs: [], walls: [], lights: [], parts: new Map(), bounds: modelBounds(model) };
         model.traverse((c) => {
           const l = c as THREE.PointLight;
           if (!l.isPointLight) return;
@@ -1110,6 +1118,7 @@ export class SceneManager {
       }
     }
     for (const [id, e] of this.entries) if (!seen.has(id)) this.removeEntry(e);
+    this.obstacleCache = null;
   }
 
   /**
@@ -3577,13 +3586,49 @@ export class SceneManager {
   }
 
   /** Opis otoczenia dla zwierząt: przeszkody, miejsca do siadania i ukształtowanie terenu. */
+  /**
+   * Obrysy obiektów w poziomie: prostokąt z ramki modelu obrócony jak obiekt, z podłogą i szczytem. Drzewa
+   * i inne pnie dają tylko pień (pod koroną da się przejść), zwierzęta i rzeczy bez bryły — nic.
+   */
+  private obstacles(): Obstacle[] {
+    if (this.obstacleCache) return this.obstacleCache;
+    const list: Obstacle[] = [];
+    for (const e of this.entries.values()) {
+      if (spawnKind(e.type) || !e.group.visible) continue;
+      const kind = colliderKind(e.type);
+      if (kind === 'none') continue;
+      const p = e.group.position;
+      const s = e.group.scale;
+      const yaw = e.group.rotation.y;
+      if (kind === 'cylinder') {
+        const r = Math.max(e.footprint * 0.3, 0.2) * hs(e);
+        list.push({ id: e.id, x: p.x, z: p.z, yaw: 0, hx: r, hz: r, bottom: p.y, top: p.y + e.height * s.y });
+        continue;
+      }
+      const b = e.bounds;
+      if (b.isEmpty()) continue;
+      const cx = ((b.min.x + b.max.x) / 2) * s.x;
+      const cz = ((b.min.z + b.max.z) / 2) * s.z;
+      list.push({
+        id: e.id,
+        x: p.x + cx * Math.cos(yaw) + cz * Math.sin(yaw),
+        z: p.z - cx * Math.sin(yaw) + cz * Math.cos(yaw),
+        yaw,
+        hx: ((b.max.x - b.min.x) / 2) * s.x,
+        hz: ((b.max.z - b.min.z) / 2) * s.z,
+        bottom: p.y + b.min.y * s.y,
+        top: p.y + b.max.y * s.y,
+      });
+    }
+    this.obstacleCache = list;
+    return list;
+  }
+
   private worldInfo(): WorldInfo {
-    const obstacles: WorldInfo['obstacles'] = [];
+    const obstacles = this.obstacles();
     const perches: WorldInfo['perches'] = [];
     for (const e of this.entries.values()) {
       if (spawnKind(e.type)) continue;
-      const r = e.footprint * 0.8 * hs(e);
-      if (!e.inplace) obstacles.push({ x: e.group.position.x, z: e.group.position.z, r });
       const top = e.group.position.y + e.height * e.group.scale.y;
       if (e.type === 'tree' || e.type === 'cypress' || e.type === 'palm') perches.push({ x: e.group.position.x, y: top * 0.75, z: e.group.position.z, kind: 'tree' });
       else if (hasInterior(e.type)) perches.push({ x: e.group.position.x, y: top * 0.9, z: e.group.position.z, kind: 'roof' });
@@ -3911,6 +3956,8 @@ export class SceneManager {
     st.setRiding(e.type);
     st.setDoorPrompt(null);
     st.setPlacing(null);
+    this.touchSprint = false;
+    this.rideHit = null;
     st.showToast(this.padSeen ? spec.labels.toastPad : spec.labels.toastKeys);
     this.applyLighting();
   }
@@ -4203,7 +4250,7 @@ export class SceneManager {
       // koń: W/S to naprzód i wstecz, gałki jak w spacerze (do przodu to ujemne Y), skręt jak przechył w locie
       inp.throttle = clamp(w - sKey - this.joystick.y - this.pad.y, -1, 1);
       inp.turn = clamp(dKey - aKey + eKey - q + this.joystick.x + this.pad.x + this.padYaw, -1, 1);
-      inp.sprint = shift > 0 || this.padSprint;
+      inp.sprint = shift > 0 || this.padSprint || this.touchSprint;
       inp.pitch = 0;
       inp.roll = 0;
       inp.yaw = 0;
@@ -4222,6 +4269,19 @@ export class SceneManager {
     // skok i ogień to zdarzenia — zużyte w tym kroku
     inp.jump = false;
     inp.fire = false;
+
+    // zderzenie z budynkiem albo drzewem: wierzchowiec staje przy ścianie, maszyna w powietrzu traci pęd
+    const bump = pushOut(s.x, s.z, this.obstacles(), e.footprint * 0.5 * hs(e), s.y, e.id);
+    if (bump.hit) {
+      s.x = bump.x;
+      s.z = bump.z;
+      s.speed = 0;
+      if (spec.kind === 'air') s.throttle = 0;
+      if (this.rideHit !== bump.hit.id && s.pilot) {
+        useStore.getState().showToast(spec.kind === 'air' ? 'Zderzenie! Maszyna traci pęd.' : 'Wierzchowiec staje przed przeszkodą.');
+      }
+      this.rideHit = bump.hit.id;
+    } else this.rideHit = null;
 
     // maszyna bez pilota: po wytoczeniu staje i wraca do pałacu jako zwykły obiekt
     if (rideSettled(s)) {

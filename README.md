@@ -58,16 +58,17 @@ npm run build        # produkcyjny build do dist/
   - **Smok wierzchowy** — to samo ciało co dziki smok, osiodłane. Lata jak śmigłowiec: `Shift`/`Ctrl` unosi
     i opuszcza, puszczone zawisa w miejscu, `W`/`S` — do przodu i do tyłu, `A`/`D` — skręt w locie, `Q`/`E` —
     obrót w miejscu; `Spacja` albo kliknięcie — zionie ogniem.
-  - **Koń** — srokaty, pod siodłem. `W` — stęp, `Shift` — galop, `S` — cofanie, `A`/`D` — skręt także
-    w miejscu, `Spacja` — sus w górę. Trzyma się gruntu, więc wjeżdża na wzgórza wokół planszy.
+  - **Koń** — model GLB z Poly Pizza (Quaternius, CC0; `public/models/CREDITS.txt`) z animacją stępu,
+    galopu i skoku. `W` — stęp, `Shift` — galop (na telefonie przycisk **Galop**), `S` — cofanie, `A`/`D` —
+    skręt także w miejscu, `Spacja` — sus w górę. Trzyma się gruntu, więc wjeżdża na wzgórza wokół planszy.
   - **Czerw pustynny** — zaparkowany stoi z głową uniesioną z ziemi, w jeździe prostuje głowę i ciągnie
     za sobą segmenty ciała śladem głowy. `Shift`/`Ctrl` — powolny rozpęd i hamowanie, `A`/`D` — skręt
     szerokim łukiem, `Spacja` — wyskok z piasku łukiem z rozwartą paszczą. Suwak wielkości robi z niego
     olbrzyma.
-  - **Koń 2** i **Smok 2** — te same wierzchowce z gotowych modeli GLB (Poly Pizza, Quaternius, CC0;
-    `public/models/CREDITS.txt`) z animacją szkieletową: stęp, galop i skok konia, zawis i szybki lot smoka.
-    Plik ładuje się raz (`three/assets.ts`), każdy obiekt dostaje klon ze szkieletem, a wpis buduje się na
-    nowo, gdy model dojedzie.
+  - **Przeszkody** — obrysy obiektów (`lib/obstacles.ts`: obrócony prostokąt z ramki modelu, z podłogą
+    i szczytem) zatrzymują wierzchowce i maszyny; nad dachem przelatuje się swobodnie. Zwierzęta omijają
+    obrysy i zawracają po otarciu. Model konia ładuje się raz (`three/assets.ts`), każdy obiekt dostaje klon
+    ze szkieletem, a wpis buduje się na nowo, gdy plik dojedzie.
   Dynamika jazdy i lotu to czyste funkcje w `lib/ride.ts` (`stepAir`, `stepHover`, `stepGround`) z testami.
 - **Elewacja i dekoracje** — budynki mają wbudowane okna z szybami, te same na bryle, w powłoce
   w miejscu i w pokoju ładowanym (z widokiem „dnia” za szybą). Okno, balkon i taras z biblioteki
@@ -214,12 +215,13 @@ src/
   lib/prefs.ts        preferencje interfejsu (zwinięte i ukryte kategorie, jakość obrazu)
   lib/quality.ts      presety jakości obrazu i automat rozdzielczości
   lib/ride.ts         wierzchowce: tabela pojazdów, dynamika lotu i jazdy po ziemi, ślad czerwia
+  lib/obstacles.ts    obrysy obiektów: odległość, wypychanie i odpychanie dla zwierząt i jazdy
   lib/landscapes.ts   zapisane zestawy otoczenia
   lib/textureStore.ts własne tekstury nawierzchni
   three/textures.ts   proceduralne nawierzchnie
   three/wildlife.ts   zwierzęta: modele, zachowania, animacja
   three/builders.ts   proceduralne modele low-poly + kotwice drzwi, siodeł i emiterów
-  three/assets.ts     modele z plików GLB (wierzchowce z Poly Pizza): cache, klon ze szkieletem, klipy
+  three/assets.ts     modele z plików GLB (koń z Poly Pizza): cache, klon ze szkieletem, klipy
   three/interior.ts   proceduralne wnętrza budynków
   three/terrain.ts    pierścień krajobrazu (heightmapa z szumu)
   three/merge.ts      scalanie siatek modelu po materiale (mniej wywołań rysowania)

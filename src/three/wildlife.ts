@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mat } from './builders';
 import { PuffEmitter, type Updatable } from './particles';
+import { insideAny, pushOut, steerAway, type Obstacle } from '../lib/obstacles';
 
 export type AnimalKind = 'bird' | 'dog' | 'cat' | 'squirrel' | 'wolf' | 'dragon';
 
@@ -11,8 +12,8 @@ export interface SpawnInfo {
 }
 
 export interface WorldInfo {
-  /** Przeszkody w poziomie: środek i promień. */
-  obstacles: { x: number; z: number; r: number }[];
+  /** Przeszkody w poziomie: obrysy obiektów z wysokością (`lib/obstacles.ts`). */
+  obstacles: Obstacle[];
   /** Miejsca, na których zwierzę może usiąść (korona drzewa, dach, ławka). */
   perches: { x: number; y: number; z: number; kind: 'tree' | 'roof' | 'seat' }[];
   heightAt: (x: number, z: number) => number;
@@ -349,10 +350,14 @@ class Creature {
 
   private pickWander(world: WorldInfo) {
     const r = this.kind === 'wolf' ? 8 : 6;
-    const a = Math.random() * Math.PI * 2;
-    const d = 1.5 + Math.random() * r;
-    const [x, z] = world.clamp(this.home.x + Math.cos(a) * d, this.home.z + Math.sin(a) * d);
-    this.target.set(x, 0, z);
+    // cel poza obrysami budynków — inaczej zwierzę stałoby pod ścianą, próbując wejść do środka
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = 1.5 + Math.random() * r;
+      const [x, z] = world.clamp(this.home.x + Math.cos(a) * d, this.home.z + Math.sin(a) * d);
+      this.target.set(x, 0, z);
+      if (!insideAny(x, z, world.obstacles, 0.6, world.heightAt(x, z))) break;
+    }
     this.timer = 2 + Math.random() * 3;
   }
 
@@ -398,6 +403,13 @@ class Creature {
         dir.normalize();
         this.vel.lerp(dir.multiplyScalar(speed), 1 - Math.exp(-dt * 2));
         p.addScaledVector(this.vel, dt);
+      }
+      // wieża czy góra na trasie: lot ślizga się wzdłuż ściany zamiast przez nią
+      const bump = pushOut(p.x, p.z, world.obstacles, 0.5, p.y);
+      if (bump.hit) {
+        p.x = bump.x;
+        p.z = bump.z;
+        this.vel.multiplyScalar(0.3);
       }
       const flap = Math.sin(this.phase * (big ? 3 : 12));
       for (const w2 of this.parts.wings) w2.rotation.z = flap * (big ? 0.35 : 0.9) * (w2.position.x < 0 ? -1 : 1);
@@ -472,19 +484,21 @@ class Creature {
       const maxSpeed = this.state === 'flee' ? 5 : this.state === 'growl' ? 1.2 : this.state === 'approach' ? 3 : this.kind === 'squirrel' ? 3.4 : 1.9;
       if (dist > 0.35 && this.state !== 'sit' && this.state !== 'react') {
         dir.normalize();
-        // omijanie przeszkód
-        for (const o of world.obstacles) {
-          const dx = p.x - o.x;
-          const dz = p.z - o.z;
-          const d = Math.hypot(dx, dz);
-          if (d < o.r + 0.6 && d > 1e-3) dir.add(new THREE.Vector3(dx / d, 0, dz / d).multiplyScalar((o.r + 0.6 - d) * 1.5));
-        }
+        // omijanie przeszkód: odpychanie od ścian rośnie, im bliżej brzegu obrysu
+        const [ax, az] = steerAway(p.x, p.z, world.obstacles, 1.2, p.y);
+        dir.add(new THREE.Vector3(ax, 0, az).multiplyScalar(1.5));
         dir.normalize();
         this.vel.lerp(dir.multiplyScalar(maxSpeed), 1 - Math.exp(-dt * 5));
       } else if (this.state !== 'climb') this.vel.multiplyScalar(1 - Math.min(1, dt * 6));
       const [nx, nz] = world.clamp(p.x + this.vel.x * dt, p.z + this.vel.z * dt);
-      p.x = nx;
-      p.z = nz;
+      // zderzenie ze ścianą: zwierzę staje przy niej i wybiera inny cel, zamiast przeciskać się na drugą stronę
+      const bump = pushOut(nx, nz, world.obstacles, 0.35, p.y);
+      p.x = bump.x;
+      p.z = bump.z;
+      if (bump.hit) {
+        this.vel.multiplyScalar(0.2);
+        if (this.state === 'wander' || this.state === 'patrol' || this.state === 'flee') this.pickWander(world);
+      }
       speed = Math.hypot(this.vel.x, this.vel.z);
       const groundY = world.heightAt(p.x, p.z);
       if (climbing && dist < 1.2) p.y += (this.target.y - p.y) * Math.min(1, dt * 2);
