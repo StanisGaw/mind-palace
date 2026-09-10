@@ -288,6 +288,7 @@ export const EXTRA_TEXTURES: TextureDef[] = [
   { id: 'parquet', name: 'Parkiet', kinds: ['floor'], draw: (ctx, s) => { herringbone(ctx, s); grain(ctx, s, 91, 6); } },
   { id: 'panels', name: 'Panele', kinds: ['floor'], draw: (ctx, s) => { fill(ctx, s, '#7a5a40'); boards(ctx, s, 4, ['#c9a27a', '#bf9670', '#d0aa83', '#b88f69'], 'rgba(110,80,55,0.35)', 93); } },
   { id: 'darkwood', name: 'Ciemne deski', kinds: ['floor', 'wall', 'facade'], draw: (ctx, s) => { fill(ctx, s, '#3e2c20'); boards(ctx, s, 6, ['#6b4a34', '#5f412e', '#734f38', '#583c2a'], 'rgba(40,25,15,0.5)', 95); } },
+  { id: 'asphalt', name: 'Asfalt', kinds: ['ground', 'floor'], draw: (ctx, s) => { fill(ctx, s, '#33363b'); grain(ctx, s, 103, 18, 0.05); grain(ctx, s, 104, 10, 0.3); } },
   { id: 'concrete', name: 'Beton', kinds: ['floor', 'wall', 'ground', 'facade'], draw: (ctx, s) => { fill(ctx, s, '#a8a7a2'); grain(ctx, s, 101, 16, 0.06); grain(ctx, s, 102, 8, 0.4); } },
   { id: 'tiles', name: 'Płytki', kinds: ['floor', 'wall'], draw: (ctx, s) => { tiles(ctx, s, 8, '#e9e4d8', '#c9c2b2', '#a9a396'); grain(ctx, s, 111, 5); } },
   { id: 'terracotta', name: 'Terakota', kinds: ['floor', 'ground'], draw: (ctx, s) => { bricks(ctx, s, 4, 4, '#a9634a', '#7d4a37', ['#c27a5d', '#b87055', '#c98366', '#b06a50']); grain(ctx, s, 121, 12); } },

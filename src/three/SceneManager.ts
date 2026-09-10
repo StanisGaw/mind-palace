@@ -1140,6 +1140,7 @@ export class SceneManager {
     if (ASSET_MOUNTS[o.type]) return { ...base, asset: assetLoaded(ASSET_MOUNTS[o.type].file) ? 1 : 0 };
     // regał i stos książek: układ tomów z ziarna obiektu
     if (o.type === 'shelf' || o.type === 'books') return { ...base, variant: hashString(o.id) % 1000 };
+    if (o.type === 'skyscraper' || o.type === 'megatower' || o.type === 'billboard' || o.type === 'neon' || o.type === 'block') return { ...base, variant: hashString(o.id) % 1000 };
     return base;
   }
 

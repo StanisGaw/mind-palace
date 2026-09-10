@@ -4,7 +4,7 @@ import { DOOR_OPENING, FACADE, SHELLS, SHELL_WALL_T, TOWER_R, WALL_SEGMENT, WALL
 import { subtractRect, type Rect } from '../lib/rects';
 import { paintingTexture } from './art';
 import { Noise2D } from './noise';
-import { grainTexture, textureById } from './textures';
+import { grainTexture, maxAnisotropy, textureById } from './textures';
 import { MATERIAL_DEFAULTS, MATERIAL_ROLES, paletteOf, type MaterialRole } from '../lib/materials';
 import type { MountId } from '../lib/ride';
 import { assetLoaded, cloneAsset } from './assets';
@@ -2029,10 +2029,295 @@ function buildRunway(g: THREE.Group) {
   }
 }
 
+// ---------- miasto: wieżowce, ekrany, neony ----------
+
+/** Kafel elewacji wieżowca: 4 okna w poziomie na 5 m i 16 w pionie na 40 m — okno co 1,25 × 2,5 m niezależnie od bryły. */
+const WIN_TILE_W = 5;
+const WIN_TILE_H = 40;
+
+const windowMats = new Map<number, THREE.MeshStandardMaterial>();
+/**
+ * Elewacja z siatką okien, część zapalonych na ciepło albo zimno. Ta sama kanwa jest mapą koloru i emisji,
+ * więc nocą okna świecą bez osobnych brył na każde z nich. Materiał jest współdzielony jak te z `mat()`
+ * (nie zwalnia go `disposeObject`); wariant zmienia układ zapalonych okien między sąsiednimi wieżami.
+ */
+function windowsMat(variant: number) {
+  let m = windowMats.get(variant);
+  if (m) return m;
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 512;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#1a1f28';
+  ctx.fillRect(0, 0, c.width, c.height);
+  let seed = (variant * 7919 + 17) >>> 0;
+  const rand = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  const lit = ['#ffe3a6', '#d2ecff', '#9fd9ff', '#ffd07a', '#f3f7ff'];
+  for (let row = 0; row < 16; row++) {
+    for (let col = 0; col < 4; col++) {
+      const on = rand() < 0.55;
+      ctx.fillStyle = on ? lit[Math.floor(rand() * lit.length)] : '#262d3a';
+      ctx.globalAlpha = on ? 0.55 + rand() * 0.45 : 1;
+      ctx.fillRect(col * 32 + 5, row * 32 + 4, 22, 24);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy();
+  m = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: new THREE.Color('#ffffff'), emissiveIntensity: 0.75, roughness: 0.35, metalness: 0.3 });
+  windowMats.set(variant, m);
+  return m;
+}
+
+const screenMats = new Map<number, THREE.MeshStandardMaterial>();
+const SLOGANS = ['MNEME', 'NEON', 'TAXI', 'ネオン', 'DATA', '記憶'];
+/** Ekran reklamowy: ciemne tło z ukośnymi pasami i hasło w dwóch kolorach neonu; świeci sam z siebie. */
+function screenMat(variant: number) {
+  let m = screenMats.get(variant);
+  if (m) return m;
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 256;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#0b0f1a';
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.globalAlpha = 0.35;
+  for (let i = -6; i < 14; i++) {
+    ctx.fillStyle = i % 2 ? '#ff2bd6' : '#2be8ff';
+    ctx.beginPath();
+    ctx.moveTo(i * 48, 0);
+    ctx.lineTo(i * 48 + 18, 0);
+    ctx.lineTo(i * 48 + 18 - 120, 256);
+    ctx.lineTo(i * 48 - 120, 256);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 120px sans-serif';
+  ctx.fillStyle = '#ff2bd6';
+  ctx.fillText(SLOGANS[variant % SLOGANS.length], 262, 134);
+  ctx.fillStyle = '#e9fbff';
+  ctx.fillText(SLOGANS[variant % SLOGANS.length], 256, 128);
+  ctx.font = 'bold 34px sans-serif';
+  ctx.fillStyle = '#2be8ff';
+  ctx.fillText('● ● ●  24h  ● ● ●', 256, 216);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy();
+  m = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: new THREE.Color('#ffffff'), emissiveIntensity: 1, roughness: 0.5 });
+  screenMats.set(variant, m);
+  return m;
+}
+
+function neonMat(color: string) {
+  return mat(color, { emissive: color, roughness: 0.4 });
+}
+
+/** Bryła wieżowca z oknami na ścianach; `y0` to spód. Kafel skaluje się z bryłą, więc okna nie rozciągają się. */
+function towerBlock(g: THREE.Group, w: number, h: number, d: number, x: number, y0: number, z: number, variant: number) {
+  return add(g, scaleUv(box(w, h, d), w / WIN_TILE_W, h / WIN_TILE_H), windowsMat(variant), x, y0 + h / 2, z);
+}
+
+/** Neonowa obwódka wokół prostokąta w × d na wysokości y — cztery rurki o grubości t tuż przy ścianach. */
+function neonRing(g: THREE.Group, w: number, d: number, y: number, t: number, color: string) {
+  const m = neonMat(color);
+  for (const s of [-1, 1]) {
+    add(g, box(w + 2 * t, t, t), m, 0, y, s * (d / 2 + t / 2)).castShadow = false;
+    add(g, box(t, t, d), m, s * (w / 2 + t / 2), y, 0).castShadow = false;
+  }
+}
+
+/** Wieżowiec: cokół z wejściem, szklana wieża 26 m, neonowe pasy i pionowe rurki na narożach, iglica z czerwonym światłem. */
+function buildSkyscraper(g: THREE.Group, ctx: BuildCtx) {
+  const v = ctx.variant ?? 0;
+  const dark = mat('#262a31', { roughness: 0.7, metalness: 0.2 });
+  add(g, box(8, 3, 8), dark, 0, 1.5, 0);
+  add(g, box(8.4, 0.3, 8.4), mat('#3a3f47', { roughness: 0.6 }), 0, 3.1, 0);
+  add(g, box(3.2, 2.4, 0.08), glassMat(), 0, 1.3, 4.02);
+  add(g, box(3.6, 0.25, 0.14), neonMat(C.neon2), 0, 2.72, 4.06).castShadow = false;
+  towerBlock(g, 6, 26, 6, 0, 3.25, 0, v);
+  const edge = neonMat(v % 2 ? C.neon1 : C.neon2);
+  for (const s of [-1, 1]) add(g, box(0.16, 26, 0.16), edge, s * 3.06, 16.25, 3.06).castShadow = false;
+  neonRing(g, 6, 6, 9, 0.14, C.neon1);
+  neonRing(g, 6, 6, 20, 0.14, C.neon2);
+  neonRing(g, 6, 6, 29.1, 0.16, C.neon1);
+  add(g, box(6.4, 0.5, 6.4), dark, 0, 29.5, 0);
+  add(g, box(2.4, 1.2, 2.4), dark, 0, 30.35, 0);
+  add(g, cyl(0.06, 0.1, 6, 6), mat(C.metal), 0, 33.9, 0);
+  add(g, sphere(0.2, 8), mat('#ff3b4a', { emissive: '#ff2030' }), 0, 37, 0);
+}
+
+/** Megawieżowiec: trzy cofające się bryły na cokole, ekran reklamowy na dolnej i neony wzdłuż tarasów. */
+function buildMegatower(g: THREE.Group, ctx: BuildCtx) {
+  const v = ctx.variant ?? 0;
+  const dark = mat('#262a31', { roughness: 0.7, metalness: 0.2 });
+  add(g, box(12, 4, 12), dark, 0, 2, 0);
+  add(g, box(12.4, 0.3, 12.4), mat('#3a3f47', { roughness: 0.6 }), 0, 4.1, 0);
+  add(g, box(4, 3.2, 0.08), glassMat(), 0, 1.7, 6.02);
+  add(g, box(4.6, 0.25, 0.14), neonMat(C.neon1), 0, 3.5, 6.06).castShadow = false;
+  const tiers: [number, number, number][] = [[10, 12, 4.25], [7.5, 12, 16.25], [5, 9, 28.25]];
+  tiers.forEach(([w, h, y0], i) => {
+    towerBlock(g, w, h, w, 0, y0, 0, v + i);
+    neonRing(g, w, w, y0 + h - 0.1, 0.14, i % 2 ? C.neon2 : C.neon1);
+    add(g, box(w + 0.4, 0.3, w + 0.4), dark, 0, y0 + h + 0.15, 0);
+  });
+  // ekran na fasadzie dolnej bryły, w ciemnej ramie
+  add(g, box(7, 4, 0.2), dark, 0, 11, 5.1);
+  add(g, box(6.4, 3.4, 0.06), screenMat(v), 0, 11, 5.22).castShadow = false;
+  add(g, box(2, 1, 2), dark, 0, 37.9, 0);
+  for (const s of [-1, 1]) add(g, cyl(0.05, 0.08, 4, 6), mat(C.metal), s * 1.6, 40.2, -1.6);
+  add(g, cyl(0.08, 0.12, 7, 6), mat(C.metal), 0, 41.8, 0);
+  add(g, sphere(0.22, 8), mat('#ff3b4a', { emissive: '#ff2030' }), 0, 45.4, 0);
+}
+
+/**
+ * Blok: powłoka domku (te same wymiary i drzwi) z płaskim dachem, ciemną elewacją, neonem nad wejściem
+ * i klimatyzatorami na dachu. Kolor neonu zależy od wariantu, żeby sąsiednie bloki się różniły.
+ */
+function buildBlock(g: THREE.Group, ctx: BuildCtx) {
+  const spec = SHELLS.block;
+  const { w, d, h } = spec.inner;
+  const dark = mat('#2a2e36', { roughness: 0.7, metalness: 0.2 });
+  const concrete = mat('#3a3d44', { roughness: 0.9 });
+  basePlate(g, ctx, 'block', w + 0.5, d + 0.5, 0.16, 0.08, 0, concrete);
+  shellBox(g, ctx, 'block', dark, concrete, mat(C.metal));
+  shellEntryRamp(g, spec, d / 2 + 0.8);
+  const v = ctx.variant ?? 0;
+  const door = spec.door!;
+  add(g, box(1.1, 0.08, 0.06), neonMat(v % 2 ? C.neon2 : C.neon1), door.x, spec.floorY + door.h + 0.18, d / 2 + SHELL_WALL_T + 0.04).castShadow = false;
+  // dach jest w grupie, którą klik w budynek chowa; `top` to szczyt muru parteru, wyższe piętra podnoszą grupę
+  const roof = roofGroup(g, roofLift(ctx, spec));
+  const top = spec.floorY + h;
+  add(roof, box(w + 0.6, 0.22, d + 0.6), dark, 0, top + 0.1, 0);
+  neonRing(roof, w + 0.6, d + 0.6, top + 0.28, 0.06, v % 2 ? C.neon1 : C.neon2);
+  const unit = mat('#4a4f58', { roughness: 0.6, metalness: 0.3 });
+  add(roof, box(0.6, 0.4, 0.5), unit, w * 0.25, top + 0.41, -d * 0.2);
+  add(roof, box(0.5, 0.35, 0.5), unit, -w * 0.3, top + 0.38, d * 0.15);
+  add(roof, cyl(0.03, 0.04, 1.6, 6), mat(C.metal), -w * 0.35, top + 1.0, -d * 0.3);
+  add(roof, sphere(0.07, 6), mat('#ff3b4a', { emissive: '#ff2030' }), -w * 0.35, top + 1.85, -d * 0.3);
+}
+
+/** Ekran reklamowy na dwóch słupach; przód (+Z) świeci. */
+function buildBillboard(g: THREE.Group, ctx: BuildCtx) {
+  const metal = mat(C.metal);
+  for (const s of [-1, 1]) {
+    add(g, cyl(0.12, 0.16, 0.2, 8), metal, s * 1.7, 0.1, 0);
+    add(g, cyl(0.07, 0.09, 4.2, 8), metal, s * 1.7, 2.2, 0);
+  }
+  add(g, box(4.4, 2.5, 0.2), mat('#262a31', { roughness: 0.7, metalness: 0.2 }), 0, 5.35, 0);
+  add(g, box(4.1, 2.2, 0.06), screenMat(ctx.variant ?? 0), 0, 5.35, 0.12).castShadow = false;
+  neonRing(g, 4.1, 0.06, 4.2, 0.05, C.neon2);
+  neonRing(g, 4.1, 0.06, 6.5, 0.05, C.neon2);
+}
+
+/** Neon: szyld na słupie z rurkami ułożonymi w dwa znaki (glify z `RUNES`) i błękitną obwódką; przód to +Z. */
+function buildNeon(g: THREE.Group, ctx: BuildCtx) {
+  const metal = mat(C.metal);
+  add(g, cyl(0.14, 0.18, 0.16, 8), metal, 0, 0.08, 0);
+  add(g, cyl(0.05, 0.06, 3.2, 8), metal, 0, 1.6, 0);
+  add(g, box(1.5, 1.0, 0.08), mat('#1c1f26', { roughness: 0.6 }), 0, 3.1, 0);
+  const border = neonMat(C.neon2);
+  for (const s of [-1, 1]) {
+    add(g, box(1.5, 0.04, 0.04), border, 0, 3.1 + s * 0.46, 0.05).castShadow = false;
+    add(g, box(0.04, 0.96, 0.04), border, s * 0.72, 3.1, 0.05).castShadow = false;
+  }
+  const tube = neonMat(C.neon1);
+  const v = ctx.variant ?? 0;
+  const glyphs = [RUNES[v % RUNES.length], RUNES[(v * 7 + 3) % RUNES.length]];
+  glyphs.forEach((glyph, gi) => {
+    const cx = gi ? 0.34 : -0.34;
+    const size = 0.6;
+    for (const line of glyph) {
+      for (let i = 1; i < line.length; i++) {
+        const [ax, ay] = line[i - 1];
+        const [bx, by] = line[i];
+        const x0 = cx + (ax - 0.5) * size;
+        const y0 = 3.1 + (0.5 - ay) * size;
+        const x1 = cx + (bx - 0.5) * size;
+        const y1 = 3.1 + (0.5 - by) * size;
+        const len = Math.hypot(x1 - x0, y1 - y0);
+        add(g, box(len + 0.045, 0.045, 0.045), tube, (x0 + x1) / 2, (y0 + y1) / 2, 0.07, [0, 0, Math.atan2(y1 - y0, x1 - x0)]).castShadow = false;
+      }
+    }
+  });
+  const light = new THREE.PointLight(C.neon1, 4, 8, 2);
+  light.position.set(0, 3.0, 0.6);
+  g.add(light);
+}
+
+/** Latarnia uliczna: słup z wysięgnikiem nad jezdnią (w stronę +Z) i zimnym światłem. */
+function buildStreetlamp(g: THREE.Group) {
+  const metal = mat(C.metal);
+  add(g, cyl(0.14, 0.2, 0.24, 8), metal, 0, 0.12, 0);
+  add(g, cyl(0.05, 0.08, 5.2, 8), metal, 0, 2.6, 0);
+  add(g, box(0.08, 0.08, 1.5), metal, 0, 5.16, 0.72);
+  add(g, box(0.5, 0.12, 0.34), mat('#2b2f36', { roughness: 0.5, metalness: 0.3 }), 0, 5.1, 1.45);
+  add(g, box(0.4, 0.03, 0.24), mat('#dff1ff', { emissive: '#cfe8ff' }), 0, 5.03, 1.45).castShadow = false;
+  const light = new THREE.PointLight('#cfe6ff', 5, 12, 2);
+  light.position.set(0, 4.9, 1.45);
+  g.add(light);
+}
+
+/**
+ * Latająca taksówka: żółty kadłub bez kół na czterech silnikach ze świecącymi dyszami, przeszklona kabina,
+ * szachownica na burtach i szyld na dachu. Przód to −Z (jak samolot); na postoju stoi na płozach.
+ */
+function buildHovercar(g: THREE.Group) {
+  const body = mat('#f0b929', { roughness: 0.5, metalness: 0.15 });
+  const dark = mat('#23252b', { roughness: 0.6, metalness: 0.3 });
+  const metal = mat(C.metal);
+  add(g, box(1.9, 0.3, 4.0), dark, 0, 0.62, -0.2);
+  add(g, box(2.0, 0.65, 4.4), body, 0, 1.08, -0.2);
+  add(g, box(1.6, 0.4, 0.5), body, 0, 1.0, -2.6);
+  // kabina: szyby między słupkami, dach z szyldem
+  add(g, box(1.62, 1.2, 2.2), glassMat(), 0, 2.0, -0.1);
+  for (const x of [-0.79, 0.79]) for (const z of [-1.18, 0.98]) add(g, box(0.08, 1.2, 0.08), dark, x, 2.0, z);
+  add(g, box(1.74, 0.08, 2.3), body, 0, 2.64, -0.1);
+  add(g, box(0.62, 0.22, 0.32), mat('#ffe27a', { emissive: '#ffcc44' }), 0, 2.79, -0.1);
+  // wnętrze: fotel, deska rozdzielcza, wolant
+  add(g, box(0.62, 0.12, 0.52), mat(C.velvet), 0, 1.46, 0.25);
+  add(g, box(0.62, 0.5, 0.1), mat(C.velvet), 0, 1.75, 0.52);
+  add(g, box(1.4, 0.25, 0.3), dark, 0, 1.52, -0.95);
+  add(g, box(0.5, 0.05, 0.05), mat('#2be8ff', { emissive: '#2be8ff' }), 0, 1.66, -0.95).castShadow = false;
+  add(g, cyl(0.03, 0.03, 0.4, 6), metal, 0, 1.6, -0.55, [0.6, 0, 0]);
+  add(g, box(0.34, 0.05, 0.14), dark, 0, 1.78, -0.66);
+  // szachownica na burtach
+  for (let i = 0; i < 10; i++) {
+    for (const s of [-1, 1]) add(g, box(0.05, 0.16, 0.16), mat(i % 2 ? '#111318' : '#f2f2f0', { roughness: 0.6 }), s * 1.02, 1.28, -1.7 + i * 0.3).castShadow = false;
+  }
+  // światła, silniki tylne, dysze nośne i płozy
+  for (const s of [-1, 1]) {
+    add(g, box(0.3, 0.12, 0.05), mat('#fff6d5', { emissive: '#fff1c4' }), s * 0.6, 1.12, -2.86).castShadow = false;
+    add(g, cyl(0.24, 0.26, 0.7, 10), dark, s * 0.6, 1.1, 2.2, [Math.PI / 2, 0, 0]);
+    add(g, cyl(0.18, 0.18, 0.04, 10), mat('#ff8a3d', { emissive: '#ff6a1a' }), s * 0.6, 1.1, 2.57, [Math.PI / 2, 0, 0]).castShadow = false;
+    for (const z of [-1.4, 1.1]) {
+      add(g, cyl(0.34, 0.3, 0.42, 10), dark, s * 1.1, 0.72, z);
+      add(g, cyl(0.24, 0.24, 0.04, 10), mat('#7fe9ff', { emissive: '#3fd8ff' }), s * 1.1, 0.5, z).castShadow = false;
+    }
+    add(g, box(0.14, 0.12, 2.6), metal, s * 0.75, 0.06, -0.2);
+    for (const z of [-1.2, 0.8]) add(g, box(0.1, 0.4, 0.1), metal, s * 0.75, 0.3, z);
+  }
+  const light = new THREE.PointLight('#4fd8ff', 2, 5, 2);
+  light.position.set(0, 0.4, -0.2);
+  g.add(light);
+}
+
 const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   wall: buildWall,
   pathway: buildPath,
   runway: buildRunway,
+  skyscraper: buildSkyscraper,
+  megatower: buildMegatower,
+  billboard: buildBillboard,
+  neon: buildNeon,
+  streetlamp: buildStreetlamp,
+  hovercar: buildHovercar,
   globe: buildGlobe,
   dishes: buildDishes,
   fireflies: buildFireflyJar,
@@ -2049,6 +2334,7 @@ const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   temple: buildTemple,
   tower: buildTower,
   house: buildHouse,
+  block: buildBlock,
   gazebo: buildGazebo,
   fountain: buildFountain,
   bench: buildBench,
@@ -2131,6 +2417,7 @@ export const DOORS: Record<string, { local: [number, number, number]; outside: [
   tower: { local: [0, 0.3, 2.05], outside: [0, 0, 3.8] },
   house: { local: [-1.2, 0.16, 2.48], outside: [-1.2, 0, 4.0] },
 };
+DOORS.block = DOORS.house;
 
 /** Punkt zaczepienia emitera cząsteczek w lokalnych współrzędnych modelu. */
 /** Punkt, w którym staje gracz wchodząc przez bramę (lokalnie, przed bramą). */
@@ -2144,6 +2431,7 @@ export const GATE_SPAWN: [number, number, number] = [0, 0, 1.8];
  */
 export const MOUNT_ANCHORS: Record<MountId, { seat: [number, number, number]; exit: [number, number, number]; seatPart?: string; seatBone?: string }> = {
   plane: { seat: [0, 1.66, 0.16], exit: [-1.9, 0, 1.4] },
+  hovercar: { seat: [0, 2.28, 0.25], exit: [2.0, 0, 0.2] },
   dragon: { seat: [0, 3.15, 0.3], exit: [2.4, 0, 0.5] },
   sandworm: { seat: [0, 2.35, -0.5], exit: [3.4, 0, 1.0], seatPart: 'head' },
   horse: { seat: [0, 0.85, -0.2], exit: [1.0, 0, 0.3], seatBone: 'Torso' },
