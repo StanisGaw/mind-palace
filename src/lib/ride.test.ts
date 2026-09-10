@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { CATALOG, CATEGORY_LABELS, CATEGORY_ORDER } from '../catalog';
+import { normalizePalace } from './storage';
 import { IDLE_INPUT, MOUNT_SPECS, advanceTrail, isMount, newRideState, rideSettled, stepAir, stepGround, stepHover, trailPoint, type MountId, type RideEnv, type RideInput, type RideState } from './ride';
 
 const flat: RideEnv = { groundAt: () => 0, radius: 200 };
@@ -29,6 +30,12 @@ describe('katalog pojazdów', () => {
       expect(item!.category, `${id} poza kategorią vehicle`).toBe('vehicle');
     }
     for (const item of CATALOG.filter((c) => c.category === 'vehicle')) expect(isMount(item.id), `${item.id} bez dynamiki jazdy`).toBe(true);
+  });
+
+  it('stare zapisy z Koniem 2 i Smokiem 2 wracają do konia i smoka', () => {
+    const obj = (id: string, type: string) => ({ id, type, name: type, position: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number], scale: [1, 1, 1] as [number, number, number] });
+    const p = normalizePalace({ id: 'x', name: 'Stary', objects: [obj('a', 'horse2'), obj('b', 'dragon2'), obj('c', 'horse')] });
+    expect(p.objects.map((o) => o.type)).toEqual(['horse', 'dragon', 'horse']);
   });
 
   it('każda kategoria z etykietą jest w kolejności biblioteki', () => {

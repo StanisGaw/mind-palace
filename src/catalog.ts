@@ -49,9 +49,7 @@ export const CATALOG: CatalogItem[] = [
   // Pojazdy i wierzchowce — w spacerze F wsiada, sterowanie i wysiadka w `lib/ride.ts`
   { id: 'plane', name: 'Samolot', category: 'vehicle', emoji: '✈️', description: 'Mały samolot z otwartym kokpitem. W spacerze podejdź i naciśnij F, żeby wsiąść i polecieć.', footprint: 2.4, maxScale: 2, collider: 'trimesh', outdoorOnly: true },
   { id: 'dragon', name: 'Smok wierzchowy', category: 'vehicle', emoji: '🐲', description: 'Smok z siodłem. Dosiądź go w spacerze: startuje pionowo, zawisa w miejscu i zionie ogniem.', footprint: 3.6, maxScale: 2, collider: 'trimesh', emitter: 'fire', outdoorOnly: true },
-  { id: 'horse', name: 'Koń', category: 'vehicle', emoji: '🐎', description: 'Srokaty koń pod siodłem. W spacerze podejdź i naciśnij F, żeby dosiąść i pogalopować.', footprint: 1.2, maxScale: 2, collider: 'box', outdoorOnly: true },
-  { id: 'horse2', name: 'Koń 2', category: 'vehicle', emoji: '🏇', description: 'Koń z modelu Poly Pizza (Quaternius, CC0) z animacją stępu i galopu. Dosiądź go w spacerze.', footprint: 1.2, maxScale: 2, collider: 'box', outdoorOnly: true },
-  { id: 'dragon2', name: 'Smok 2', category: 'vehicle', emoji: '🐉', description: 'Smok z modelu Poly Pizza (Quaternius, CC0) z animacją lotu. Unosi się jak śmigłowiec i zionie ogniem.', footprint: 1.8, maxScale: 2, collider: 'box', emitter: 'fire', outdoorOnly: true },
+  { id: 'horse', name: 'Koń', category: 'vehicle', emoji: '🐎', description: 'Koń pod siodłem (model Poly Pizza, Quaternius, CC0) ze stępem, galopem i skokiem. W spacerze podejdź i naciśnij F, żeby dosiąść.', footprint: 1.2, maxScale: 2, collider: 'box', outdoorOnly: true },
   { id: 'sandworm', name: 'Czerw pustynny', category: 'vehicle', emoji: '🪱', description: 'Olbrzymi czerw wyłaniający się z ziemi. Dosiądź głowy i płyń po planszy, wyskakując z piasku.', footprint: 4, maxScale: 3, collider: 'trimesh', emitter: 'sand', outdoorOnly: true },
   // Rośliny
   { id: 'tree', name: 'Drzewo', category: 'plant', emoji: '🌳', description: 'Okrągła korona, cień na myśli.', footprint: 1.2, collider: 'cylinder', outdoorOnly: true },

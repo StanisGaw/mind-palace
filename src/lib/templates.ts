@@ -205,7 +205,7 @@ function buildVillage(name: string): Palace {
   put(o, 'runway', [22, 33], { name: 'Pas startowy' });
   put(o, 'plane', [9, 33], { name: 'Samolot', yaw: -Math.PI / 2 }); // nos na wschód, wzdłuż pasa
   put(o, 'dragon', [36, 21], { name: 'Smok wierzchowy' });
-  put(o, 'horse2', [28, 25], { name: 'Koń' });
+  put(o, 'horse', [28, 25], { name: 'Koń' });
 
   // ---------- las i sad ----------
   scatter(o, rand, 'tree', { x0: -33, x1: -23, z0: 4, z1: 26 }, 10, [1.8, 2.4], 0.5); // sad za chatami

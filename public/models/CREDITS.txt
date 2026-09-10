@@ -1,4 +1,3 @@
 Modele GLB (wierzchowce z plików, reszta pałacu jest proceduralna):
 
-horse2.glb  — „Horse” by Quaternius, https://poly.pizza/m/qvTrSG9pZF, licencja CC0 (Public Domain)
-dragon2.glb — „Dragon Evolved” by Quaternius, https://poly.pizza/m/LlwD0QNUPj, licencja CC0 (Public Domain)
+horse.glb — „Horse” by Quaternius, https://poly.pizza/m/qvTrSG9pZF, licencja CC0 (Public Domain)

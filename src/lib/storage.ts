@@ -167,6 +167,8 @@ export function normalizePalace(p: Partial<Palace>): Palace {
     const { rotationY, ...o } = raw as PalaceObject & { rotationY?: unknown; rotation?: unknown };
     return {
       ...o,
+      // „Koń 2” i „Smok 2” z modeli GLB istniały krótko: koń z pliku został jedynym koniem, smok wrócił do proceduralnego
+      type: o.type === 'horse2' ? 'horse' : o.type === 'dragon2' ? 'dragon' : o.type,
       position: (o.position ?? [0, 0, 0]) as Vec3,
       rotation: toRotation(o.rotation, rotationY),
       scale: toScale((o as { scale?: unknown }).scale),

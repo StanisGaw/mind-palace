@@ -3,7 +3,7 @@
  * scena czyta klawisze, woła krok i przepisuje wynik na model i kamerę. Przód wierzchowca to −Z (jak samolot).
  */
 
-export type MountId = 'plane' | 'dragon' | 'horse' | 'sandworm' | 'horse2' | 'dragon2';
+export type MountId = 'plane' | 'dragon' | 'horse' | 'sandworm';
 
 export interface MountLabels {
   /** Podpowiedź wsiadania: `${board}: ${nazwa obiektu}`. */
@@ -37,7 +37,7 @@ export interface MountSpec {
   labels: MountLabels;
 }
 
-export const MOUNT_SPECS = {
+export const MOUNT_SPECS: Record<MountId, MountSpec> = {
   plane: {
     kind: 'air',
     maxSpeed: 24,
@@ -76,7 +76,7 @@ export const MOUNT_SPECS = {
     kind: 'ground',
     maxSpeed: 12,
     accel: 2.5,
-    reach: 2.5,
+    reach: 2.8,
     turn: 1.8,
     walk: 3.5,
     jump: 5.5,
@@ -107,11 +107,7 @@ export const MOUNT_SPECS = {
       action: 'Wyskok',
     },
   },
-} as Record<MountId, MountSpec>;
-
-// wierzchowce z plików GLB dzielą dynamikę i teksty z proceduralnymi odpowiednikami
-MOUNT_SPECS.horse2 = { ...MOUNT_SPECS.horse, reach: 2.8 };
-MOUNT_SPECS.dragon2 = { ...MOUNT_SPECS.dragon, reach: 3.5 };
+};
 
 export function isMount(type: string): type is MountId {
   return Object.prototype.hasOwnProperty.call(MOUNT_SPECS, type);

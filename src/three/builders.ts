@@ -976,8 +976,7 @@ export interface AssetMount {
 }
 
 export const ASSET_MOUNTS: Record<string, AssetMount> = {
-  horse2: { file: 'horse2.glb', height: 1.9, yaw: Math.PI, clips: { idle: 'Idle', walk: 'Walk', run: 'Gallop', jump: 'Gallop_Jump' } },
-  dragon2: { file: 'dragon2.glb', height: 4.0, yaw: Math.PI, clips: { idle: 'Flying_Idle', run: 'Fast_Flying' } },
+  horse: { file: 'horse.glb', height: 1.9, yaw: Math.PI, clips: { idle: 'Idle', walk: 'Walk', run: 'Gallop', jump: 'Gallop_Jump' } },
 };
 
 /**
@@ -1028,68 +1027,6 @@ function rigPivot(parent: THREE.Object3D, name: string, x: number, y: number, z:
   p.userData.rig = name;
   parent.add(p);
   return p;
-}
-
-/** Srokaty koń pod siodłem: biała maść z brązowymi łatami, kłąb na 1,6 m. Nogi, szyja i ogon to pivoty. */
-function buildHorse(g: THREE.Group) {
-  const white = mat('#f1ebe0', { roughness: 0.9 });
-  const brown = mat('#7a4a2c', { roughness: 0.9 });
-  const dark = mat('#2a2622');
-  const leather = mat('#5b3a22', { roughness: 0.6 });
-  const blanket = mat('#8a3b3b', { roughness: 0.95 });
-  const metal = mat(C.metal);
-
-  // tułów: beczka wzdłuż Z, pierś z przodu i zad z tyłu; łaty to nieco większe bryły w drugim kolorze
-  add(g, cyl(0.4, 0.4, 1.3, 12), white, 0, 1.22, 0.05, [Math.PI / 2, 0, 0]);
-  add(g, box(0.62, 0.62, 0.55), brown, 0, 1.2, -0.5);
-  add(g, box(0.66, 0.6, 0.6), brown, 0, 1.22, 0.55);
-  add(g, box(0.5, 0.2, 0.9), brown, 0, 1.55, 0.05); // łata na grzbiecie
-  add(g, box(0.4, 0.3, 0.9), white, 0, 0.9, 0.05); // jasny brzuch
-
-  // szyja i głowa: pivot u nasady, szyja pochylona do przodu, głowa z pyskiem, uszami i grzywą
-  const neck = rigPivot(g, 'head', 0, 1.42, -0.62);
-  add(neck, box(0.3, 0.9, 0.36), brown, 0, 0.36, -0.22, [0.55, 0, 0]);
-  add(neck, box(0.26, 0.32, 0.56), brown, 0, 0.82, -0.6);
-  add(neck, box(0.2, 0.22, 0.3), white, 0, 0.74, -0.98); // biała strzałka na pysku
-  add(neck, box(0.22, 0.1, 0.16), dark, 0, 0.66, -1.06); // chrapy
-  for (const s of [-1, 1]) {
-    add(neck, cone(0.05, 0.18, 5), brown, s * 0.1, 1.04, -0.5, [-0.2, 0, s * 0.25]);
-    add(neck, box(0.05, 0.05, 0.05), dark, s * 0.14, 0.9, -0.62);
-  }
-  for (let i = 0; i < 5; i++) add(neck, box(0.12, 0.2, 0.14), dark, 0, 0.5 + i * 0.13, -0.02 - i * 0.12, [0.55, 0, 0]); // grzywa
-  add(neck, box(0.16, 0.24, 0.12), dark, 0, 1.0, -0.5); // grzywka
-  // wodze: od pyska do łęku siodła
-  add(neck, cyl(0.012, 0.012, 1.1, 5), leather, 0.16, 0.55, -0.2, [0.9, 0, 0]);
-  add(neck, cyl(0.012, 0.012, 1.1, 5), leather, -0.16, 0.55, -0.2, [0.9, 0, 0]);
-
-  // nogi: pivot w stawie barkowym i biodrowym, kopyto na wysokości 0
-  const legs: [string, number, number, THREE.Material][] = [
-    ['legFL', -0.22, -0.45, white],
-    ['legFR', 0.22, -0.45, brown],
-    ['legBL', -0.24, 0.5, brown],
-    ['legBR', 0.24, 0.5, white],
-  ];
-  for (const [name, x, z, m] of legs) {
-    const leg = rigPivot(g, name, x, 1.05, z);
-    add(leg, box(0.17, 0.52, 0.2), m, 0, -0.24, 0);
-    add(leg, box(0.12, 0.5, 0.13), white, 0, -0.74, 0);
-    add(leg, box(0.15, 0.1, 0.17), dark, 0, -1.0, 0);
-  }
-
-  // ogon
-  const tail = rigPivot(g, 'tail', 0, 1.38, 0.82);
-  add(tail, box(0.14, 0.72, 0.16), dark, 0, -0.3, 0.1, [-0.35, 0, 0]);
-
-  // siodło z derką, łękiem i strzemionami; popręg pod brzuchem
-  add(g, box(0.72, 0.06, 0.7), blanket, 0, 1.6, -0.02);
-  add(g, box(0.42, 0.12, 0.58), leather, 0, 1.68, -0.02);
-  add(g, box(0.36, 0.14, 0.1), leather, 0, 1.79, -0.28); // łęk przedni
-  add(g, box(0.4, 0.16, 0.1), leather, 0, 1.8, 0.24); // łęk tylny
-  add(g, box(0.86, 0.05, 0.08), leather, 0, 0.9, -0.02);
-  for (const s of [-1, 1]) {
-    add(g, box(0.04, 0.5, 0.06), leather, s * 0.4, 1.4, -0.02);
-    add(g, box(0.14, 0.12, 0.05), metal, s * 0.4, 1.12, -0.02);
-  }
 }
 
 /**
@@ -2123,11 +2060,9 @@ const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   signpost: buildSignpost,
   well: buildWell,
   plane: buildPlane,
-  horse: buildHorse,
+  horse: buildAssetMount('horse'),
   dragon: buildDragonMount,
   sandworm: buildSandworm,
-  horse2: buildAssetMount('horse2'),
-  dragon2: buildAssetMount('dragon2'),
   tree: buildTree,
   cypress: buildCypress,
   bush: buildBush,
@@ -2210,10 +2145,8 @@ export const GATE_SPAWN: [number, number, number] = [0, 0, 1.8];
 export const MOUNT_ANCHORS: Record<MountId, { seat: [number, number, number]; exit: [number, number, number]; seatPart?: string; seatBone?: string }> = {
   plane: { seat: [0, 1.66, 0.16], exit: [-1.9, 0, 1.4] },
   dragon: { seat: [0, 3.15, 0.3], exit: [2.4, 0, 0.5] },
-  horse: { seat: [0, 2.4, 0.0], exit: [1.1, 0, 0.2] },
   sandworm: { seat: [0, 2.35, -0.5], exit: [3.4, 0, 1.0], seatPart: 'head' },
-  horse2: { seat: [0, 0.85, -0.2], exit: [1.0, 0, 0.3], seatBone: 'Torso' },
-  dragon2: { seat: [0, 2.15, -0.15], exit: [2.2, 0, 0.6], seatBone: 'Torso' },
+  horse: { seat: [0, 0.85, -0.2], exit: [1.0, 0, 0.3], seatBone: 'Torso' },
 };
 
 /**
@@ -2266,7 +2199,6 @@ export const EMITTER_ANCHORS: Record<string, [number, number, number]> = {
   waterfall: [0, 0.35, 0.6],
   campfire: [0, 0.7, 0],
   dragon: [0, 1.95, -4.35], // pysk smoka wierzchowego (ciało ×1,5)
-  dragon2: [0, 2.7, -1.1], // pysk smoka z pliku (głowa nad tułowiem, model stoi na dwóch łapach)
   sandworm: [0, 0.4, 0.5],
 };
 
@@ -2294,15 +2226,20 @@ export function rolesOf(type: string): MaterialRole[] {
 }
 
 /** Wysokość modelu (do pozycjonowania etykiet). */
-export function modelHeight(g: THREE.Object3D): number {
+/** Ramka modelu w jego układzie (bez skórowanych siatek — ich ramka leży w układzie kości, setki metrów). */
+export function modelBounds(g: THREE.Object3D): THREE.Box3 {
   const b = new THREE.Box3();
   g.updateWorldMatrix(true, true);
   g.traverse((c) => {
     const m = c as THREE.Mesh;
-    // ramka skórowanej siatki leży w układzie kości (setki metrów) — wysokość daje bryła zastępcza modelu
     if (!m.isMesh || (m as unknown as THREE.SkinnedMesh).isSkinnedMesh) return;
     b.expandByObject(m);
   });
+  return b;
+}
+
+export function modelHeight(g: THREE.Object3D): number {
+  const b = modelBounds(g);
   return Number.isFinite(b.max.y) ? b.max.y : 1;
 }
 
