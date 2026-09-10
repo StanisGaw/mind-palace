@@ -55,6 +55,8 @@ npm run build        # produkcyjny build do dist/
   - **Samolot** — otwarty kokpit (tablica z zegarami, drążek, wiatrochron, kręcące się śmigło).
     `Shift`/`Ctrl` — gaz, `W`/`S` — ster wysokości, `A`/`D` — przechył (przechył zakręca), `Q`/`E` — ster
     kierunku. Powyżej prędkości startowej maszyna odrywa się od ziemi.
+  - **Taksówka latająca** — żółty kadłub bez kół na czterech dyszach, w stylu latających taksówek z filmów SF.
+    Ta sama dynamika `hover` co smok (unosi, zawisa), bez ognia; siodło w przeszklonej kabinie.
   - **Smok wierzchowy** — to samo ciało co dziki smok, osiodłane. Lata jak śmigłowiec: `Shift`/`Ctrl` unosi
     i opuszcza, puszczone zawisa w miejscu, `W`/`S` — do przodu i do tyłu, `A`/`D` — skręt w locie, `Q`/`E` —
     obrót w miejscu; `Spacja` albo kliknięcie — zionie ogniem.
@@ -169,7 +171,10 @@ npm run build        # produkcyjny build do dist/
   do dworu, aleja cyprysów, biblioteka, wieża widokowa, kapliczka, trzy chaty przy drodze, staw z altaną,
   sad z ulem, obozowisko przy lesie, pas startowy z samolotem oraz smok wierzchowy i koń, a poza planszą las,
   wzgórza, wodospad i góry. Budynki powstają tak samo jak z biblioteki (wnętrze w tej samej scenie, lampy na
-  każdej kondygnacji), a układ jest deterministyczny — ta sama wioska przy każdym utworzeniu. **Pusta plansza**
+  każdej kondygnacji), a układ jest deterministyczny — ta sama wioska przy każdym utworzeniu. **Neonowe miasto**
+  to nocna metropolia w deszczu na planszy 80 × 80 m z betonu: siatka asfaltowych ulic, plac z fontanną,
+  wieżowce i megawieżowce, neony, ekrany reklamowe, latarnie, bloki z wnętrzami (korporacja, serwerownia, archiwum,
+  bar, bloki mieszkalne — powłoka domku z płaskim dachem), lądowisko z latającymi taksówkami i panorama wieżowców poza planszą. **Pusta plansza**
   to łąka 40 × 40 m. **Pas startowy** jest też w bibliotece (Krajobraz): płyta 34 × 8 m bez bryły kolizji.
 - **Ekran ładowania** — zasłania scenę do pierwszej narysowanej klatki, podczas odroczonej budowy pałacu
   (`createPalace`/`switchPalace` odkładają podmianę danych o jedną klatkę, żeby ekran zdążył się pokazać) oraz
