@@ -163,12 +163,16 @@ npm run build        # produkcyjny build do dist/
   Pad działa równolegle z kontrolerami (prawa gałka obraca skokowo tą samą funkcją `snapTurn`). Przełączenie
   spaceru na VR i z powrotem zachowuje pozycję gracza — punkt startu wyznacza wyłącznie wejście z edytora.
   Do samolotu można wsiąść w trybie stereo, w goglach nie (`canBoard`): tam wysokość głowy podaje headset.
-- **Nowy pałac** — okno z nazwą i wyborem zawartości (`lib/templates.ts`): **Pusta plansza** (łąka 40 × 40 m)
-  albo **Wioska w dolinie** — gotowa kompozycja na planszy 80 × 80 m: brama, droga przez rynek ze studnią
+- **Nowy pałac** — okno z nazwą i wyborem zawartości (`lib/templates.ts`). Domyślna i pierwsza na liście jest
+  **Wioska w dolinie** — gotowa kompozycja na planszy 80 × 80 m: brama, droga przez rynek ze studnią
   do dworu, aleja cyprysów, biblioteka, wieża widokowa, kapliczka, trzy chaty przy drodze, staw z altaną,
-  sad z ulem, obozowisko przy lesie oraz las, wzgórza, wodospad i góry postawione poza planszą. Budynki
-  powstają tak samo jak z biblioteki (wnętrze w tej samej scenie, lampy na każdej kondygnacji), a układ
-  jest deterministyczny — ta sama wioska przy każdym utworzeniu.
+  sad z ulem, obozowisko przy lesie, pas startowy z samolotem oraz smok wierzchowy i koń, a poza planszą las,
+  wzgórza, wodospad i góry. Budynki powstają tak samo jak z biblioteki (wnętrze w tej samej scenie, lampy na
+  każdej kondygnacji), a układ jest deterministyczny — ta sama wioska przy każdym utworzeniu. **Pusta plansza**
+  to łąka 40 × 40 m. **Pas startowy** jest też w bibliotece (Krajobraz): płyta 34 × 8 m bez bryły kolizji.
+- **Ekran ładowania** — zasłania scenę do pierwszej narysowanej klatki, podczas odroczonej budowy pałacu
+  (`createPalace`/`switchPalace` odkładają podmianę danych o jedną klatkę, żeby ekran zdążył się pokazać) oraz
+  gdy wczytuje się Rapier albo model GLB (`pendingLoads` w `SceneManager`, `loading` w magazynie).
 - **Zapis** — automatycznie w `localStorage` (wiele pałaców). **Eksport/Import** — plik JSON, dołącza
   własne zestawy mebli; import pliku pyta osobno o pałac (dodaj / zastąp / pomiń) i o zestawy
   (importuj / pomiń). Pliki sprzed zestawów wczytują się dalej — ich układy pokoi zamieniają się w zestawy.

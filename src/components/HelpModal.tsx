@@ -113,7 +113,8 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         <h3>Nowy pałac</h3>
         <ul>
           <li>Przycisk z nazwą pałacu u góry (na telefonie: menu) rozwija listę pałaców i „Nowy pałac”. W oknie podajesz nazwę i wybierasz zawartość.</li>
-          <li><b>Pusta plansza</b> to sama łąka 40 × 40 m. <b>Wioska w dolinie</b> to gotowa osada na planszy 80 × 80 m: brama, droga przez rynek ze studnią prosto do dworu, aleja cyprysów, biblioteka, wieża widokowa, kapliczka, trzy chaty, staw z altaną, sad, obozowisko przy lesie, a dookoła las, wzgórza, wodospad i góry. Do wszystkich budynków da się wejść — wystarczy dopisywać wspomnienia.</li>
+          <li><b>Wioska w dolinie</b> jest zaznaczona domyślnie: gotowa osada na planszy 80 × 80 m — brama, droga przez rynek ze studnią prosto do dworu, aleja cyprysów, biblioteka, wieża widokowa, kapliczka, trzy chaty, staw z altaną, sad, obozowisko przy lesie, a dookoła las, wzgórza, wodospad i góry. Przy południowej krawędzi jest <b>pas startowy</b> z samolotem, a obok czekają smok wierzchowy i koń. Do wszystkich budynków da się wejść — wystarczy dopisywać wspomnienia. <b>Pusta plansza</b> to sama łąka 40 × 40 m.</li>
+          <li>Podczas budowy pałacu i wczytywania fizyki albo modeli zwierząt scenę zasłania <b>ekran ładowania</b>; znika, gdy wszystko jest gotowe.</li>
         </ul>
         <h3>Zapis i przenoszenie</h3>
         <p>Wszystko zapisuje się automatycznie w tej przeglądarce (localStorage). <b>Eksportuj</b> tworzy plik JSON, a <b>Importuj</b> wczytuje go na innym urządzeniu.</p>
