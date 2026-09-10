@@ -63,6 +63,7 @@ export const CATALOG: CatalogItem[] = [
   { id: 'mountain', name: 'Góra', category: 'landscape', emoji: '⛰️', description: 'Skalny masyw ze śniegiem na szczycie.', footprint: 3.4, maxScale: 20 },
   { id: 'volcano', name: 'Wulkan', category: 'landscape', emoji: '🌋', description: 'Krater z lawą i słupem dymu.', footprint: 3.4, maxScale: 20, emitter: 'smoke' },
   { id: 'rock', name: 'Głaz', category: 'landscape', emoji: '🪨', description: 'Kamień, na który da się wejść.', footprint: 1.0, maxScale: 20 },
+  { id: 'runway', name: 'Pas startowy', category: 'landscape', emoji: '🛫', description: 'Betonowy pas 34 × 8 m z progami, linią środkową i światłami krawędziowymi — miejsce startu i lądowania samolotu.', footprint: 4, maxScale: 2, collider: 'none', outdoorOnly: true },
   { id: 'hill', name: 'Wzgórze', category: 'landscape', emoji: '🏞️', description: 'Łagodne wzniesienie z krzewami.', footprint: 2.8, maxScale: 20 },
   { id: 'pond', name: 'Staw', category: 'landscape', emoji: '💧', description: 'Woda w kamiennej obudowie.', footprint: 2.2, maxScale: 20 },
   { id: 'waterfall', name: 'Wodospad', category: 'landscape', emoji: '🏔️', description: 'Woda spadająca ze skalnej ściany.', footprint: 2.2, maxScale: 20, emitter: 'mist' },

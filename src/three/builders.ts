@@ -2069,9 +2069,33 @@ function buildWaterfall(g: THREE.Group) {
   add(g, dodeca(0.4, 0), mat(C.rock), 1.5, 0.3, 0.6);
 }
 
+const RUNWAY_LEN = 34;
+const RUNWAY_W = 8;
+
+/** Pas startowy wzdłuż lokalnej osi X: płyta betonowa, progi, przerywana oś i światła krawędziowe. */
+function buildRunway(g: THREE.Group) {
+  const h = 0.03; // jak ścieżki: bez bryły kolizji, więc koła i stopy nie mogą tonąć głębiej niż to widać
+  const slab = add(g, box(RUNWAY_LEN, h, RUNWAY_W), mat('#4b4d52', { roughness: 1 }), 0, h / 2, 0);
+  slab.castShadow = false;
+  const paint = mat('#f2f0e6', { roughness: 0.9 });
+  const yp = h + 0.004; // farba tuż nad betonem, żeby nie migotała z płytą
+  for (let x = -RUNWAY_LEN / 2 + 5; x < RUNWAY_LEN / 2 - 4; x += 3) add(g, box(1.6, 0.008, 0.18), paint, x, yp, 0).castShadow = false;
+  for (const end of [-1, 1]) {
+    for (let i = 0; i < 4; i++) {
+      const z = (i + 0.5) * 0.8;
+      for (const s of [-1, 1]) add(g, box(2.2, 0.008, 0.4), paint, end * (RUNWAY_LEN / 2 - 1.8), yp, s * z).castShadow = false;
+    }
+  }
+  const lamp = mat('#ffd27a', { emissive: '#ffb347' });
+  for (let x = -RUNWAY_LEN / 2 + 1; x <= RUNWAY_LEN / 2 - 1; x += 4) {
+    for (const s of [-1, 1]) add(g, box(0.18, 0.18, 0.18), lamp, x, h + 0.09, s * (RUNWAY_W / 2 + 0.3));
+  }
+}
+
 const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   wall: buildWall,
   pathway: buildPath,
+  runway: buildRunway,
   globe: buildGlobe,
   dishes: buildDishes,
   fireflies: buildFireflyJar,
