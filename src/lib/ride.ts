@@ -107,14 +107,14 @@ export const MOUNT_SPECS: Record<MountId, MountSpec> = {
       action: 'Wyskok',
     },
   },
-  // czerw kielichowy: cięższy i wolniejszy w skręcie od pustynnego, za to wyskakuje wyżej
+  // czerw kielichowy: cięższy od pustynnego — wolniej się rozpędza i skręca, za to wyskakuje wyżej
   duneworm: {
     kind: 'ground',
-    maxSpeed: 15,
-    accel: 0.22,
-    reach: 6,
-    turn: 0.4,
-    leap: { height: 7.5, duration: 2.7 },
+    maxSpeed: 14,
+    accel: 0.2,
+    reach: 6.5,
+    turn: 0.36,
+    leap: { height: 8, duration: 2.9 },
     labels: {
       board: 'Dosiądź',
       leave: 'Zsiądź z czerwia',

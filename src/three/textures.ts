@@ -395,6 +395,70 @@ export function grainTexture(): THREE.Texture {
   return tex;
 }
 
+let skinMaps: { map: THREE.Texture; normal: THREE.Texture } | null = null;
+
+/**
+ * Skóra czerwia: cętkowana barwa i pasująca do niej mapa normalnych, obie z tego samego szumu, więc
+ * wypukłości leżą dokładnie tam, gdzie plamy. Bez mapy normalnych model w każdym oświetleniu czyta się
+ * jak gładka guma — to ona daje pory i fałdy z bliska.
+ */
+export function skinTextures(): { map: THREE.Texture; normal: THREE.Texture } {
+  if (skinMaps) return skinMaps;
+  const n = new Noise2D(411);
+  const height = new Float32Array(SIZE * SIZE);
+  for (let y = 0; y < SIZE; y++)
+    for (let x = 0; x < SIZE; x++) {
+      // trzy pasma: duże fałdy, średnie plamy, drobne pory; ostatnie zaostrzone, żeby były punktowe
+      const big = n.fbm(x * 0.012, y * 0.012, 3);
+      const mid = n.fbm(x * 0.05 + 50, y * 0.05, 3);
+      const pore = Math.pow(Math.abs(n.noise(x * 0.22, y * 0.22)), 3);
+      height[y * SIZE + x] = big * 0.6 + mid * 0.3 - pore * 0.6;
+    }
+
+  const cc = document.createElement('canvas');
+  cc.width = cc.height = SIZE;
+  const cx = cc.getContext('2d')!;
+  const img = cx.createImageData(SIZE, SIZE);
+  for (let i = 0; i < SIZE * SIZE; i++) {
+    const h = height[i];
+    const t = Math.max(0, Math.min(1, 0.5 + h * 0.9));
+    img.data[i * 4] = 178 + t * 54; // ciepła rdza: zagłębienia ciemniejsze i chłodniejsze
+    img.data[i * 4 + 1] = 88 + t * 48;
+    img.data[i * 4 + 2] = 64 + t * 32;
+    img.data[i * 4 + 3] = 255;
+  }
+  cx.putImageData(img, 0, 0);
+
+  const nc = document.createElement('canvas');
+  nc.width = nc.height = SIZE;
+  const nx = nc.getContext('2d')!;
+  const nimg = nx.createImageData(SIZE, SIZE);
+  const at = (x: number, y: number) => height[((y + SIZE) % SIZE) * SIZE + ((x + SIZE) % SIZE)];
+  for (let y = 0; y < SIZE; y++)
+    for (let x = 0; x < SIZE; x++) {
+      const dx = (at(x + 1, y) - at(x - 1, y)) * 6;
+      const dy = (at(x, y + 1) - at(x, y - 1)) * 6;
+      const len = Math.hypot(dx, dy, 1);
+      const i = (y * SIZE + x) * 4;
+      nimg.data[i] = ((-dx / len) * 0.5 + 0.5) * 255;
+      nimg.data[i + 1] = ((-dy / len) * 0.5 + 0.5) * 255;
+      nimg.data[i + 2] = (1 / len) * 0.5 * 255 + 127;
+      nimg.data[i + 3] = 255;
+    }
+  nx.putImageData(nimg, 0, 0);
+
+  const wrap = (c: HTMLCanvasElement, srgb: boolean) => {
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = maxAniso;
+    t.repeat.set(1.4, 1);
+    return t;
+  };
+  skinMaps = { map: wrap(cc, true), normal: wrap(nc, false) };
+  return skinMaps;
+}
+
 const cache = new Map<string, THREE.Texture>();
 
 /**

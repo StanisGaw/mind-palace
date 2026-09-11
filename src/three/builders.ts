@@ -4,7 +4,7 @@ import { DOOR_OPENING, FACADE, SHELLS, SHELL_WALL_T, TOWER_R, WALL_SEGMENT, WALL
 import { subtractRect, type Rect } from '../lib/rects';
 import { paintingTexture } from './art';
 import { Noise2D } from './noise';
-import { grainTexture, maxAnisotropy, textureById } from './textures';
+import { grainTexture, maxAnisotropy, skinTextures, textureById } from './textures';
 import { MATERIAL_DEFAULTS, MATERIAL_ROLES, paletteOf, type MaterialRole } from '../lib/materials';
 import type { MountId } from '../lib/ride';
 import { assetLoaded, cloneAsset } from './assets';
@@ -17,11 +17,15 @@ export interface MatOpts {
   flat?: boolean;
   /** Tekstura mnożona przez kolor (słoje drewna, wykończenie podłogi) — klucz cache bierze jej uuid. */
   map?: THREE.Texture;
+  /** Mapa normalnych: drobne wypukłości bez geometrii (skóra czerwia). */
+  normal?: THREE.Texture;
+  /** Obie strony ścianki — dla brył otwartych, których wnętrze się widzi (gardziel czerwia). */
+  double?: boolean;
   /** Poniżej 1 materiał jest przezroczysty (szyby). */
   opacity?: number;
 }
 export function mat(color: string, opts: MatOpts = {}) {
-  const key = `${color}|${opts.emissive ?? ''}|${opts.roughness ?? 0.85}|${opts.metalness ?? 0}|${opts.flat ?? true}|${opts.map?.uuid ?? ''}|${opts.opacity ?? 1}`;
+  const key = `${color}|${opts.emissive ?? ''}|${opts.roughness ?? 0.85}|${opts.metalness ?? 0}|${opts.flat ?? true}|${opts.map?.uuid ?? ''}|${opts.normal?.uuid ?? ''}|${opts.double ?? false}|${opts.opacity ?? 1}`;
   let m = matCache.get(key);
   if (!m) {
     m = new THREE.MeshStandardMaterial({
@@ -31,6 +35,8 @@ export function mat(color: string, opts: MatOpts = {}) {
       flatShading: opts.flat ?? true,
       emissive: opts.emissive ? new THREE.Color(opts.emissive) : new THREE.Color(0x000000),
       map: opts.map ?? null,
+      normalMap: opts.normal ?? null,
+      side: opts.double ? THREE.DoubleSide : THREE.FrontSide,
       transparent: (opts.opacity ?? 1) < 1,
       opacity: opts.opacity ?? 1,
     });
@@ -1117,90 +1123,118 @@ function buildSandworm(g: THREE.Group) {
 }
 
 /**
- * Czerw kielichowy: trzon wygięty łukiem z piasku, zakończony kielichem czterech płatów zamiast
- * szczęk z zębami. Rig jak w `sandworm` (`head`, `jaw*`, `seg0..9`); początek układu na gruncie
- * pod środkiem głowy, promień trzonu 1,6 m.
+ * Czerw kielichowy: odtworzony ze zdjęcia referencyjnego. Zamiast walców z doklejonymi obręczami ma bryły
+ * obrotowe (`LatheGeometry`) z fałdami wtopionymi w profil, gładkie cieniowanie, proceduralną skórę
+ * z mapą normalnych i zęby w głębi gardzieli. Rig ten sam co u pozostałych czerwi.
+ *
+ * Kosztuje kilkanaście tysięcy trójkątów — to obiekt pokazowy, nie do stawiania w dziesiątkach.
  */
 function buildDuneworm(g: THREE.Group) {
-  const R = 1.6;
-  const skin = mat('#a8502c', { roughness: 0.95 });
-  const ridge = mat('#7d3419', { roughness: 0.95 });
-  const maw = mat('#33100c', { roughness: 0.95 });
-  const lining = mat('#5a1a12', { roughness: 0.95 });
+  const R = 1.7;
+  const sk = skinTextures();
+  const skin = mat('#e9e2dc', { roughness: 0.82, flat: false, map: sk.map, normal: sk.normal }); // barwę niesie tekstura, kolor tylko ją rozjaśnia
+  // głowa jest bryłą otwartą: zaglądając w paszczę widzi się ściankę od środka, więc musi mieć obie strony
+  const skinIn = mat('#e9e2dc', { roughness: 0.82, flat: false, map: sk.map, normal: sk.normal, double: true });
+  const lining = mat('#6b2318', { roughness: 0.85, flat: false, normal: sk.normal });
+  const maw = mat('#2b0c0a', { roughness: 0.9, flat: false });
+  const teeth = mat('#e6dcc6', { roughness: 0.35, flat: false });
   const leather = mat('#5b3a22', { roughness: 0.6 });
 
-  // płat paszczy: liść zwężający się do ostrego czubka, wytłoczony na grubość (`prism` byłby kanciasty)
-  const petalGeo = (len: number, wide: number, thick = 0.32) => {
+  // bryła obrotowa wzdłuż −Z: profil (promień, odległość od karku) obracany dookoła osi ciała
+  const lathe = (pts: [number, number][], seg: number) => {
+    const geo = new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(Math.max(r, 0.001), y)), seg);
+    geo.rotateX(-Math.PI / 2);
+    return geo;
+  };
+
+  // głowa jednym ciągiem: skóra z fałdami → warga wylotu → lejek gardzieli, bez szwu między nimi
+  const headLen = 4.6;
+  const headPts: [number, number][] = [];
+  for (let i = 0; i <= 26; i++) {
+    const t = i / 26;
+    const fold = Math.sin(t * Math.PI * 9) * 0.06 * R; // fałdy skóry jako falowanie promienia, nie osobne obręcze
+    headPts.push([R * (0.88 + 0.34 * Math.pow(t, 1.5)) + fold, t * headLen]);
+  }
+  headPts.push([R * 1.22, headLen - 0.12], [R * 1.16, headLen - 0.42]); // warga zawija się do środka
+  const head = rigPivot(g, 'head', 0, R, 0);
+  head.rotation.x = 1.1;
+  add(head, lathe(headPts, 40), skinIn, 0, 0, 0);
+  // gardziel osobno i ciemna: gdyby była tą samą skórą, paszcza czytałaby się jak płaski talerz bez głębi
+  const throat: [number, number][] = [];
+  for (let i = 0; i <= 12; i++) {
+    const t = i / 12;
+    throat.push([R * (1.16 - 0.98 * Math.pow(t, 0.8)), headLen - 0.42 - t * 2.5]);
+  }
+  add(head, lathe(throat, 32), mat('#3a120e', { roughness: 0.9, flat: false, normal: sk.normal, double: true }), 0, 0, 0);
+  add(head, cyl(R * 0.2, R * 0.2, 0.12, 20), maw, 0, 0, -(headLen - 2.92), [Math.PI / 2, 0, 0]); // dno gardzieli: bez niego widać przez model
+  // dwa pierścienie zębów głęboko w gardzieli — widać je dopiero, gdy paszcza się rozchyli
+  for (const [z, r, n, h] of [[-2.6, 0.78, 16, 0.62], [-3.4, 0.5, 12, 0.44]] as [number, number, number, number][])
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const ring = new THREE.Group(); // obrót wokół osi ciała, żeby ząb pochylał się w stronę środka, a nie w bok
+      ring.rotation.z = a;
+      ring.position.z = z;
+      head.add(ring);
+      add(ring, cone(0.13, h, 6), teeth, 0, R * r, 0, [-Math.PI / 2 - 0.5, 0, 0]);
+    }
+
+  // płaty: wytłoczenie z fazą, więc krawędzie są zaokrąglone i łapią światło jak mięso, nie jak blacha
+  const petalGeo = (len: number, wide: number, thick: number) => {
     const sh = new THREE.Shape();
     sh.moveTo(-wide * 0.72, 0);
     sh.lineTo(wide * 0.72, 0);
     sh.quadraticCurveTo(wide, len * 0.34, wide * 0.7, len * 0.7);
-    sh.quadraticCurveTo(wide * 0.38, len * 0.93, 0, len); // czubek ostry: płat jest liściem, nie łopatką
+    sh.quadraticCurveTo(wide * 0.38, len * 0.93, 0, len);
     sh.quadraticCurveTo(-wide * 0.38, len * 0.93, -wide * 0.7, len * 0.7);
     sh.quadraticCurveTo(-wide, len * 0.34, -wide * 0.72, 0);
-    const geo = new THREE.ExtrudeGeometry(sh, { depth: thick, bevelEnabled: false });
-    geo.rotateX(-Math.PI / 2); // długość liścia w −Z (przód wierzchowca), grubość promieniowo w górę
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: thick, bevelEnabled: true, bevelThickness: 0.12, bevelSize: 0.08, bevelSegments: 2, curveSegments: 14 });
+    geo.rotateX(-Math.PI / 2);
     return geo;
   };
-
-  const head = rigPivot(g, 'head', 0, R, 0);
-  head.rotation.x = 1.1; // spoczynek: trzon wznosi się stromo, jak na referencji
-  const headLen = 4.2;
-  const rAt = (t: number) => R * (0.92 + 0.24 * t); // trzon rozszerza się ku paszczy
-  add(head, cyl(rAt(1), rAt(0), headLen, 16), skin, 0, 0, -headLen / 2, [Math.PI / 2, 0, 0]);
-  // pierścienie: nabrzmienia skóry gęsto na całej długości — pierwsza cecha rozpoznawcza referencji
-  for (let t = 0.08; t < 0.98; t += 0.11) add(head, cyl(rAt(t) + 0.05, rAt(t) + 0.05, 0.17, 16), ridge, 0, 0, -headLen * t, [Math.PI / 2, 0, 0]);
-  add(head, cyl(rAt(1) + 0.05, rAt(0.9) + 0.05, 0.4, 16), ridge, 0, 0, -headLen + 0.2, [Math.PI / 2, 0, 0]); // zgrubienie pod kielichem
-  // gardziel: stożek w głąb ciała z dwoma fałdami, bez zębów — na referencji wnętrze jest gładkie
-  add(head, cyl(R * 0.12, R * 1.02, 2.6, 16), maw, 0, 0, -headLen + 1.1, [Math.PI / 2, 0, 0]);
-  for (const [z, r] of [[-2.6, 0.66], [-3.3, 0.84]] as [number, number][]) add(head, cyl(R * r, R * r, 0.16, 16), maw, 0, 0, z, [Math.PI / 2, 0, 0]);
-
-  // cztery płaty rozłożone co 90°, każdy otwiera się obrotem wokół własnej osi X
   const petals: [string, number, number][] = [
     ['jawT', 0, 1],
-    ['jawR', Math.PI / 2, 0.86],
-    ['jawB', Math.PI, 0.94],
-    ['jawL', (3 * Math.PI) / 2, 0.8],
+    ['jawR', Math.PI / 2, 0.87],
+    ['jawB', Math.PI, 0.95],
+    ['jawL', (3 * Math.PI) / 2, 0.82],
   ];
   for (const [name, a, k] of petals) {
     const wrap = new THREE.Group();
     wrap.rotation.z = a;
-    wrap.position.z = -headLen + 0.25;
+    wrap.position.z = -headLen + 0.35;
     head.add(wrap);
-    // podstawy płatów stykają się przy wylocie, więc kielich jest zamknięty, a nie zbiorem osobnych desek
-    // co drugi płat siedzi nieco głębiej — zachodzą na siebie jak w pąku, zamiast stykać się krawędziami
-    const jaw = rigPivot(wrap, name, 0, rAt(1) * (k > 0.9 ? 0.68 : 0.78), 0);
-    jaw.rotation.x = 0.18 + (1 - k) * 0.12; // węższe płaty odchylone mocniej — kielich nie jest symetryczny
-    add(jaw, petalGeo(2.6 * k, 0.95 * k, 0.5), skin, 0, 0, 0);
-    add(jaw, petalGeo(2.3 * k, 0.8 * k, 0.12), lining, 0, -0.08, -0.05); // ciemna wyściółka od strony gardzieli
-    // czubek odgięty na zewnątrz: prosty płat czyta się jak deska, referencja ma je podwinięte
+    const jaw = rigPivot(wrap, name, 0, R * (k > 0.9 ? 0.85 : 0.95), 0);
+    jaw.rotation.x = 0.16 + (1 - k) * 0.14;
+    add(jaw, petalGeo(2.7 * k, 1 * k, 0.42), skin, 0, 0, 0);
+    add(jaw, petalGeo(2.35 * k, 0.82 * k, 0.1), lining, 0, -0.12, -0.05);
     const curl = new THREE.Group();
-    curl.position.z = -2.4 * k;
-    curl.rotation.x = 0.3;
+    curl.position.z = -2.5 * k;
+    curl.rotation.x = 0.28;
     jaw.add(curl);
-    add(curl, petalGeo(1.1 * k, 0.72 * k, 0.42), skin, 0, 0, 0);
-    add(curl, petalGeo(0.95 * k, 0.6 * k, 0.12), lining, 0, -0.08, -0.05);
+    add(curl, petalGeo(1.2 * k, 0.74 * k, 0.36), skin, 0, 0, 0);
+    add(curl, petalGeo(1 * k, 0.6 * k, 0.1), lining, 0, -0.11, -0.05);
   }
 
-  // siodło z uchwytem na grzbiecie głowy — jeździec siedzi na `head`, więc unosi się razem z nią
-  add(head, box(1, 0.12, 1.3), leather, 0, rAt(0.35) + 0.06, -1.5);
-  add(head, box(0.56, 0.18, 0.85), leather, 0, rAt(0.35) + 0.15, -1.5);
-  add(head, cyl(0.035, 0.035, 0.62, 6), mat(C.metal), 0, rAt(0.35) + 0.42, -1.95, [0, 0, Math.PI / 2]);
+  add(head, box(1, 0.12, 1.3), leather, 0, R * 1.02, -1.6);
+  add(head, box(0.56, 0.18, 0.85), leather, 0, R * 1.1, -1.6);
+  add(head, cyl(0.035, 0.035, 0.62, 6), mat(C.metal), 0, R * 1.1 + 0.27, -2.05, [0, 0, Math.PI / 2]);
 
-  // ciało: jedna linia ciągnąca się od karku, stromo w dół i dopiero pod ziemią kładąca się poziomo —
-  // nad piaskiem zostaje sam wznoszący się trzon, jak na referencji
+  // ciało: beczułki z przewężeniem na styku, więc przejścia czytają się jak fałdy, a nie cięcia rury
   const segLen = 3;
   let tip = new THREE.Vector3(0, R, -0.1);
   let prev = new THREE.Vector3(0, R + 1, -0.6);
   for (let i = 0; i < 10; i++) {
-    const r = R * 0.92 - i * 0.06;
-    const a = 1.1 * Math.max(0, 1 - i / 4); // kąt osi pod poziomem: z pochylenia głowy do poziomu
+    const r = R * 0.9 - i * 0.06;
+    const pts: [number, number][] = [];
+    for (let j = 0; j <= 12; j++) {
+      const t = j / 12;
+      pts.push([r * (0.84 + 0.16 * Math.sin(t * Math.PI) + 0.05 * Math.sin(t * Math.PI * 5)), (t - 0.5) * segLen]);
+    }
+    const a = 1.1 * Math.max(0, 1 - i / 4);
     const next = tip.clone().add(new THREE.Vector3(0, -Math.sin(a) * segLen, Math.cos(a) * segLen));
     const center = tip.clone().add(next).multiplyScalar(0.5);
     const seg = rigPivot(g, `seg${i}`, center.x, center.y, center.z);
     seg.userData.radius = r;
-    add(seg, cyl(r, r - 0.06, segLen, 16), skin, 0, 0, 0, [Math.PI / 2, 0, 0]);
-    for (const k of [-1.05, -0.35, 0.35, 1.05]) add(seg, cyl(r + 0.05, r + 0.05, 0.16, 16), ridge, 0, 0, k, [Math.PI / 2, 0, 0]);
+    add(seg, lathe(pts, 28), skin, 0, 0, 0);
     seg.lookAt(prev);
     prev = center;
     tip = next;
@@ -2526,7 +2560,7 @@ export const MOUNT_ANCHORS: Record<MountId, { seat: [number, number, number]; ex
   hovercar: { seat: [0, 2.28, 0.25], exit: [2.0, 0, 0.2] },
   dragon: { seat: [0, 3.15, 0.3], exit: [2.4, 0, 0.5] },
   sandworm: { seat: [0, 2.35, -0.5], exit: [3.4, 0, 1.0], seatPart: 'head' },
-  duneworm: { seat: [0, 2.95, -1.1], exit: [3.8, 0, 1.2], seatPart: 'head' },
+  duneworm: { seat: [0, 3.1, -1.2], exit: [4, 0, 1.2], seatPart: 'head' },
   horse: { seat: [0, 0.85, -0.2], exit: [1.0, 0, 0.3], seatBone: 'Torso' },
 };
 
