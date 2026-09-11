@@ -33,6 +33,7 @@ Pozostałe skille czytają tę bazę, więc zmiany zasad wprowadzaj w `eq-knowle
 |---|---|
 | `eq-create-object` | nowy element biblioteki (budynek, roślina, mebel, lampa, zwierzę) |
 | `eq-create-scene-module` | nowy moduł sceny (efekt, cząsteczki, warstwa świata) |
+| `eq-model-from-image` | nowy element ma przypominać konkretną rzecz ze zdjęcia |
 | `eq-diagnose` | trudny błąd, regresja wydajności |
 
 ## Koniec sesji
@@ -50,3 +51,10 @@ pod Mneme: zamiast testów jednostkowych i lintera weryfikacją są zrzuty z prz
 zamiast warstw backendowych obowiązuje kolejność `types → lib → store → three → components`,
 doszły pułapki Three.js i zasady zwalniania zasobów. Pominięto skille związane
 z Linear, ADR-ami i tworzeniem plików backendowych, bo nie mają tu zastosowania.
+
+`eq-model-from-image` powstał na podstawie [img2threejs](https://github.com/img2threejs/img2threejs)
+(Apache-2.0): stamtąd pochodzi metoda — analiza obrazu warstwami, budowa etapami od bryły
+do detalu, ocena każdego etapu z kilku kątów i ograniczona pętla poprawek. Pominięto całą
+warstwę skryptów w Pythonie, plików ze specyfikacją, bramek liczbowych i ścieżki postaci
+z rigiem: w Mneme rolę weryfikacji pełni zrzut z przeglądarki, a modele są proceduralne
+i niskopoligonowe, więc porównanie pikseli ze zdjęciem nie miałoby czego mierzyć.

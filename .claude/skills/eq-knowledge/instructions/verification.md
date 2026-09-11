@@ -34,6 +34,12 @@ W trybie deweloperskim dostępne są `window.__mneme` (magazyn), `window.__scene
 Przy oknie 1600×1000 scena zajmuje x ∈ [300, 1280], y ∈ [110, 1000], środek to `790,555`.
 Każde uruchomienie startuje z czystym profilem, więc dane są zawsze te same.
 
+Sam model biblioteki ocenia się obrotówką — obiekt na pustej planszy, zrzut z czterech stron:
+
+```bash
+npm run model-shot -- well zrzuty/studnia
+```
+
 ## 3. Regresja
 
 Cztery zrzuty po każdej większej zmianie: edytor, „Z oczu", wnętrze budynku
