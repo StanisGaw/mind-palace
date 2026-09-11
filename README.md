@@ -206,6 +206,17 @@ z kapsułą gracza o promieniu 0,32 m), czy krzesła stoją przy stole, a obrazy
 sprawdzany jest w pokoju na swoją miarę, w swoim obrysie oraz w domku, pałacu i bibliotece w dwóch skalach —
 wtedy wystarczy, że gdzieś przy tylnym murze da się go postawić bez uwag.
 
+## Pomiar płynności
+
+```bash
+npm run perf -- http://127.0.0.1:5187/ city 2     # adres, szablon, gęstość ekranu
+```
+
+Otwiera prawdziwe okno Chrome (z kartą graficzną — headless liczyłby swiftshaderem) i mierzy cztery ujęcia:
+edytor w bezruchu, obrót widoku, spacer w bezruchu i marsz. Dla każdego podaje średni i najdłuższy czas klatki,
+liczbę zacięć powyżej 50 ms i **ile programów shaderów przybyło w trakcie** — to ostatnie jest pierwszym
+podejrzanym przy szarpaniu, bo kompilacja jednego programu blokuje wątek na kilkadziesiąt milisekund.
+
 ## Struktura
 
 ```
@@ -213,6 +224,7 @@ src/
   catalog.ts          katalog elementów (budynki, przedmioty, rośliny, klimaty)
   store.ts            stan aplikacji (zustand): pałace, obiekty, ścieżka, powtórki, undo/redo
   lib/storage.ts      localStorage, eksport/import JSON
+  lib/lightpool.ts    pula świateł punktowych: przydział źródeł do stałej liczby miejsc
   lib/templates.ts    zawartość nowego pałacu: pusta plansza i wioska w dolinie
   lib/srs.ts          spaced repetition
   lib/review.ts       spłaszczanie trasy spaceru (schodzi do wnętrz)
