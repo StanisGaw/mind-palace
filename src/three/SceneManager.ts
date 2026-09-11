@@ -13,6 +13,7 @@ import { pushOut, type Obstacle } from '../lib/obstacles';
 import { mergeByMaterial } from './merge';
 import { IDLE_INPUT, MOUNT_SPECS, advanceTrail, isMount, newRideState, rideSettled, stepRide, trailPoint, type MountId, type MountSpec, type RideEnv, type RideInput, type RideState } from '../lib/ride';
 import { ART_VARIANTS } from './art';
+import { assignSlots, type LightSlot } from '../lib/lightpool';
 import { hashString } from './noise';
 import { makeTextPanel, disposeTextPanel } from './text';
 import { WeatherSystem } from './weather';
@@ -313,8 +314,15 @@ export class SceneManager {
   private renderScale = 1;
   private frameMs = 16;
   private scaleHold = 0;
-  /** Światła punktowe wszystkich obiektów, przebierane co kilka klatek na najbliższe kamerze. */
-  private pointLights: THREE.PointLight[] = [];
+  /**
+   * Stała pula świateł punktowych dodanych do sceny: zawsze tyle samo i zawsze widocznych, bo liczba
+   * widocznych świateł wchodzi do programu shadera — jej zmiana rekompiluje wszystkie materiały sceny.
+   * Zmienia się tylko to, które źródło obsadza które miejsce, i natężenie (0 = miejsce ciemne).
+   */
+  private lightPool: THREE.PointLight[] = [];
+  private lightSlots: LightSlot[] = [];
+  /** Światła w modelach obiektów — same nigdy nie świecą (`visible = false`), podają tylko barwę, zasięg i miejsce. */
+  private lightSources = new Map<string, THREE.PointLight>();
   private lightTick = 0;
   /** Ognisko mapy cienia i jej połowa boku — zmieniamy je dopiero, gdy gracz odejdzie o teksel. */
   private sunFocus = new THREE.Vector3(NaN, 0, NaN);
@@ -487,6 +495,7 @@ export class SceneManager {
     this.sun.shadow.normalBias = 0.02;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
+    this.buildLightPool();
 
     // pierścienie zaznaczenia
     this.selRing = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.0, 40), new THREE.MeshBasicMaterial({ color: '#2f5a3c', transparent: true, opacity: 0.9, depthWrite: false }));
@@ -738,7 +747,17 @@ export class SceneManager {
     this.refreshLabels(p);
     this.refreshPanels(p);
     this.syncWildlife();
+    if (sceneChanged || first) this.warmShaders();
     if (first) this.cameraCommand('fit', true);
+  }
+
+  /**
+   * Kompiluje programy shaderów całej sceny z góry. Bez tego sterownik kompiluje każdą bryłę przy pierwszym
+   * narysowaniu — w mieście to ~1,8 s rozsypane na kilkanaście pierwszych klatek, już **po** zniknięciu ekranu
+   * ładowania. `applyPalace` idzie przed pierwszą klatką nowej sceny, więc tutaj czeka się pod ekranem.
+   */
+  private warmShaders() {
+    this.renderer.compile(this.scene, this.camera);
   }
 
   /** Czy wpis (obiekt albo marker zwierzęcia) powinien być teraz widoczny. Jedno miejsce dla `syncWildlife` i pięter. */
@@ -1041,6 +1060,7 @@ export class SceneManager {
           const l = c as THREE.PointLight;
           if (!l.isPointLight) return;
           l.userData.baseIntensity = l.intensity;
+          l.visible = false; // świeci za nie miejsce w puli; widoczne źródło zmieniałoby liczbę świateł w shaderze
           e!.lights.push(l);
         });
         // drzwi z Konstrukcji i budynki z wnętrzem w miejscu mają otwierane skrzydło; zagnieżdżone budynki nie (F wchodzi do środka)
@@ -1569,7 +1589,7 @@ export class SceneManager {
     }
     g.traverse((c) => {
       const light = c as THREE.PointLight;
-      if (light.isPointLight) light.intensity = 0;
+      if (light.isPointLight) light.visible = false; // podgląd nie świeci i nie zmienia liczby świateł w shaderze
       const m = c as THREE.Mesh;
       if (!m.isMesh) return;
       const src = m.material as THREE.MeshStandardMaterial;
@@ -3342,33 +3362,59 @@ export class SceneManager {
 
   // ---------- pętla ----------
   /**
-   * Świeci tylko `qspec.pointLights` świateł najbliższych kamerze. Każde światło punktowe liczy się w każdym
-   * pikselu ekranu, więc trzydzieści latarni i lamp sufitowych potrafi kosztować więcej niż cała reszta sceny.
-   * Wybór odświeżamy co kilka klatek (kolejność się nie zmienia w ciągu jednego kroku), a natężenie dochodzi
-   * do celu płynnie — zgaszenie latarni z klatki na klatkę byłoby nocą widoczne jako mrugnięcie.
+   * Ustawia pulę na `qspec.pointLights` świateł. Wołane raz przy budowie sceny i przy zmianie jakości —
+   * tylko wtedy wolno zmienić liczbę świateł, bo to jedyny moment, w którym rekompilacja materiałów
+   * jest akceptowalna (tak samo jak przy włączeniu cieni).
+   */
+  private buildLightPool() {
+    const want = this.qspec.pointLights;
+    while (this.lightPool.length > want) this.scene.remove(this.lightPool.pop()!);
+    while (this.lightPool.length < want) {
+      const l = new THREE.PointLight('#ffffff', 0, 8, 2);
+      l.castShadow = false;
+      this.scene.add(l);
+      this.lightPool.push(l);
+    }
+    this.lightSlots = this.lightSlots.slice(0, want);
+  }
+
+  /**
+   * Obsadza miejsca puli źródłami najbliższymi kamerze. Liczba świateł w scenie się nie zmienia — miejsce
+   * bez źródła po prostu ma natężenie 0. Wybór odświeżamy co kilka klatek (kolejność nie zmienia się w ciągu
+   * jednego kroku), a natężenie dochodzi do celu płynnie: zgaszenie latarni z klatki na klatkę byłoby nocą
+   * widoczne jako mrugnięcie.
    */
   private updatePointLights(dt: number, camPos: THREE.Vector3) {
     if (++this.lightTick % 6 === 1) {
-      this.pointLights.length = 0;
+      this.lightSources.clear();
+      const sources: { id: string; score: number }[] = [];
       for (const e of this.entries.values()) {
         if (e.lights.length === 0 || !e.group.visible) continue;
-        for (const l of e.lights) this.pointLights.push(l);
+        for (const l of e.lights) {
+          this.lightSources.set(l.uuid, l);
+          // im dalej od zasięgu światła, tym mniej widać jego plamę — stąd odległość pomniejszona o zasięg
+          sources.push({ id: l.uuid, score: l.getWorldPosition(lightPosTmp).distanceTo(camPos) - l.distance });
+        }
       }
-      // im dalej od zasięgu światła, tym mniej widać jego plamę — stąd odległość pomniejszona o zasięg
-      const order = this.pointLights.map((l) => ({ l, d: l.getWorldPosition(lightPosTmp).distanceTo(camPos) - l.distance }));
-      order.sort((a, b) => a.d - b.d);
-      const max = this.qspec.pointLights;
-      order.forEach((x, i) => (x.l.userData.lightOn = i < max));
+      this.lightSlots = assignSlots(this.lightSlots, sources, this.lightPool.length, (i) => this.lightPool[i].intensity < 0.02);
     }
     const k = 1 - Math.exp(-dt * 8);
-    for (const l of this.pointLights) {
-      const target = l.userData.lightOn ? (l.userData.baseIntensity as number) : 0;
-      if (l.intensity !== target) {
-        l.intensity += (target - l.intensity) * k;
-        if (Math.abs(l.intensity - target) < 0.02) l.intensity = target;
+    for (let i = 0; i < this.lightPool.length; i++) {
+      const lamp = this.lightPool[i];
+      const slot = this.lightSlots[i];
+      const src = slot?.source ? this.lightSources.get(slot.source) : undefined;
+      // barwę i zasięg przepisujemy co klatkę: źródło może się poruszać (światło pod taksówką) albo zmienić model
+      if (src) {
+        lamp.color.copy(src.color);
+        lamp.distance = src.distance;
+        lamp.decay = src.decay;
+        src.getWorldPosition(lamp.position);
       }
-      const on = l.intensity > 0.01;
-      if (l.visible !== on) l.visible = on;
+      const target = src && slot.on ? (src.userData.baseIntensity as number) : 0;
+      if (lamp.intensity !== target) {
+        lamp.intensity += (target - lamp.intensity) * k;
+        if (Math.abs(lamp.intensity - target) < 0.02) lamp.intensity = target;
+      }
     }
   }
 
@@ -4542,6 +4588,7 @@ export class SceneManager {
     this.qspec = qualitySpec(q, deviceEnv());
     this.renderScale = 1;
     this.scaleHold = 120;
+    this.buildLightPool();
     this.applyQuality();
     this.resize();
   }
@@ -4592,6 +4639,8 @@ export class SceneManager {
       this.chute = null;
     }
     this.scene.remove(this.pivot);
+    for (const l of this.lightPool) this.scene.remove(l);
+    this.lightPool.length = 0;
     for (const e of [...this.entries.values()]) this.removeEntry(e);
     this.weather.dispose();
     this.wildlife.dispose();
