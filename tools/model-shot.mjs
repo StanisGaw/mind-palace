@@ -12,6 +12,7 @@
 //   --kąty 0,90,180,270   azymut w stopniach (0 = od frontu, czyli od +Z)
 //   --wzniesienie 22      kąt kamery nad poziomem
 //   --dystans auto|<m>    odległość kamery (auto = z ramki modelu)
+//   --cel auto|<m>        wysokość punktu, w który patrzy kamera (auto = środek ramki)
 //   --skala 1             skala obiektu
 //   --klimat <id>         nastrój pałacu (`ambience`, np. night)
 //   --url http://127.0.0.1:5187/
@@ -35,6 +36,7 @@ mkdirSync(dirname(prefix), { recursive: true });
 const angles = opt('kąty', '0,90,180,270').split(',').map(Number);
 const elevation = Number(opt('wzniesienie', 22));
 const distance = opt('dystans', 'auto');
+const aim = opt('cel', 'auto');
 const scale = Number(opt('skala', 1));
 const ambience = opt('klimat', '');
 const url = opt('url', 'http://127.0.0.1:5187/');
@@ -75,6 +77,8 @@ if (!frame) {
   process.exit(1);
 }
 const dist = distance === 'auto' ? Math.max(1.2, frame.size * scale * 1.9) : Number(distance);
+// modele sięgające pod ziemię (czerw) mają środek ramki poniżej gruntu — wtedy wysokość celu podaje się ręcznie
+const centerY = aim === 'auto' ? frame.centerY : Number(aim);
 
 for (const angle of angles) {
   const box = await page.evaluate((a, d, elev, cy) => {
@@ -88,7 +92,7 @@ for (const angle of angles) {
     s.orbit.update();
     const r = s.renderer.domElement.getBoundingClientRect();
     return { x: r.x, y: r.y, width: r.width, height: r.height };
-  }, angle, dist, elevation, frame.centerY);
+  }, angle, dist, elevation, centerY);
   await wait(450);
   const out = `${prefix}-${angle}.png`;
   await page.screenshot({ path: out, clip: box });
