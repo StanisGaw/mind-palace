@@ -4470,7 +4470,7 @@ export class SceneManager {
       part.lookAt(tmpV2.set(ahead[0], ahead[1] + ((part.userData.radius as number | undefined) ?? 0) * e.group.scale.y, ahead[2]));
     }
     const leaping = s.leapT >= 0 && spec.leap && s.leapT < spec.leap.duration * 0.5;
-    for (const name of ['jawL', 'jawR', 'jawT']) {
+    for (const name of ['jawL', 'jawR', 'jawT', 'jawB']) {
       const jaw = parts.get(name);
       if (!jaw) continue;
       const rest = (jaw.userData.rest as number[])[3];

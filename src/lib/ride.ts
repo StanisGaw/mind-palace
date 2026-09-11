@@ -3,7 +3,7 @@
  * scena czyta klawisze, woła krok i przepisuje wynik na model i kamerę. Przód wierzchowca to −Z (jak samolot).
  */
 
-export type MountId = 'plane' | 'dragon' | 'horse' | 'sandworm' | 'hovercar';
+export type MountId = 'plane' | 'dragon' | 'horse' | 'sandworm' | 'duneworm' | 'hovercar';
 
 export interface MountLabels {
   /** Podpowiedź wsiadania: `${board}: ${nazwa obiektu}`. */
@@ -97,6 +97,24 @@ export const MOUNT_SPECS: Record<MountId, MountSpec> = {
     reach: 6,
     turn: 0.45,
     leap: { height: 6, duration: 2.4 },
+    labels: {
+      board: 'Dosiądź',
+      leave: 'Zsiądź z czerwia',
+      hintKeys: 'Shift/Ctrl — rozpęd · A/D — skręt · Spacja — wyskok z piasku · mysz — rozglądanie · F — zsiądź',
+      hintPad: 'R2/L2 — rozpęd · lewa gałka — skręt · ✕ — wyskok z piasku · prawa gałka — rozglądanie · ▢ — zsiądź',
+      toastKeys: 'Shift — rozpęd (czerw rusza powoli), Ctrl — hamowanie, A/D — skręt szerokim łukiem, Spacja — wyskok z piasku. F po zatrzymaniu zsiada.',
+      toastPad: 'R2 — rozpęd (czerw rusza powoli), L2 — hamowanie, lewa gałka — skręt, ✕ — wyskok z piasku. ▢ po zatrzymaniu zsiada.',
+      action: 'Wyskok',
+    },
+  },
+  // czerw kielichowy: cięższy i wolniejszy w skręcie od pustynnego, za to wyskakuje wyżej
+  duneworm: {
+    kind: 'ground',
+    maxSpeed: 15,
+    accel: 0.22,
+    reach: 6,
+    turn: 0.4,
+    leap: { height: 7.5, duration: 2.7 },
     labels: {
       board: 'Dosiądź',
       leave: 'Zsiądź z czerwia',
