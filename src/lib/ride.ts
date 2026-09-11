@@ -378,6 +378,46 @@ export function stepRide(r: RideState, input: RideInput, spec: MountSpec, env: R
 }
 
 /** Czy maszyna bez pilota już stanęła i może wrócić do pałacu jako zwykły obiekt. */
+/** Ile prędkości ubywa na sekundę pełnego kontaktu; koń i czerw ocierają się o mur mocniej niż maszyna w locie. */
+const SLIDE_LOSS_AIR = 1.6;
+const SLIDE_LOSS_GROUND = 2.6;
+/** Jak szybko maszyna układa się wzdłuż ściany (lambda tłumienia). */
+const SLIDE_TURN = 7;
+
+/**
+ * Zderzenie z przeszkodą rozwiązane ślizgiem: zamiast zatrzymania maszyna układa się wzdłuż ściany i sunie
+ * dalej. `nx`,`nz` to kierunek na zewnątrz przeszkody (z `contact`). Traci się tylko tę część pędu, którą
+ * wbijało się w mur — muśnięcie pod ostrym kątem kosztuje prawie nic, lot prosto w ścianę wyhamowuje mocno,
+ * ale nigdy do zera: z pełnej prędkości nie stajemy w miejscu, tylko odpływamy wzdłuż elewacji.
+ *
+ * Zwraca „głębokość natarcia” 0..1 (0 = ruch równoległy albo od ściany, 1 = prosto w mur) — scena używa jej
+ * do komunikatu. Wybór strony ślizgu sam się stabilizuje: po pierwszej klatce kurs jest już bliżej
+ * wybranej stycznej, więc kolejne klatki trzymają tę samą stronę.
+ */
+export function resolveBump(r: RideState, nx: number, nz: number, spec: MountSpec, dt: number): number {
+  if (Math.abs(r.speed) < 0.2) return 0;
+  const dir = Math.sign(r.speed);
+  // kierunek jazdy; przód wierzchowca to −Z, więc (−sin yaw, −cos yaw)
+  const mx = -Math.sin(r.yaw) * dir;
+  const mz = -Math.cos(r.yaw) * dir;
+  const into = -(mx * nx + mz * nz);
+  if (into <= 0) return 0; // już się oddalamy — nic nie robimy, inaczej odjazd od ściany byłby lepki
+  r.speed *= Math.exp(-(spec.kind === 'ground' ? SLIDE_LOSS_GROUND : SLIDE_LOSS_AIR) * into * dt);
+  if (dir > 0) {
+    // styczna do ściany bliższa obecnemu kursowi
+    let tx = -nz;
+    let tz = nx;
+    if (tx * mx + tz * mz < 0) {
+      tx = -tx;
+      tz = -tz;
+    }
+    const target = Math.atan2(-tx, -tz);
+    const diff = Math.atan2(Math.sin(target - r.yaw), Math.cos(target - r.yaw));
+    r.yaw += diff * (1 - Math.exp(-SLIDE_TURN * dt));
+  }
+  return into;
+}
+
 export function rideSettled(r: RideState): boolean {
   return !r.pilot && r.onGround && Math.abs(r.speed) < 0.3;
 }

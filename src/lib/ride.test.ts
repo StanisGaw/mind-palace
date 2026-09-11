@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { CATALOG, CATEGORY_LABELS, CATEGORY_ORDER } from '../catalog';
 import { normalizePalace } from './storage';
-import { IDLE_INPUT, MOUNT_SPECS, advanceTrail, isMount, newRideState, rideSettled, stepAir, stepGround, stepHover, trailPoint, type MountId, type RideEnv, type RideInput, type RideState } from './ride';
+import { IDLE_INPUT, MOUNT_SPECS, advanceTrail, isMount, newRideState, resolveBump, rideSettled, stepAir, stepGround, stepHover, trailPoint, type MountId, type RideEnv, type RideInput, type RideState } from './ride';
 
 const flat: RideEnv = { groundAt: () => 0, radius: 200 };
 const input = (over: Partial<RideInput>): RideInput => ({ ...IDLE_INPUT, ...over });
@@ -267,5 +267,82 @@ describe('czerw pustynny', () => {
     expect(near[2]).toBeCloseTo(2, 5);
     const far = trailPoint(trail, head[0], head[1], head[2], 20);
     expect(far[2]).toBeCloseTo(19, 5); // przedłużenie ostatniego odcinka
+  });
+});
+
+describe('resolveBump — ślizg wzdłuż ściany', () => {
+  // ściana biegnie wzdłuż osi X, normalna wskazuje na +Z (maszyna nadlatuje od strony +Z, czyli leci w −Z)
+  const WALL: [number, number] = [0, 1];
+  const spec = MOUNT_SPECS.plane;
+  /** Maszyna lecąca z prędkością `speed` pod kursem `yaw`; przód to −Z, więc yaw 0 leci prosto w ścianę. */
+  const flying = (yaw: number, speed = 20): RideState => ({ ...newRideState(0, 30, 0, yaw, spec), speed, onGround: false });
+
+  it('lot prosto w mur nie zatrzymuje maszyny', () => {
+    const r = flying(0);
+    for (let t = 0; t < 0.5; t += 1 / 60) resolveBump(r, WALL[0], WALL[1], spec, 1 / 60);
+    expect(r.speed).toBeGreaterThan(4); // z 20 m/s zostaje wyraźny pęd, nie zero
+  });
+
+  it('lot prosto w mur układa kurs wzdłuż ściany', () => {
+    const r = flying(0);
+    for (let t = 0; t < 0.6; t += 1 / 60) resolveBump(r, WALL[0], WALL[1], spec, 1 / 60);
+    // kurs wzdłuż ściany to ±90°: składowa ruchu w stronę ściany (−cos yaw) ma zniknąć
+    expect(Math.abs(Math.cos(r.yaw))).toBeLessThan(0.15);
+  });
+
+  it('muśnięcie pod ostrym kątem kosztuje niewiele prędkości', () => {
+    const grazing = flying(Math.PI / 2 - 0.25); // prawie równolegle do ściany
+    const head = flying(0);
+    for (let t = 0; t < 0.2; t += 1 / 60) {
+      resolveBump(grazing, WALL[0], WALL[1], spec, 1 / 60);
+      resolveBump(head, WALL[0], WALL[1], spec, 1 / 60);
+    }
+    expect(grazing.speed).toBeGreaterThan(19);
+    expect(grazing.speed).toBeGreaterThan(head.speed * 1.15);
+  });
+
+  it('ruch od ściany nie jest karany', () => {
+    const r = flying(Math.PI); // przód w +Z, czyli w stronę normalnej
+    const before = r.speed;
+    const into = resolveBump(r, WALL[0], WALL[1], spec, 1 / 60);
+    expect(into).toBe(0);
+    expect(r.speed).toBe(before);
+    expect(r.yaw).toBe(Math.PI);
+  });
+
+  it('stojąca maszyna nie jest obracana', () => {
+    const r = { ...flying(0), speed: 0.05 };
+    expect(resolveBump(r, WALL[0], WALL[1], spec, 1 / 60)).toBe(0);
+    expect(r.yaw).toBe(0);
+  });
+
+  it('strona ślizgu nie migocze między klatkami', () => {
+    const r = flying(0.01); // nos ledwie odchylony — tie-break musi się ustalić i utrzymać
+    const kolejne: number[] = [];
+    for (let t = 0; t < 0.4; t += 1 / 60) {
+      resolveBump(r, WALL[0], WALL[1], spec, 1 / 60);
+      kolejne.push(r.yaw);
+    }
+    // kurs ma iść monotonicznie w jedną stronę
+    const rosnie = kolejne.every((v, i) => i === 0 || v >= kolejne[i - 1] - 1e-9);
+    const maleje = kolejne.every((v, i) => i === 0 || v <= kolejne[i - 1] + 1e-9);
+    expect(rosnie || maleje).toBe(true);
+  });
+
+  it('koń traci na ocieraniu więcej niż maszyna w locie', () => {
+    const kon = { ...newRideState(0, 0, 0, 0, MOUNT_SPECS.horse), speed: 10 };
+    const maszyna = { ...newRideState(0, 30, 0, 0, spec), speed: 10 };
+    for (let t = 0; t < 0.3; t += 1 / 60) {
+      resolveBump(kon, WALL[0], WALL[1], MOUNT_SPECS.horse, 1 / 60);
+      resolveBump(maszyna, WALL[0], WALL[1], spec, 1 / 60);
+    }
+    expect(kon.speed).toBeLessThan(maszyna.speed);
+  });
+
+  it('wynik rośnie z kątem natarcia', () => {
+    const ostry = resolveBump(flying(Math.PI / 2 - 0.2), WALL[0], WALL[1], spec, 1 / 60);
+    const czolowy = resolveBump(flying(0), WALL[0], WALL[1], spec, 1 / 60);
+    expect(czolowy).toBeGreaterThan(ostry);
+    expect(czolowy).toBeCloseTo(1, 1);
   });
 });
