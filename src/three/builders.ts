@@ -2526,6 +2526,68 @@ export function modelBounds(g: THREE.Object3D): THREE.Box3 {
   return b;
 }
 
+/** Poziomy obrys modelu w jednym paśmie wysokości (jednostki modelu, przed skalą obiektu). */
+export interface ModelSlice {
+  /** Górna granica pasma; plastry idą od dołu do góry, ostatni sięga szczytu bryły. */
+  top: number;
+  cx: number;
+  cz: number;
+  hx: number;
+  hz: number;
+}
+
+/** Na tyle pasm dzielimy bryłę: przy wieży schodkowej wystarczy, żeby każdy taras dostał swój obrys. */
+const SLICE_COUNT = 5;
+/** Poniżej tej wysokości bryła dostaje jeden obrys — pasma miałyby sens dopiero przy wieży. */
+const SLICE_MIN_HEIGHT = 4;
+
+/**
+ * Obrys modelu pasmami wysokości. Jedna ramka na całą bryłę sprawia, że wieża zwężająca się ku górze ma
+ * na szczycie obrys swojego cokołu — megawieżowiec blokował przelot 12,4 m od osi, choć na tej wysokości
+ * ma 5 m. Każde pasmo dostaje sumę ramek siatek, które go dotykają; pasma puste (nad szczytem murów,
+ * pod masztem) dziedziczą obrys pasma niżej, żeby nigdzie nie powstała dziura o zerowym rozmiarze.
+ */
+export function modelSlices(g: THREE.Object3D): ModelSlice[] {
+  const whole = modelBounds(g);
+  if (whole.isEmpty()) return [];
+  const y0 = whole.min.y;
+  const y1 = whole.max.y;
+  const h = y1 - y0;
+  // niskie bryły (meble, ławki, krzewy) nie zwężają się na tyle, żeby pasma cokolwiek dały — pusta lista
+  // znaczy „jeden obrys na całą bryłę” i oszczędza obejście wszystkich siatek przy każdej budowie sceny
+  if (h < SLICE_MIN_HEIGHT) return [];
+
+  const bands = Array.from({ length: SLICE_COUNT }, () => new THREE.Box2());
+  const box = new THREE.Box3();
+  const tmpBand = new THREE.Vector2();
+  g.updateWorldMatrix(true, true);
+  g.traverse((c) => {
+    const m = c as THREE.Mesh;
+    if (!m.isMesh || (m as unknown as THREE.SkinnedMesh).isSkinnedMesh) return;
+    box.setFromObject(m);
+    if (box.isEmpty()) return;
+    const from = Math.max(0, Math.min(SLICE_COUNT - 1, Math.floor(((box.min.y - y0) / h) * SLICE_COUNT)));
+    const to = Math.max(0, Math.min(SLICE_COUNT - 1, Math.ceil(((box.max.y - y0) / h) * SLICE_COUNT) - 1));
+    for (let i = from; i <= to; i++) {
+      bands[i].expandByPoint(tmpBand.set(box.min.x, box.min.z));
+      bands[i].expandByPoint(tmpBand.set(box.max.x, box.max.z));
+    }
+  });
+
+  const out: ModelSlice[] = [];
+  for (let i = 0; i < SLICE_COUNT; i++) {
+    const b = bands[i].isEmpty() ? null : bands[i];
+    const prev = out[out.length - 1];
+    const top = i === SLICE_COUNT - 1 ? y1 : y0 + ((i + 1) * h) / SLICE_COUNT;
+    if (!b) {
+      out.push(prev ? { ...prev, top } : { top, cx: 0, cz: 0, hx: 0.1, hz: 0.1 });
+      continue;
+    }
+    out.push({ top, cx: (b.min.x + b.max.x) / 2, cz: (b.min.y + b.max.y) / 2, hx: (b.max.x - b.min.x) / 2, hz: (b.max.y - b.min.y) / 2 });
+  }
+  return out;
+}
+
 export function modelHeight(g: THREE.Object3D): number {
   const b = modelBounds(g);
   return Number.isFinite(b.max.y) ? b.max.y : 1;

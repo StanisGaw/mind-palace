@@ -70,3 +70,39 @@ describe('odpychanie', () => {
     expect(fz).toBe(0);
   });
 });
+
+describe('pasma wysokości', () => {
+  // wieża schodkowa: cokół 12 x 12 do 4 m, trzon 6 x 6 do 30 m
+  const wieza: Obstacle = {
+    id: 'w', x: 0, z: 0, yaw: 0, hx: 6, hz: 6, bottom: 0, top: 30,
+    slices: [
+      { top: 4, x: 0, z: 0, hx: 6, hz: 6 },
+      { top: 30, x: 0, z: 0, hx: 3, hz: 3 },
+    ],
+  };
+
+  it('przy ziemi liczy się obrys cokołu', () => {
+    expect(contact(wieza, 7, 0, 2).dist).toBeCloseTo(1, 4);
+  });
+
+  it('wyżej liczy się węższy trzon — tam, gdzie cokół blokował, jest wolno', () => {
+    expect(contact(wieza, 7, 0, 20).dist).toBeCloseTo(4, 4);
+  });
+
+  it('bez podanej wysokości zostaje obrys całej bryły', () => {
+    expect(contact(wieza, 7, 0).dist).toBeCloseTo(1, 4);
+  });
+
+  it('ponad ostatnim pasmem obowiązuje pasmo najwyższe', () => {
+    expect(contact(wieza, 7, 0, 99).dist).toBeCloseTo(4, 4);
+  });
+
+  it('przelot obok trzonu nie jest wypychany, przy cokole jest', () => {
+    const gora = pushOut(5, 0, [wieza], 1, 20);
+    expect(gora.hit).toBeNull();
+    expect(gora.x).toBeCloseTo(5, 4);
+    const dol = pushOut(5, 0, [wieza], 1, 2);
+    expect(dol.hit).not.toBeNull();
+    expect(dol.x).toBeCloseTo(7, 4);
+  });
+});

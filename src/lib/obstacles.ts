@@ -3,6 +3,15 @@
  * (osie X/Z modelu), z podłogą i szczytem, żeby lot nad dachem nie liczył się jako zderzenie.
  * Czysta geometria — scena buduje listę z wpisów, a tu tylko liczymy odległości i wypychanie.
  */
+/** Obrys bryły w jednym paśmie wysokości (świat). Pasma idą od dołu, `top` to ich górna granica. */
+export interface ObstacleSlice {
+  top: number;
+  x: number;
+  z: number;
+  hx: number;
+  hz: number;
+}
+
 export interface Obstacle {
   id: string;
   x: number;
@@ -12,6 +21,11 @@ export interface Obstacle {
   hz: number; // połowa głębokości wzdłuż lokalnego Z
   bottom: number;
   top: number;
+  /**
+   * Obrys pasmami wysokości. Bez nich wieża zwężająca się ku górze blokowałaby przelot obrysem swojego
+   * cokołu. Brak listy znaczy „jeden obrys na całą wysokość” — tak jest dla zwierząt i brył bez kształtu.
+   */
+  slices?: ObstacleSlice[];
 }
 
 export interface Contact {
@@ -22,17 +36,28 @@ export interface Contact {
   nz: number;
 }
 
-/** Odległość punktu od brzegu przeszkody i kierunek, w którym najbliżej na zewnątrz. */
-export function contact(o: Obstacle, x: number, z: number): Contact {
-  const dx = x - o.x;
-  const dz = z - o.z;
+/** Obrys na wysokości `y`: pierwsze pasmo sięgające ponad `y`. Bez pasm albo bez `y` — obrys całej bryły. */
+function sliceAt(o: Obstacle, y: number | undefined): { x: number; z: number; hx: number; hz: number } {
+  if (!o.slices || o.slices.length === 0 || y === undefined) return o;
+  for (const s of o.slices) if (y < s.top) return s;
+  return o.slices[o.slices.length - 1];
+}
+
+/**
+ * Odległość punktu od brzegu przeszkody i kierunek, w którym najbliżej na zewnątrz. `y` wybiera pasmo
+ * wysokości: lecąc nad tarasem wieży liczy się obrys górnej kondygnacji, nie cokołu.
+ */
+export function contact(o: Obstacle, x: number, z: number, y?: number): Contact {
+  const at = sliceAt(o, y);
+  const dx = x - at.x;
+  const dz = z - at.z;
   const c = Math.cos(o.yaw);
   const s = Math.sin(o.yaw);
   // do układu obiektu: obrót o −yaw (obrót wokół Y w Three: x' = x·cos + z·sin, z' = −x·sin + z·cos)
   const lx = dx * c - dz * s;
   const lz = dx * s + dz * c;
-  const ex = Math.abs(lx) - o.hx;
-  const ez = Math.abs(lz) - o.hz;
+  const ex = Math.abs(lx) - at.hx;
+  const ez = Math.abs(lz) - at.hz;
   let nlx: number;
   let nlz: number;
   let dist: number;
@@ -70,7 +95,7 @@ export function pushOut(x: number, z: number, obstacles: Obstacle[], margin: num
   for (let iter = 0; iter < 3; iter++) {
     for (const o of obstacles) {
       if (o.id === ignoreId || !blocksAt(o, y)) continue;
-      const c = contact(o, x, z);
+      const c = contact(o, x, z, y);
       if (c.dist >= margin) continue;
       const push = margin - c.dist;
       x += c.nx * push;
@@ -87,7 +112,7 @@ export function steerAway(x: number, z: number, obstacles: Obstacle[], range: nu
   let sz = 0;
   for (const o of obstacles) {
     if (!blocksAt(o, y)) continue;
-    const c = contact(o, x, z);
+    const c = contact(o, x, z, y);
     if (c.dist >= range) continue;
     const k = (range - Math.max(c.dist, 0)) / range;
     sx += c.nx * k;
@@ -97,5 +122,5 @@ export function steerAway(x: number, z: number, obstacles: Obstacle[], range: nu
 }
 
 export function insideAny(x: number, z: number, obstacles: Obstacle[], margin: number, y?: number): boolean {
-  return obstacles.some((o) => blocksAt(o, y) && contact(o, x, z).dist < margin);
+  return obstacles.some((o) => blocksAt(o, y) && contact(o, x, z, y).dist < margin);
 }
