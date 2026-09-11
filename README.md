@@ -151,6 +151,13 @@ npm run build        # produkcyjny build do dist/
   planszę tylko w edytorze — w spacerze jedzie za graczem (kwadrat 52 m, przesunięty w stronę patrzenia),
   co daje ostrzejsze cienie i mniej brył do przerysowania. Zmierzone na wiosce, ten sam punkt widzenia:
   912 → 536 wywołań rysowania i 2,6 × krótsza klatka.
+- **Zderzenia wierzchowców i maszyn** — poza trybem chodzenia (który liczy Rapier) pojazdy sprawdzają
+  przeszkody obrysami z `lib/obstacles.ts`. Zderzenie kończy się **ślizgiem**, nie zatrzymaniem: `resolveBump`
+  (`lib/ride.ts`) zdejmuje z pędu tylko tę składową, którą wbijało się w mur, i płynnie układa kurs wzdłuż
+  ściany. Muśnięcie pod ostrym kątem kosztuje kilka procent prędkości, lot prosto w mur wyhamowuje mocno, ale
+  nigdy do zera. Obrys przeszkody jest liczony **pasmami wysokości** (`modelSlices`, pięć pasm): wieża
+  zwężająca się ku górze nie blokuje już przelotu obrysem swojego cokołu — megawieżowiec ma przy ziemi
+  12,4 m, a pod szczytem 5,4 m.
 - **Fizyka** — silnik Rapier (WASM, ładowany dopiero przy wejściu w tryb chodzenia): grawitacja, skok
   (`Spacja`, przycisk na telefonie, grip w VR), wchodzenie po schodach i wskakiwanie na ławkę, głaz czy wzgórze.
   W spacerze można też stawiać obiekty z biblioteki: podgląd idzie za celownikiem, klik stawia, `R` obraca; wewnątrz
@@ -160,6 +167,8 @@ npm run build        # produkcyjny build do dist/
 - **Spacer pamięci** — kamera prowadzi po przystankach; najpierw próbujesz sobie przypomnieć, potem
   odsłaniasz notatkę i oceniasz (algorytm w stylu SM-2 wyznacza termin kolejnej powtórki).
 - **Widok z oczu** — WASD + mysz (pointer lock) na komputerze, joystick, przeciąganie i przycisk skoku na telefonie.
+  Na dotyku rozgląda **całe płótno** (gałka i przyciski to elementy DOM, więc nie kolidują), a palce są liczone
+  osobno: drugi kciuk może dojść w połowie obrotu, a podniesienie pierwszego nie przerywa ruchu.
 - **VR** — zwykły spacer w goglach: lewy joystick idzie, prawy obraca skokowo, spust działa jak
   kliknięcie, chwyt to skok. Kamera nie przenosi gracza samoczynnie. Gdy przeglądarka nie ma WebXR,
   włącza się tryb stereo (Cardboard): przytrzymanie ekranu idzie do przodu, krótkie dotknięcie to interakcja.
@@ -225,6 +234,7 @@ src/
   store.ts            stan aplikacji (zustand): pałace, obiekty, ścieżka, powtórki, undo/redo
   lib/storage.ts      localStorage, eksport/import JSON
   lib/lightpool.ts    pula świateł punktowych: przydział źródeł do stałej liczby miejsc
+  lib/obstacles.ts    obrysy przeszkód pasmami wysokości, wypychanie i ślizg
   lib/templates.ts    zawartość nowego pałacu: pusta plansza i wioska w dolinie
   lib/srs.ts          spaced repetition
   lib/review.ts       spłaszczanie trasy spaceru (schodzi do wnętrz)
