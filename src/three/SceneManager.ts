@@ -7,11 +7,11 @@ import { useStore, descendants, movableRoots, selectionRoots } from '../store';
 import { yawOfObject } from '../lib/transform';
 import type { CameraKind, FurnitureSet, Palace, PalaceObject, RoomSpec, Vec3, ViewMode } from '../types';
 import { AMBIENCES, catalogItem, hasInterior } from '../catalog';
-import { buildModel, buildParachute, disposeObject, modelBounds, modelHeight, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN, MOUNT_ANCHORS, ASSET_MOUNTS, type BuildCtx } from './builders';
+import { buildModel, buildParachute, disposeObject, modelBounds, modelHeight, modelSlices, type ModelSlice, shellLeafLocal, DOOR_LEAF_LOCAL, EMITTER_ANCHORS, DOORS, GATE_SPAWN, MOUNT_ANCHORS, ASSET_MOUNTS, type BuildCtx } from './builders';
 import { assetLoaded, findClip, loadAsset } from './assets';
-import { pushOut, type Obstacle } from '../lib/obstacles';
+import { contact, pushOut, type Obstacle } from '../lib/obstacles';
 import { mergeByMaterial } from './merge';
-import { IDLE_INPUT, MOUNT_SPECS, advanceTrail, isMount, newRideState, rideSettled, stepRide, trailPoint, type MountId, type MountSpec, type RideEnv, type RideInput, type RideState } from '../lib/ride';
+import { IDLE_INPUT, MOUNT_SPECS, advanceTrail, isMount, newRideState, resolveBump, rideSettled, stepRide, trailPoint, type MountId, type MountSpec, type RideEnv, type RideInput, type RideState } from '../lib/ride';
 import { ART_VARIANTS } from './art';
 import { assignSlots, type LightSlot } from '../lib/lightpool';
 import { hashString } from './noise';
@@ -58,6 +58,8 @@ interface Entry {
   parts: Map<string, THREE.Object3D>;
   /** Ramka modelu w jego układzie — obrys przeszkody dla zwierząt i wierzchowców. */
   bounds: THREE.Box3;
+  /** Obrys modelu pasmami wysokości (jednostki modelu) — przeszkoda liczy się tym, co jest na danej wysokości. */
+  slices: ModelSlice[];
   /** Model z pliku ze szkieletem: mikser i bieżący klip (postój, stęp, galop, lot). */
   anim?: { mixer: THREE.AnimationMixer; clips: THREE.AnimationClip[]; current: string | null; action: THREE.AnimationAction | null };
   /** Budynek z wnętrzem w tej samej scenie: dach do schowania, stropy pięter i ściany do chowania od strony kamery. */
@@ -358,7 +360,11 @@ export class SceneManager {
   stickyPlacing = false;
   private yaw = 0;
   private pitch = 0;
-  private touchLook: { id: number; x: number; y: number; moved: boolean } | null = null;
+  /**
+   * Palce rozglądające się po scenie — mapa, a nie jedno pole, bo na telefonie drugi kciuk często dochodzi
+   * w połowie obrotu (albo trzyma gałkę), a podniesienie jednego palca nie może przerywać ruchu drugiego.
+   */
+  private touchLook = new Map<number, { x: number; y: number; moved: boolean }>();
   private fpVel = new THREE.Vector3();
   /** Przejażdżka: gracz siedzi w siodle, a `updateRide` prowadzi model i kamerę zamiast `updateFp`. */
   private ride: Ride | null = null;
@@ -369,6 +375,8 @@ export class SceneManager {
   /** Galop z przycisku na telefonie (odpowiednik trzymanego Shift). */
   touchSprint = false;
   private rideHit: string | null = null;
+  /** Kiedy ostatnio pokazano komunikat o otarciu — ślizg wzdłuż rzędu wieżowców nie ma zasypywać ekranu. */
+  private rideHitAt = 0;
   /** Trwające wczytywania (fizyka, modele z plików) — dopóki coś jest w środku, widać ekran ładowania. */
   private pendingLoads = new Set<string>();
   private loadingSince = 0;
@@ -1047,6 +1055,9 @@ export class SceneManager {
       if (!e) {
         const key = buildKey(o);
         const model = buildModel(o.type, this.modelCtx(o, p));
+        // pasma obrysu liczymy przed scaleniem: po nim wszystkie bryły o wspólnym materiale (cokół, tarasy,
+        // gzymsy) są jedną siatką sięgającą od ziemi po szczyt i każde pasmo dostałoby obrys całej wieży
+        const slices = modelSlices(model);
         // scalamy przed nadaniem `objectId`, bo scalane są tylko siatki bez własnego `userData`
         mergeByMaterial(model);
         const group = new THREE.Group();
@@ -1055,7 +1066,7 @@ export class SceneManager {
         group.traverse((c) => (c.userData.objectId = o.id));
         this.scene.add(group);
         const item = catalogItem(o.type);
-        e = { id: o.id, type: o.type, group, model, height: modelHeight(model), footprint: item.footprint, label: null, labelEl: null, labelKey: '', panel: null, panelKey: '', transformKey: '', emitter: null, buildKey: key, inplace: isInPlace(o), roof: null, slabs: [], walls: [], lights: [], parts: new Map(), bounds: modelBounds(model) };
+        e = { id: o.id, type: o.type, group, model, height: modelHeight(model), footprint: item.footprint, label: null, labelEl: null, labelKey: '', panel: null, panelKey: '', transformKey: '', emitter: null, buildKey: key, inplace: isInPlace(o), roof: null, slabs: [], walls: [], lights: [], parts: new Map(), bounds: modelBounds(model), slices };
         model.traverse((c) => {
           const l = c as THREE.PointLight;
           if (!l.isPointLight) return;
@@ -2569,6 +2580,7 @@ export class SceneManager {
 
   private onWindowBlur = () => {
     this.keys.clear();
+    this.touchLook.clear(); // przy utracie okna nie przyjdzie już `pointerup` tych palców
     this.endFreeLook();
   };
 
@@ -2834,8 +2846,8 @@ export class SceneManager {
     }
     if (this.mode === 'fp') {
       if (ev.pointerType === 'touch') {
-        const r = this.renderer.domElement.getBoundingClientRect();
-        if (ev.clientX - r.left > r.width * 0.35) this.touchLook = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, moved: false };
+        // rozgląda całe płótno: gałka i przyciski to elementy DOM, które odsiewa `isUiTarget`
+        this.touchLook.set(ev.pointerId, { x: ev.clientX, y: ev.clientY, moved: false });
         return;
       }
       if (document.pointerLockElement === this.renderer.domElement) {
@@ -2963,12 +2975,13 @@ export class SceneManager {
       this.look(dx * 0.006, dy * 0.006);
       return;
     }
-    if (this.mode === 'fp' && this.touchLook && ev.pointerId === this.touchLook.id) {
-      const dx = ev.clientX - this.touchLook.x;
-      const dy = ev.clientY - this.touchLook.y;
-      this.touchLook.x = ev.clientX;
-      this.touchLook.y = ev.clientY;
-      if (Math.abs(dx) + Math.abs(dy) > 2) this.touchLook.moved = true;
+    const look = this.mode === 'fp' ? this.touchLook.get(ev.pointerId) : undefined;
+    if (look) {
+      const dx = ev.clientX - look.x;
+      const dy = ev.clientY - look.y;
+      look.x = ev.clientX;
+      look.y = ev.clientY;
+      if (Math.abs(dx) + Math.abs(dy) > 2) look.moved = true;
       this.look(dx * 0.006, dy * 0.006);
       return;
     }
@@ -3090,15 +3103,17 @@ export class SceneManager {
       return;
     }
     if (this.mode === 'fp') {
-      if (this.touchLook && ev.pointerId === this.touchLook.id) {
-        if (!this.touchLook.moved) {
+      const up = this.touchLook.get(ev.pointerId);
+      if (up) {
+        this.touchLook.delete(ev.pointerId);
+        // palec, który nie drgnął, był stuknięciem: stawia obiekt albo otwiera drzwi
+        if (!up.moved) {
           if (this.ghost) this.commitPlacement(this.stickyPlacing);
           else {
             this.setPointer(ev);
             this.fpInteract(this.pick());
           }
         }
-        this.touchLook = null;
       }
       return;
     }
@@ -3654,17 +3669,26 @@ export class SceneManager {
       }
       const b = e.bounds;
       if (b.isEmpty()) continue;
-      const cx = ((b.min.x + b.max.x) / 2) * s.x;
-      const cz = ((b.min.z + b.max.z) / 2) * s.z;
+      // środek obrysu w świecie: przesunięcie z modelu przeskalowane i obrócone razem z obiektem
+      const world = (lx: number, lz: number) => {
+        const cx = lx * s.x;
+        const cz = lz * s.z;
+        return [p.x + cx * Math.cos(yaw) + cz * Math.sin(yaw), p.z - cx * Math.sin(yaw) + cz * Math.cos(yaw)] as const;
+      };
+      const [wx, wz] = world((b.min.x + b.max.x) / 2, (b.min.z + b.max.z) / 2);
       list.push({
         id: e.id,
-        x: p.x + cx * Math.cos(yaw) + cz * Math.sin(yaw),
-        z: p.z - cx * Math.sin(yaw) + cz * Math.cos(yaw),
+        x: wx,
+        z: wz,
         yaw,
         hx: ((b.max.x - b.min.x) / 2) * s.x,
         hz: ((b.max.z - b.min.z) / 2) * s.z,
         bottom: p.y + b.min.y * s.y,
         top: p.y + b.max.y * s.y,
+        slices: e.slices.length > 1 ? e.slices.map((sl) => {
+          const [sx, sz] = world(sl.cx, sl.cz);
+          return { top: p.y + sl.top * s.y, x: sx, z: sz, hx: sl.hx * s.x, hz: sl.hz * s.z };
+        }) : undefined,
       });
     }
     this.obstacleCache = list;
@@ -4317,15 +4341,18 @@ export class SceneManager {
     inp.jump = false;
     inp.fire = false;
 
-    // zderzenie z budynkiem albo drzewem: wierzchowiec staje przy ścianie, maszyna w powietrzu traci pęd
-    const bump = pushOut(s.x, s.z, this.obstacles(), e.footprint * 0.5 * hs(e), s.y, e.id);
+    // zderzenie z budynkiem albo drzewem: maszyna nie staje, tylko układa się wzdłuż ściany i sunie dalej
+    const bump = pushOut(s.x, s.z, this.obstacles(), e.footprint * 0.4 * hs(e), s.y, e.id);
     if (bump.hit) {
       s.x = bump.x;
       s.z = bump.z;
-      s.speed = 0;
-      if (spec.kind === 'air') s.throttle = 0;
-      if (this.rideHit !== bump.hit.id && s.pilot) {
-        useStore.getState().showToast(spec.kind === 'air' ? 'Zderzenie! Maszyna traci pęd.' : 'Wierzchowiec staje przed przeszkodą.');
+      // po wypchnięciu punkt leży dokładnie na marginesie, więc normalna z `contact` wskazuje ścianę, o którą się otarł
+      const c = contact(bump.hit, s.x, s.z, s.y);
+      const into = resolveBump(s, c.nx, c.nz, spec, dt);
+      const now = performance.now();
+      if (into > 0.6 && s.pilot && now - this.rideHitAt > 4000) {
+        this.rideHitAt = now;
+        useStore.getState().showToast(spec.kind === 'ground' ? 'Ocierasz się o przeszkodę.' : 'Otarcie — maszyna ślizga się wzdłuż przeszkody.');
       }
       this.rideHit = bump.hit.id;
     } else this.rideHit = null;
