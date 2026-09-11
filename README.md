@@ -226,6 +226,17 @@ edytor w bezruchu, obrót widoku, spacer w bezruchu i marsz. Dla każdego podaje
 liczbę zacięć powyżej 50 ms i **ile programów shaderów przybyło w trakcie** — to ostatnie jest pierwszym
 podejrzanym przy szarpaniu, bo kompilacja jednego programu blokuje wątek na kilkadziesiąt milisekund.
 
+## Obrotówka modelu
+
+```bash
+npm run model-shot -- well zrzuty/studnia            # zrzuty z czterech stron
+npm run model-shot -- lantern zrzuty/latarnia --kąty 0,45 --klimat night
+```
+
+Stawia jeden element katalogu na pustej planszy, kadruje kamerę na jego ramce i zapisuje po jednym zrzucie
+na każdy kąt, przyciętym do płótna sceny. Służy do oceniania kształtu samego modelu: ujęcie od frontu
+przepuszcza dziurę z tyłu i część wiszącą w powietrzu. Wymaga działającego `npm run dev`.
+
 ## Struktura
 
 ```
