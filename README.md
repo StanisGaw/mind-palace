@@ -67,6 +67,9 @@ npm run build        # produkcyjny build do dist/
     za sobą segmenty ciała śladem głowy. `Shift`/`Ctrl` — powolny rozpęd i hamowanie, `A`/`D` — skręt
     szerokim łukiem, `Spacja` — wyskok z piasku łukiem z rozwartą paszczą. Suwak wielkości robi z niego
     olbrzyma.
+  - **Czerw kielichowy** — drugi czerw, odtworzony ze zdjęcia referencyjnego: trzon gęsto pierścieniowany
+    wznosi się stromo z piasku, a paszczę tworzą cztery płaty rozchylające się jak kielich, bez zębów.
+    Sterowanie jak przy czerwiu pustynnym, tylko wolniejszy w skręcie i wyskakujący wyżej.
   - **Przeszkody** — obrysy obiektów (`lib/obstacles.ts`: obrócony prostokąt z ramki modelu, z podłogą
     i szczytem) zatrzymują wierzchowce i maszyny; nad dachem przelatuje się swobodnie. Zwierzęta omijają
     obrysy i zawracają po otarciu. Model konia ładuje się raz (`three/assets.ts`), każdy obiekt dostaje klon
