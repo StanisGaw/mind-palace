@@ -61,6 +61,8 @@ interface State {
   riding: MountId | null;
   /** Gracz wyskoczył z siodła: spada swobodnie albo wisi na spadochronie. */
   descent: 'fall' | 'chute' | null;
+  /** Gracz trzyma łuk — celownik zamienia się w przyrząd łucznika, a pasek podpowiedzi na sterowanie strzelaniem. */
+  bow: boolean;
   /** Pad zauważony w tej sesji — pasek podpowiedzi pokazuje wtedy przyciski pada zamiast klawiszy. */
   padSeen: boolean;
   /** Budynek z wnętrzem w miejscu, w którym stoi gracz w spacerze (biblioteka ogranicza się do wyposażenia wnętrz). */
@@ -85,6 +87,7 @@ interface State {
   setInsideBuilding(id: string | null): void;
   setDoorPrompt(p: State['doorPrompt']): void;
   setRiding(v: MountId | null): void;
+  setBow(v: boolean): void;
   setDescent(v: State['descent']): void;
   setPadSeen(): void;
   setEditFloor(n: number): void;
@@ -406,6 +409,7 @@ export const useStore = create<State>((set, get) => ({
   doorPrompt: null,
   riding: null,
   descent: null,
+  bow: false,
   padSeen: false,
   insideBuildingId: null,
   placing: null,
@@ -818,6 +822,9 @@ export const useStore = create<State>((set, get) => ({
   },
   setRiding(v) {
     if (get().riding !== v) set({ riding: v });
+  },
+  setBow(v) {
+    if (get().bow !== v) set({ bow: v });
   },
   setDoorPrompt(p) {
     const cur = get().doorPrompt;

@@ -43,6 +43,7 @@ export function Viewport() {
     if (mgrRef.current) mgrRef.current.touchSprint = false;
   }, [riding]);
   const descent = useStore((s) => s.descent);
+  const bow = useStore((s) => s.bow);
   const padSeen = useStore((s) => s.padSeen);
   const loading = useStore((s) => s.loading);
   const setSettings = useStore((s) => s.setSettings);
@@ -266,10 +267,14 @@ export function Viewport() {
                   ? 'Lewa gałka — ster · prawa gałka — rozglądanie'
                   : 'WASD — ster · mysz — rozglądanie'}
             </span>
+          ) : bow ? (
+            <span>
+              <I.Eye width={12} height={12} /> Trzymaj lewy przycisk — naciąg · puść — strzał · B — odłóż łuk
+            </span>
           ) : (
             <span>
               <I.Eye width={12} height={12} />{' '}
-              {padSeen ? 'Lewa gałka — chodzenie · ✕ — skok · ▢ — drzwi · spusty — bieg' : 'WASD — chodzenie · Spacja — skok · F — drzwi · Esc — kursor'}
+              {padSeen ? 'Lewa gałka — chodzenie · ✕ — skok · ▢ — drzwi · spusty — bieg' : 'WASD — chodzenie · Spacja — skok · F — drzwi · B — łuk · Esc — kursor'}
             </span>
           )
         ) : null}
@@ -330,7 +335,16 @@ export function Viewport() {
 
       {viewMode === 'fp' && !vrActive && (
         <>
-          <div className="crosshair" />
+          {bow ? (
+            <div className="bow-sight">
+              <i />
+              <i />
+              <i />
+              <i />
+            </div>
+          ) : (
+            <div className="crosshair" />
+          )}
           {!isTouch && <FpLockHint />}
           {isTouch && <Joystick onChange={(x, y) => { if (mgrRef.current) mgrRef.current.joystick = { x, y }; }} />}
           {isTouch && !mount && descent !== 'chute' && (
