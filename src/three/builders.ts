@@ -888,6 +888,94 @@ function buildWell(g: THREE.Group) {
 }
 
 /**
+ * Tarcza łucznicza: snop słomy o średnicy 1,22 m (wymiar zawodniczy) na drewnianym trójnogu.
+ * Pierścienie patrzą w +Z, czyli przy obrocie zerowym tarcza stoi tyłem do ściany — tak jak obraz i sofa.
+ */
+function buildArcheryTarget(g: THREE.Group) {
+  const R = 0.61;
+  const CY = 1.28; // środek tarczy na wysokości klatki piersiowej stojącego łucznika
+  const HALF = 0.1; // połowa grubości snopa
+
+  // trójnóg: dwie nogi na boki, jedna do tyłu, poprzeczka pod snopem
+  for (const s of [-1, 1]) add(g, cyl(0.045, 0.055, 1.5, 8), woodMat(C.woodDark), s * 0.52, 0.72, 0.06, [0, 0, s * -0.14]);
+  add(g, cyl(0.045, 0.055, 1.55, 8), woodMat(C.woodDark), 0, 0.74, -0.42, [0.26, 0, 0]);
+  add(g, box(1.12, 0.09, 0.09), woodMat(C.wood), 0, 0.74, 0.02);
+
+  // snop: walec o osi wzdłuż Z, na obrzeżu powrozy wiążące słomę
+  add(g, cyl(R, R, HALF * 2, 28), woodMat(C.book3), 0, CY, 0, [Math.PI / 2, 0, 0]);
+  for (const z of [-HALF + 0.02, HALF - 0.02]) add(g, new THREE.TorusGeometry(R - 0.01, 0.03, 6, 26), woodMat(C.woodDark), 0, CY, z);
+
+  // pierścienie: od najszerszego, każdy dwa milimetry bliżej strzelca — inaczej walczyłyby o piksele.
+  // Cienia nie rzucają: leżą na snopie, więc dawałyby tylko szum na jego licu.
+  const rings: [string, number][] = [
+    [C.linen, 1],
+    [C.dark, 0.8],
+    [C.water, 0.6],
+    [C.velvet, 0.4],
+    [C.gold, 0.2],
+  ];
+  rings.forEach(([color, k], i) => {
+    add(g, new THREE.CircleGeometry(R * k, 40), mat(color, { roughness: 0.95, flat: false }), 0, CY, HALF + 0.002 + i * 0.002).castShadow = false;
+  });
+}
+
+/**
+ * Łuk trzymany w dłoni — nie obiekt biblioteki, więc bez wpisu w katalogu i bez palety obiektu.
+ * Ramiona to jedna rurka wygięta w płaszczyźnie YZ (łuk oglądany wprost zawsze jest pionową linią —
+ * czyta się dopiero przy przekrzywieniu w dłoni), a cięciwa to dwa cienkie walce o nazwach `string0`
+ * i `string1`, które `three/archery.ts` rozciąga między końcówką a nasadą. Przód łuku to −Z.
+ */
+export function buildBow(): THREE.Group {
+  const g = new THREE.Group();
+  const curve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, -0.52, 0.07),
+    new THREE.Vector3(0, -0.42, -0.06),
+    new THREE.Vector3(0, -0.26, -0.16),
+    new THREE.Vector3(0, -0.1, -0.07),
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 0.1, -0.07),
+    new THREE.Vector3(0, 0.26, -0.16),
+    new THREE.Vector3(0, 0.42, -0.06),
+    new THREE.Vector3(0, 0.52, 0.07),
+  ]);
+  add(g, new THREE.TubeGeometry(curve, 30, 0.015, 5, false), woodMat(C.woodDark));
+  // rękojeść z półką na strzałę i okienkiem celowniczym — to ona odróżnia łuk od kija
+  add(g, box(0.042, 0.19, 0.06), mat(C.velvet, { roughness: 1 }), 0, -0.01, 0.015);
+  add(g, box(0.03, 0.075, 0.05), woodMat(C.wood), 0.026, 0.085, 0.01);
+  add(g, box(0.058, 0.014, 0.032), woodMat(C.wood), 0.03, 0.052, 0.008);
+
+  for (const name of ['string0', 'string1']) {
+    const m = new THREE.Mesh(cyl(0.003, 0.003, 1, 4), mat(C.linen, { roughness: 0.9 }));
+    m.name = name;
+    m.castShadow = false;
+    g.add(m);
+  }
+  return g;
+}
+
+/**
+ * Strzała: grot siedzi w punkcie zaczepienia grupy, a drzewce ciągnie się w +Z. Dzięki temu przód to −Z
+ * (jak u łuku), wbita strzała obraca się wokół grotu, a drganie po wbiciu rusza samym ogonem.
+ * Cienia nie rzuca — przy trzydziestu strzałach w tarczy to trzydzieści rysowań mapy cienia za nic.
+ */
+export function buildArrow(): THREE.Group {
+  const g = new THREE.Group();
+  add(g, cone(0.011, 0.055, 6), mat(C.metal, { metalness: 0.4, roughness: 0.45 }), 0, 0, 0.0275, [-Math.PI / 2, 0, 0]);
+  add(g, cyl(0.008, 0.008, 0.62, 6), woodMat(C.wood), 0, 0, 0.365, [Math.PI / 2, 0, 0]);
+  add(g, cyl(0.009, 0.009, 0.03, 6), mat(C.dark), 0, 0, 0.69, [Math.PI / 2, 0, 0]);
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    // lotki są trochę większe od prawdziwych: strzała oglądana od tyłu (z miejsca strzelca) to przy
+    // dwudziestu metrach kilka pikseli, a po nich rozpoznaje się, że w tarczy stoi strzała
+    add(g, box(0.002, 0.05, 0.11), mat(i === 0 ? C.linen : C.velvet), -Math.sin(a) * 0.018, Math.cos(a) * 0.018, 0.6, [0, 0, a]);
+  }
+  g.traverse((c) => {
+    c.castShadow = false;
+  });
+  return g;
+}
+
+/**
  * Mały samolot z otwartym kokpitem: nos w stronę −Z (jak kierunek marszu przy obrocie obiektu),
  * koła stoją na wysokości 0. Sekcja kokpitu to wanna z podłogą i burtami — dzięki temu pilot
  * widzi wnętrze od środka, a nie prześwit przez jednostronne ścianki kadłuba.
@@ -2470,6 +2558,7 @@ const BUILDERS: Record<string, (g: THREE.Group, ctx: BuildCtx) => void> = {
   chest: buildChest,
   signpost: buildSignpost,
   well: buildWell,
+  archery_target: buildArcheryTarget,
   plane: buildPlane,
   horse: buildAssetMount('horse'),
   dragon: buildDragonMount,
