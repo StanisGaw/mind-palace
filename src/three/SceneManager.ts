@@ -2342,6 +2342,18 @@ export class SceneManager {
     if (!g) return [THREE.MathUtils.clamp(x, -this.bounds.hx, this.bounds.hx), THREE.MathUtils.clamp(z, -this.bounds.hz, this.bounds.hz)];
     return clampToGround(g, x, z, 0.4);
   }
+  /**
+   * Granica chodzenia. Po płycie zawsze, a gdy pałac ma krajobraz — także po nim, aż do krawędzi terenu:
+   * teren ma własną bryłę kolizji, więc da się zejść z planszy na wzgórza i wrócić. Bez krajobrazu
+   * (`scenery: 'none'`) poza płytą nie ma po czym chodzić, więc zostaje przycięcie do planszy.
+   */
+  private clampWalk(x: number, z: number): [number, number] {
+    if (!this.terrain) return this.clampXZ(x, z);
+    const r = this.rideRadius();
+    const d = Math.hypot(x, z);
+    return d <= r ? [x, z] : [(x / d) * r, (z / d) * r];
+  }
+
   private clampX(x: number) {
     return this.clampXZ(x, 0)[0];
   }
@@ -3712,7 +3724,8 @@ export class SceneManager {
         if (this.walkArea && insideGround(this.walkArea, x, z)) return 0;
         return this.terrain?.heightAt(x, z) ?? 0;
       },
-      clamp: (x, z) => this.clampXZ(x, z),
+      // zwierzęta chodzą tam, gdzie gracz: pies biegnący za Tobą nie ma stawać na krawędzi planszy
+      clamp: (x, z) => this.clampWalk(x, z),
     };
   }
 
@@ -3748,7 +3761,8 @@ export class SceneManager {
     if (this.riding) {
       const r = this.ride!;
       const rs = r.state;
-      const ready = rs.onGround && Math.abs(rs.speed) < 1.2 && (!this.walkArea || insideGround(this.walkArea, rs.x, rs.z));
+      // zsiąść można wszędzie, gdzie da się stanąć — czyli na płycie, a przy krajobrazie także na terenie
+      const ready = rs.onGround && Math.abs(rs.speed) < 1.2 && (!!this.terrain || !this.walkArea || insideGround(this.walkArea, rs.x, rs.z));
       st.setDoorPrompt(ready ? { kind: 'leave', objectId: r.id, label: MOUNT_SPECS[r.mount].labels.leave } : null);
       return;
     }
@@ -4015,8 +4029,9 @@ export class SceneManager {
     this.ride = { id, mount: e.type, state: newRideState(p.x, p.y, p.z, o.rotation[1], spec), trail: [], anim: 0 };
     if (spec.leap) this.resetTrail(e, this.ride);
     // plansza nie zmienia się w trakcie jazdy, więc zacisk maszyny bez pilota powstaje raz
+    // maszyna bez pilota zostaje tam, gdzie da się do niej dojść — czyli w granicach chodzenia
     const area = this.walkArea;
-    this.rideEnv.clampToBoard = area ? (x, z) => clampToGround(area, x, z, 0) : undefined;
+    this.rideEnv.clampToBoard = area && !this.terrain ? (x, z) => clampToGround(area, x, z, 0) : (x, z) => this.clampWalk(x, z);
     // bryła kolizji zostałaby na miejscu postoju — na czas jazdy znika, a po zsiadnięciu wraca z nowej pozycji
     this.physics?.removeStatic(id);
     this.yaw = 0;
@@ -4515,8 +4530,8 @@ export class SceneManager {
       if (jump) this.jumpBuffer = 0;
       const step = Math.min(dt, 0.033); // krótszy krok: cienkie deski nie są przenikane przy biegu
       const r = this.physics.stepCharacter(this.fpVel, step, jump);
-      const [cx, cz] = this.clampXZ(r.pos.x, r.pos.z);
-      // granica planszy jest poza fizyką — po przycięciu trzeba przestawić też ciało
+      const [cx, cz] = this.clampWalk(r.pos.x, r.pos.z);
+      // granica świata jest poza fizyką — po przycięciu trzeba przestawić też ciało
       if (Math.abs(cx - r.pos.x) > 1e-4 || Math.abs(cz - r.pos.z) > 1e-4) this.physics.teleport(tmpV3.set(cx, r.pos.y, cz));
       this.rig.position.set(cx, r.pos.y + this.headOffset, cz);
       return;
@@ -4524,9 +4539,9 @@ export class SceneManager {
 
     // rezerwowe kolizje kołowe, dopóki fizyka się nie wczyta
     if (this.fpVel.lengthSq() < 1e-6) return;
-    const [nx, nz] = this.clampXZ(this.rig.position.x + this.fpVel.x * dt, this.rig.position.z + this.fpVel.z * dt);
+    const [nx, nz] = this.clampWalk(this.rig.position.x + this.fpVel.x * dt, this.rig.position.z + this.fpVel.z * dt);
     const [px, pz] = this.resolveCollisions(nx, nz);
-    const [fx, fz] = this.clampXZ(px, pz);
+    const [fx, fz] = this.clampWalk(px, pz);
     this.rig.position.x = fx;
     this.rig.position.z = fz;
   }
