@@ -32,6 +32,7 @@ import { nextScale, qualitySpec, type Quality, type QualitySpec } from '../lib/q
 import { getPref } from '../lib/prefs';
 import { Wildlife, type SpawnInfo, type WorldInfo } from './wildlife';
 import { Soundscape } from './soundscape';
+import { Archery, type ArrowHit } from './archery';
 import { loadCustomTextures } from '../lib/textureStore';
 import { uid } from '../lib/ids';
 import type { GroundSpec } from '../types';
@@ -368,6 +369,9 @@ export class SceneManager {
   private fpVel = new THREE.Vector3();
   /** Przejażdżka: gracz siedzi w siodle, a `updateRide` prowadzi model i kamerę zamiast `updateFp`. */
   private ride: Ride | null = null;
+  /** Łuk w dłoni (prototyp strzelnicy) — `null`, gdy gracz nie trzyma łuku. */
+  private archery: Archery | null = null;
+  private lastDraw = -1;
   /** Pliki modeli, których wczytanie już ruszyło. */
   private assetLoads = new Set<string>();
   /** Obrysy obiektów dla zwierząt i jazdy; liczone na nowo po każdej zmianie pałacu. */
@@ -743,6 +747,8 @@ export class SceneManager {
     this.lastPalaceId = p.id;
     this.applyEnvironment(p, sceneChanged);
     if (sceneChanged) {
+      // strzały siedzą we wpisach tej sceny — z nową planszą łuk wraca na stojak
+      this.dropBow();
       this.physicsDirty = true;
       this.openDoors.clear();
       this.doorAnims = [];
@@ -2237,6 +2243,7 @@ export class SceneManager {
       return;
     }
     if (prevMode === 'vr') this.exitVR();
+    if (mode !== 'fp') this.dropBow();
     if (mode === 'fp') {
       if (prevMode === 'editor') this.editorToFp();
       this.ensurePhysics();
@@ -2593,6 +2600,7 @@ export class SceneManager {
   private onWindowBlur = () => {
     this.keys.clear();
     this.touchLook.clear(); // przy utracie okna nie przyjdzie już `pointerup` tych palców
+    this.archery?.setPulling(false); // ani `pointerup` puszczonej cięciwy
     this.endFreeLook();
   };
 
@@ -2863,6 +2871,11 @@ export class SceneManager {
         return;
       }
       if (document.pointerLockElement === this.renderer.domElement) {
+        // łuk przejmuje lewy przycisk: trzymanie napina cięciwę, puszczenie strzela
+        if (this.archery && ev.button === 0) {
+          this.archery.setPulling(true);
+          return;
+        }
         if (this.ghost) {
           // stawianie w spacerze: klik stawia w miejscu podglądu, prawy przycisk anuluje
           if (ev.button === 2) st.setPlacing(null);
@@ -3091,6 +3104,8 @@ export class SceneManager {
   };
 
   private onPointerUp = (ev: PointerEvent) => {
+    // `pointercancel` nie podaje numeru przycisku, a cięciwa musi puścić także wtedy
+    if (this.archery && (ev.button === 0 || ev.type === 'pointercancel')) this.archery.setPulling(false);
     if (this.brushTiles) {
       const painted = [...this.brushTiles.values()];
       this.brushTiles = null;
@@ -3271,7 +3286,9 @@ export class SceneManager {
     // rozglądanie myszą: w widoku z oczu zawsze, w trybie stereo tylko gdy głowy nie prowadzą czujniki
     const stereoLook = this.mode === 'vr' && !!this.stereo && !this.deviceOrient.active;
     if (this.mode !== 'fp' && !stereoLook) return;
-    this.look(ev.movementX * 0.0022, ev.movementY * 0.0022);
+    // przy naciągu kamera chodzi wolniej — łuk ma się celować, a nie śmigać
+    const k = this.archery ? 1 - 0.35 * this.archery.draw : 1;
+    this.look(ev.movementX * 0.0022 * k, ev.movementY * 0.0022 * k);
   };
 
   private onContextMenu = (ev: MouseEvent) => {
@@ -3297,6 +3314,7 @@ export class SceneManager {
 
   private onLockChange = () => {
     useStore.setState({ toast: null });
+    if (document.pointerLockElement !== this.renderer.domElement) this.archery?.setPulling(false);
     this.container.classList.toggle('pointer-locked', document.pointerLockElement === this.renderer.domElement);
   };
 
@@ -3354,6 +3372,11 @@ export class SceneManager {
       if (ev.code === 'KeyM') st.setTool('move');
       if (ev.code === 'KeyF') st.camera('center');
       if (ev.code === 'KeyT') st.camera('topView');
+    }
+    if (ev.code === 'KeyB' && this.mode === 'fp' && !st.review) {
+      ev.preventDefault();
+      this.toggleBow();
+      return;
     }
     if (ev.code === 'KeyF' && this.mode === 'fp' && this.riding) {
       ev.preventDefault();
@@ -3543,6 +3566,7 @@ export class SceneManager {
       if (this.ride) this.updateRide(dt);
       if (this.descent) this.updateDescent(dt);
       else if (!this.riding) this.updateFp(dt);
+      if (this.archery) this.updateArchery(dt);
       if (this.debugPhysics && ++this.debugTick % 10 === 0) this.updatePhysicsDebug();
       if (this.stereo && this.deviceOrient.active) this.applyDeviceOrientation();
     }
@@ -4021,6 +4045,7 @@ export class SceneManager {
 
   private boardMount(id: string) {
     if (this.descent) return;
+    this.dropBow();
     const e = this.entries.get(id);
     const o = this.lastPalace?.objects.find((x) => x.id === id);
     if (!e || !o || !isMount(e.type)) return;
@@ -4496,6 +4521,94 @@ export class SceneManager {
     this.setEmitterOpacity(e, s.onGround ? Math.max(Math.min(Math.abs(s.speed) / 8, 1) * 0.5, burst) : 0);
   }
 
+  // ---------- łuk ----------
+  /**
+   * Bierze łuk do ręki albo go odkłada. Prototyp sięga po niego klawiszem B; docelowo łuk stoi
+   * na stojaku i podnosi się go tak, jak dosiada wierzchowca (etap 2 planu strzelnicy).
+   */
+  toggleBow() {
+    if (this.archery) {
+      this.dropBow();
+      return;
+    }
+    if (this.mode !== 'fp' || this.riding || this.descent || this.stereo || this.renderer.xr.isPresenting) return;
+    const a = new Archery();
+    this.archery = a;
+    this.scene.add(a.object);
+    this.camera.add(a.hand);
+    // łuk zajmuje lewy przycisk, więc stawianie obiektu i strzelanie wykluczają się
+    useStore.getState().setPlacing(null);
+    useStore.getState().setBow(true);
+    useStore.getState().showToast('Trzymaj lewy przycisk — naciąg, puść — strzał. B odkłada łuk.');
+  }
+
+  /** Odkłada łuk: strzały znikają razem z nim, kamera wraca do zwykłego kąta widzenia. */
+  private dropBow() {
+    const a = this.archery;
+    if (!a) return;
+    this.archery = null;
+    a.dispose();
+    this.camera.fov = 70;
+    this.camera.updateProjectionMatrix();
+    this.container.style.removeProperty('--draw');
+    this.lastDraw = -1;
+    useStore.getState().setBow(false);
+  }
+
+  /**
+   * Krok łucznictwa: naciąg prowadzi moduł, a scena dokłada to, co należy do kamery — przybliżenie
+   * i drżenie ręki. Obrót kamery ustawia `look`, więc drżenie musi wejść tutaj, już po nim.
+   */
+  private updateArchery(dt: number) {
+    const a = this.archery;
+    if (!a) return;
+    a.update(dt, this.camera, this.castArrow, this.entryMatrix);
+    const fov = 70 - 8 * a.draw;
+    if (Math.abs(this.camera.fov - fov) > 0.05) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
+    if (!this.riding) this.camera.rotation.set(this.pitch + a.swayXY[1], a.swayXY[0], 0);
+    // celownik czyta naciąg ze zmiennej CSS; zapis co klatkę unieważniałby style bez potrzeby
+    const draw = Math.round(a.draw * 50) / 50;
+    if (draw !== this.lastDraw) {
+      this.lastDraw = draw;
+      this.container.style.setProperty('--draw', String(draw));
+    }
+  }
+
+  /**
+   * Trafienie strzały: promień po siatkach modeli, a nie po bryłach fizyki — strzała ma zostać tam,
+   * gdzie widać trafienie (w pniu drzewa, nie w niewidzialnym pudle wokół niego).
+   */
+  private castArrow = (from: THREE.Vector3, dir: THREE.Vector3, dist: number): ArrowHit | null => {
+    this.raycaster.set(from, dir);
+    this.raycaster.far = dist;
+    const targets: THREE.Object3D[] = [];
+    for (const e of this.entries.values()) {
+      // ścieżki, okna i markery zwierząt nie mają bryły także dla strzał — przelatuje przez nie
+      if (e.group.visible && colliderKind(e.type) !== 'none') targets.push(e.group);
+    }
+    if (this.room) targets.push(this.room.group);
+    if (this.ground) targets.push(this.ground);
+    if (this.terrain) targets.push(this.terrain.group);
+    const hits = this.raycaster.intersectObjects(targets, true);
+    this.raycaster.far = Infinity;
+    for (const h of hits) {
+      if (!isShown(h.object) || h.object.userData.noPick) continue;
+      return { point: h.point.clone(), objectId: (h.object.userData.objectId as string | undefined) ?? null };
+    }
+    return null;
+  };
+
+  /** Macierz wpisu, w którym siedzi wbita strzała — po niej strzała jedzie z obiektem. */
+  private entryMatrix = (objectId: string): THREE.Matrix4 | null => {
+    const e = this.entries.get(objectId);
+    if (!e) return null;
+    e.group.updateWorldMatrix(true, false);
+    return e.group.matrixWorld;
+  };
+
   private updateFp(dt: number) {
     const k = this.keys;
     let mx = this.joystick.x + this.xrMove.x + this.pad.x;
@@ -4655,6 +4768,7 @@ export class SceneManager {
 
   dispose() {
     this.disposed = true;
+    this.dropBow();
     if (active === this) active = null;
     this.unsub();
     this.renderer.setAnimationLoop(null);
