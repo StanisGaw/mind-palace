@@ -65,6 +65,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         <ul>
           <li>W bibliotece, w kategorii <b>Zwierzęta</b>, stawiasz punkty pojawiania. W edytorze widać znacznik, a w trybie chodzenia zwierzę ożywa.</li>
           <li>Pies podbiega i siada obok Ciebie, kot ucieka, wiewiórka wspina się na drzewo, wilk warczy z dystansu, ptaki krążą, a smok co jakiś czas przelatuje nad głową i zionie ogniem. Kliknięcie zwierzęcia wywołuje reakcję.</li>
+          <li>Zwierzęta <b>obchodzą</b> budynki i drzewa zamiast stawać przed nimi: przy ścianie skręcają wzdłuż niej i idą do jej końca. Dopiero gdy naprawdę nie ma przejścia, po chwili wybierają inny cel.</li>
           <li><b>Świetliki</b> (słoik), <b>owady</b> (ul z pszczołami) i <b>motyle</b> (kępa kwiatów) to roje krążące wokół znacznika — także w edytorze. Świetliki mrugają i najładniej wyglądają nocą.</li>
         </ul>
         <h3>Wnętrza budynków</h3>
@@ -93,6 +94,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         <ul>
           <li>Przycisk <b>Otoczenie</b> (prawy górny róg sceny) ustawia porę dnia, pogodę (deszcz, śnieg, mgła, burza) i rodzaj krajobrazu wokół planszy. Przyciskiem obok wylosujesz nowe ukształtowanie terenu.</li>
           <li>Kategoria <b>Krajobraz</b> w bibliotece zawiera góry, wulkan, głazy, wzgórza i wodę do postawienia na planszy.</li>
+          <li>Po terenie wokół planszy <b>da się chodzić</b>: w spacerze wychodzisz poza planszę na wzgórza i wracasz, aż po krawędź krajobrazu. Gdy krajobraz jest wyłączony („Bez otoczenia"), poza planszą nie ma po czym chodzić i granicą zostaje sama plansza.</li>
           <li><b>Jakość obrazu</b> (na dole tego samego panelu) dobiera się sama do sprzętu: na telefonie i tablecie maksymalna (pełna gęstość pikseli ekranu, największa mapa cienia, bez obniżania w locie), na komputerze wysoka. Możesz ją narzucić ręcznie — niska wyłącza cienie i rysuje w rozdzielczości logicznej ekranu. Poniżej maksymalnej, gdy obraz zaczyna się ciąć, rozdzielczość obniża się sama i wraca, kiedy jest lżej.</li>
           <li>Na dużej planszy pełnej obiektów świeci naraz tylko kilka <b>latarni i lamp</b> najbliższych kamerze (im wyższa jakość, tym więcej) — każde światło kosztuje w każdym pikselu obrazu. Dalsze gasną płynnie, więc idąc nocą widzisz, jak zapalają się przed Tobą.</li>
         </ul>

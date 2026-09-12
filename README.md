@@ -73,8 +73,11 @@ npm run build        # produkcyjny build do dist/
     Kosztuje ~20 tys. trójkątów, więc jest pomyślany jako jeden okaz na scenę. Sterowanie jak przy
     czerwiu pustynnym, tylko wolniejszy w rozpędzie i skręcie, za to wyskakujący wyżej.
   - **Przeszkody** — obrysy obiektów (`lib/obstacles.ts`: obrócony prostokąt z ramki modelu, z podłogą
-    i szczytem) zatrzymują wierzchowce i maszyny; nad dachem przelatuje się swobodnie. Zwierzęta omijają
-    obrysy i zawracają po otarciu. Model konia ładuje się raz (`three/assets.ts`), każdy obiekt dostaje klon
+    i szczytem, pasmami wysokości) kierują wierzchowce i maszyny w ślizg wzdłuż ściany; nad dachem przelatuje
+    się swobodnie. Zwierzęta **obchodzą** przeszkody: `avoid` (`lib/obstacles.ts`) przy ścianie zamienia
+    kierunek do celu na styczną do niej, a stronę obejścia trzyma dotychczasowy ruch — dlatego cel schowany
+    za budynkiem nie zatrzymuje już zwierzęcia pod murem. Dopiero po 2,5 s ocierania (ślepy zaułek) wybiera
+    inny cel. Model konia ładuje się raz (`three/assets.ts`), każdy obiekt dostaje klon
     ze szkieletem, a wpis buduje się na nowo, gdy plik dojedzie.
   Dynamika jazdy i lotu to czyste funkcje w `lib/ride.ts` (`stepAir`, `stepHover`, `stepGround`) z testami.
 - **Elewacja i dekoracje** — budynki mają wbudowane okna z szybami, te same na bryle, w powłoce
@@ -140,6 +143,10 @@ npm run build        # produkcyjny build do dist/
   na przyciski. Działa w spacerze i w trybie stereo; kontrolery gogli mają osobną ścieżkę (`readXrInput`).
 - **Krajobraz** — proceduralny pierścień terenu wokół planszy (łąki, góry, wybrzeże, pustynia) z losowanym
   ukształtowaniem oraz kategoria „Krajobraz" w bibliotece: góra, wulkan z dymem, głaz, wzgórze, staw, wodospad.
+  Po terenie **da się chodzić**: ma własną bryłę kolizji, więc w spacerze schodzi się z planszy na wzgórza
+  i wraca, aż po krawędź pierścienia (`clampWalk`). Zwierzęta chodzą w tych samych granicach, więc pies
+  biegnący za Tobą nie staje na krawędzi planszy. Bez krajobrazu (`scenery: 'none'`) poza płytą nie ma po
+  czym chodzić i granicą zostaje sama plansza.
 - **Pogoda i pora dnia** — niezależne ustawienia: cztery klimaty i sześć rodzajów pogody (chmury, deszcz,
   śnieg, mgła, burza z błyskawicami).
 - **Jakość obrazu** — preset urządzenia (`lib/quality.ts`, zapisywany w `lib/prefs`, nie w danych pałacu):
