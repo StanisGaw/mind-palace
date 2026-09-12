@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { DRAW_MIN, DRAW_PULL, SPEED_FULL, arrowSpeed, drawStrength, newArrow, stepArrow, sway, type ArrowState } from '../lib/archery';
-import { buildArrow, buildBow, disposeObject } from './builders';
+import { ARROW_NOCK, BOW_BRACE, BOW_STRING_ANCHOR, buildArrow, buildBow, buildGlovedHand, disposeObject } from './builders';
 
 /**
  * Strzelanie z łuku: łuk w dłoni, strzały w locie i strzały wbite w to, co trafiły.
@@ -36,6 +36,19 @@ const DEPTH = { min: 0.03, max: 0.14 };
 const FORWARD = new THREE.Vector3(0, 0, -1);
 const UP = new THREE.Vector3(0, 1, 0);
 
+/**
+ * Ustawia dłoń: przedramię (lokalne −Y) idzie w podanym kierunku, a palce (lokalne +Z) patrzą
+ * wzdłuż `face` w osi Z łuku. Bez drugiej osi obrót wokół przedramienia wychodzi dowolny i palce
+ * zaciskają się w powietrzu obok cięciwy zamiast na niej.
+ */
+function aimHand(hand: THREE.Object3D, x: number, y: number, z: number, face: 1 | -1) {
+  const yAxis = tmpV4.set(-x, -y, -z).normalize();
+  const zAxis = tmpV5.set(0, 0, face).addScaledVector(yAxis, -tmpV5.dot(yAxis)).normalize();
+  const xAxis = tmpV6.crossVectors(yAxis, zAxis).normalize();
+  tmpM2.makeBasis(xAxis, yAxis, zAxis);
+  hand.quaternion.setFromRotationMatrix(tmpM2);
+}
+
 /** Rozciąga walec jednostkowy (osi Y) między dwoma punktami — połowa cięciwy. */
 function stretch(mesh: THREE.Object3D | undefined, from: THREE.Vector3, to: THREE.Vector3) {
   if (!mesh) return;
@@ -69,6 +82,10 @@ const tmpQ = new THREE.Quaternion();
 const tmpS = new THREE.Vector3();
 const tmpM = new THREE.Matrix4();
 const tmpV3 = new THREE.Vector3();
+const tmpV4 = new THREE.Vector3();
+const tmpV5 = new THREE.Vector3();
+const tmpV6 = new THREE.Vector3();
+const tmpM2 = new THREE.Matrix4();
 
 export class Archery {
   /** Strzały w locie i wbite — grupa w układzie świata. */
@@ -81,6 +98,8 @@ export class Archery {
   swayXY: [number, number] = [0, 0];
 
   private bow = buildBow();
+  private bowHand = buildGlovedHand('bow');
+  private drawHand = buildGlovedHand('draw');
   private proto = buildArrow();
   private strings: THREE.Object3D[] = [];
   private nocked: THREE.Group;
@@ -95,14 +114,15 @@ export class Archery {
 
   constructor() {
     this.hand.add(this.bow);
-    // łuk trzymany metr przed twarzą przy kącie 70° zajmowałby cały ekran — w dłoni jest o połowę mniejszy
-    this.hand.scale.setScalar(0.45);
+    // łuk ma prawdziwą długość (1,64 m) i ramiona wychodzą za kadr, jak na referencji — grupa pomocnicza
+    // zostaje więc w skali 1, a kadr ustawia sama odległość od kamery
     for (const name of ['string0', 'string1']) {
       const m = this.bow.getObjectByName(name);
       if (m) this.strings.push(m);
     }
     this.nocked = this.proto.clone();
     this.bow.add(this.nocked);
+    this.hand.add(this.bowHand, this.drawHand);
     this.poseBow(0);
   }
 
@@ -137,15 +157,32 @@ export class Archery {
 
   /** Łuk przy naciągu wychodzi na środek widoku i prostuje się; cięciwa i strzała jadą do tyłu. */
   private poseBow(draw: number) {
-    this.hand.position.set(-0.28 + 0.09 * draw, -0.26 + 0.06 * draw, -0.85 + 0.07 * draw);
-    // łuk trzymany skośnie, żeby widać było wygięcie ramion; przy naciągu prostuje się, ale nie staje
-    // płasko do ekranu — wtedy wyglądałby jak kij i zasłaniałby środek widoku
-    this.hand.rotation.set(0.04 + 0.04 * draw, 0.6 - 0.24 * draw, -0.36 + 0.16 * draw);
-    const nock = 0.07 + DRAW_PULL * draw;
-    stretch(this.strings[0], tmpV.set(0, 0.52, 0.07), tmpV2.set(0, 0, nock));
-    stretch(this.strings[1], tmpV.set(0, -0.52, 0.07), tmpV2.set(0, 0, nock));
-    // grot 0,69 m przed nasadą: strzała cofa się razem z cięciwą
-    this.nocked.position.set(0.03, 0.052, nock - 0.69);
+    // łuk trzyma prawa dłoń w prawej części kadru (jak na referencji), przekrzywiony o ~17°;
+    // przy naciągu ramię wyciąga się do przodu i łuk prostuje się do pionu
+    // Strzała leży w płaszczyźnie łuku i celuje tam, gdzie patrzy kamera, więc łuk prawie nie jest
+    // obrócony w poziomie — inaczej strzała leciałaby obok celownika. Za to jest przekrzywiony (cant),
+    // dzięki czemu górne ramię wychodzi prawym górnym narożnikiem, a dolne chowa się za przedramieniem.
+    // Punkt zaczepienia (nasada przy pełnym naciągu) ma wypaść nieco pod okiem i 0,45 m przed nim —
+    // stąd pozycja grupy jest policzona od niego wstecz, a nie dobrana na oko.
+    this.hand.position.set(0.13 - 0.044 * draw, -0.2 + 0.07 * draw, -0.8 - 0.093 * draw);
+    this.hand.rotation.set(0.02 + 0.02 * draw, -0.08, -0.38 + 0.06 * draw);
+    const nock = BOW_BRACE + DRAW_PULL * draw;
+    // cięciwa odchodzi od ramienia w miejscu, gdzie kończy się podparcie na recurve
+    const [ay, az] = BOW_STRING_ANCHOR;
+    stretch(this.strings[0], tmpV.set(0, ay, az), tmpV2.set(0, 0, nock));
+    stretch(this.strings[1], tmpV.set(0, -ay, az), tmpV2.set(0, 0, nock));
+    // strzała wisi nasadą na cięciwie i cofa się razem z nią; leży przy majdanie od strony strzelca
+    this.nocked.position.set(-0.028, 0, nock - ARROW_NOCK);
+
+    // dłoń łucznicza trzyma majdan i stoi w miejscu; dłoń cięciwy jedzie z nasadą do oka strzelca
+    // dłoń łucznicza: palce zamykają się na majdanie od strony strzelca, dłoń leży na jego grzbiecie
+    this.bowHand.position.set(0.015, -0.02, 0.02);
+    aimHand(this.bowHand, 0.72, -0.64, 0.26, 1);
+    // przedramię cięciwy wychodzi lewym dolnym narożnikiem, jak na referencji; wycelowane w obiektyw
+    // zalewało cały dolny róg kadru
+    // dłoń cięciwy: palce hakują cięciwę od tyłu, więc patrzą w stronę celu
+    this.drawHand.position.set(-0.025, -0.03, nock + 0.035);
+    aimHand(this.drawHand, -0.7, -0.64, 0.31, -1);
   }
 
   private shoot(camera: THREE.Camera, cast: CastArrow, entryMatrix: EntryMatrix, draw: number) {

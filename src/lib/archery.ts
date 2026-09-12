@@ -7,7 +7,11 @@
 export const DRAW_TIME = 0.75;
 /** Poniżej tego naciągu puszczenie cięciwy nie wypuszcza strzały — chroni przed przypadkowym klikiem. */
 export const DRAW_MIN = 0.15;
-/** Cofnięcie cięciwy przy pełnym naciągu [m] — tyle jedzie strzała na modelu łuku. */
+/**
+ * Cofnięcie cięciwy przy pełnym naciągu [m] — tyle jedzie strzała na modelu łuku. Prawdziwy naciąg
+ * to ~0,45 m, ale nasada musi zostać przed płaszczyzną bliską kamery (0,25 m), inaczej ręka i strzała
+ * obcinają się w połowie.
+ */
 export const DRAW_PULL = 0.26;
 /** Prędkość wylotowa od ledwie puszczonej cięciwy do pełnego naciągu [m/s]; ćwierć naciągu daje 28 m/s. */
 export const SPEED_SLACK = 18;
