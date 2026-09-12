@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mat } from './builders';
 import { PuffEmitter, type Updatable } from './particles';
-import { insideAny, pushOut, steerAway, type Obstacle } from '../lib/obstacles';
+import { avoid, insideAny, pushOut, type Obstacle } from '../lib/obstacles';
 
 export type AnimalKind = 'bird' | 'dog' | 'cat' | 'squirrel' | 'wolf' | 'dragon';
 
@@ -311,6 +311,8 @@ class Creature {
   private phase = Math.random() * 10;
   private timer = 0;
   private reactTimer = 0;
+  /** Ile sekund zwierzę ociera się o przeszkodę — po chwili w ślepym zaułku odpuszcza i szuka innego celu. */
+  private stuck = 0;
   state: State = 'wander';
   private flying: boolean;
   private emitter: Updatable | null = null;
@@ -484,21 +486,26 @@ class Creature {
       const maxSpeed = this.state === 'flee' ? 5 : this.state === 'growl' ? 1.2 : this.state === 'approach' ? 3 : this.kind === 'squirrel' ? 3.4 : 1.9;
       if (dist > 0.35 && this.state !== 'sit' && this.state !== 'react') {
         dir.normalize();
-        // omijanie przeszkód: odpychanie od ścian rośnie, im bliżej brzegu obrysu
-        const [ax, az] = steerAway(p.x, p.z, world.obstacles, 1.2, p.y);
-        dir.add(new THREE.Vector3(ax, 0, az).multiplyScalar(1.5));
-        dir.normalize();
+        // omijanie: przy ścianie kierunek przechodzi w styczną do niej, a stronę obejścia trzyma dotychczasowy
+        // ruch. Samo odpychanie od ściany znosiło się z kierunkiem do celu i zwierzę stało pod murem
+        const [ax, az] = avoid(p.x, p.z, dir.x, dir.z, world.obstacles, 1.8, p.y, this.vel.x, this.vel.z);
+        if (ax !== 0 || az !== 0) dir.set(ax, 0, az);
         this.vel.lerp(dir.multiplyScalar(maxSpeed), 1 - Math.exp(-dt * 5));
       } else if (this.state !== 'climb') this.vel.multiplyScalar(1 - Math.min(1, dt * 6));
       const [nx, nz] = world.clamp(p.x + this.vel.x * dt, p.z + this.vel.z * dt);
-      // zderzenie ze ścianą: zwierzę staje przy niej i wybiera inny cel, zamiast przeciskać się na drugą stronę
+      // otarcie o ścianę nie zatrzymuje — kierunek obejścia daje `avoid`; dopiero długie ocieranie
+      // (ślepy zaułek, cel w środku budynku) każe odpuścić i wybrać inny cel
       const bump = pushOut(nx, nz, world.obstacles, 0.35, p.y);
       p.x = bump.x;
       p.z = bump.z;
       if (bump.hit) {
-        this.vel.multiplyScalar(0.2);
-        if (this.state === 'wander' || this.state === 'patrol' || this.state === 'flee') this.pickWander(world);
-      }
+        this.vel.multiplyScalar(0.9);
+        this.stuck += dt;
+        if (this.stuck > 2.5 && (this.state === 'wander' || this.state === 'patrol' || this.state === 'flee')) {
+          this.stuck = 0;
+          this.pickWander(world);
+        }
+      } else this.stuck = 0;
       speed = Math.hypot(this.vel.x, this.vel.z);
       const groundY = world.heightAt(p.x, p.z);
       if (climbing && dist < 1.2) p.y += (this.target.y - p.y) * Math.min(1, dt * 2);

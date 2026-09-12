@@ -106,19 +106,52 @@ export function pushOut(x: number, z: number, obstacles: Obstacle[], margin: num
   return { x, z, hit };
 }
 
-/** Odpychanie od bliskich przeszkód do sterowania zwierząt: tym silniejsze, im bliżej brzegu. */
-export function steerAway(x: number, z: number, obstacles: Obstacle[], range: number, y?: number): [number, number] {
-  let sx = 0;
-  let sz = 0;
+/**
+ * Kierunek do celu skorygowany tak, żeby obejść przeszkodę zamiast się w nią wbijać. Samo odpychanie
+ * (dawne `steerAway`) znosi się z kierunkiem do celu, gdy idzie się prosto na ścianę — wypadkowa jest wtedy zerowa
+ * i zwierzę staje pod murem. Tutaj im bliżej brzegu obrysu, tym bardziej kierunek przechodzi w **styczną**
+ * do ściany, czyli w obejście; niewielka składowa na zewnątrz nie pozwala się o nią kleić.
+ *
+ * `dx`,`dz` to pożądany kierunek (nie musi być jednostkowy). `hx`,`hz` to dotychczasowy ruch: decyduje on,
+ * którą stroną obejść, bo sam cel bywa schowany dokładnie za bryłą i ciągnąłby z powrotem na jej oś — wtedy
+ * zwierzę drgałoby w miejscu zamiast obejść, a na narożniku zawracałoby. Domyślnie strony pilnuje sam cel.
+ * Wynik jest jednostkowy, albo `[0, 0]`, gdy nie podano dokąd iść.
+ */
+export function avoid(x: number, z: number, dx: number, dz: number, obstacles: Obstacle[], range: number, y?: number, hx = dx, hz = dz): [number, number] {
+  const len = Math.hypot(dx, dz);
+  if (len < 1e-6) return [0, 0];
+  const ux = dx / len;
+  const uz = dz / len;
+  // najbliższa z brył, w które faktycznie idziemy — tylko ona decyduje o objeździe
+  let best: Contact | null = null;
+  let bestObs: Obstacle | null = null;
   for (const o of obstacles) {
     if (!blocksAt(o, y)) continue;
     const c = contact(o, x, z, y);
-    if (c.dist >= range) continue;
-    const k = (range - Math.max(c.dist, 0)) / range;
-    sx += c.nx * k;
-    sz += c.nz * k;
+    if (c.dist >= range || (best && c.dist >= best.dist)) continue;
+    if (c.nx * ux + c.nz * uz >= 0) continue; // ta bryła zostaje za plecami
+    best = c;
+    bestObs = o;
   }
-  return [sx, sz];
+  if (!best || !bestObs) return [ux, uz];
+  let tx = -best.nz;
+  let tz = best.nx;
+  // strona obejścia: najpierw ciągłość ruchu (raz zaczęte obchodzenie trwa, także za narożnikiem),
+  // a gdy zwierzę stoi — przesunięcie względem środka bryły, czyli bok, którym ma bliżej do jej końca
+  const wzdluzRuchu = tx * hx + tz * hz;
+  const lat = (x - bestObs.x) * tx + (z - bestObs.z) * tz;
+  const wstecz = Math.abs(wzdluzRuchu) > 1e-6 ? wzdluzRuchu < 0 : lat < 0;
+  if (wstecz) {
+    tx = -tx;
+    tz = -tz;
+  }
+  // pierwiastek zamiast wprost: skręt zaczyna się wyraźnie już na wejściu w zasięg, a przy samym murze
+  // kierunek jest czysto styczny — wtedy zwierzę idzie wzdłuż ściany aż do jej końca
+  const k = Math.sqrt(Math.min(1, Math.max(0, (range - Math.max(best.dist, 0)) / range)));
+  const rx = ux * (1 - k) + tx * k;
+  const rz = uz * (1 - k) + tz * k;
+  const rl = Math.hypot(rx, rz);
+  return rl < 1e-6 ? [tx, tz] : [rx / rl, rz / rl];
 }
 
 export function insideAny(x: number, z: number, obstacles: Obstacle[], margin: number, y?: number): boolean {
