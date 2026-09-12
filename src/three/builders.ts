@@ -8,6 +8,7 @@ import { grainTexture, maxAnisotropy, skinTextures, textureById } from './textur
 import { MATERIAL_DEFAULTS, MATERIAL_ROLES, paletteOf, type MaterialRole } from '../lib/materials';
 import type { MountId } from '../lib/ride';
 import { assetLoaded, cloneAsset } from './assets';
+import { mergeByMaterial } from './merge';
 
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
 export interface MatOpts {
@@ -921,31 +922,113 @@ function buildArcheryTarget(g: THREE.Group) {
 
 /**
  * Łuk trzymany w dłoni — nie obiekt biblioteki, więc bez wpisu w katalogu i bez palety obiektu.
- * Ramiona to jedna rurka wygięta w płaszczyźnie YZ (łuk oglądany wprost zawsze jest pionową linią —
- * czyta się dopiero przy przekrzywieniu w dłoni), a cięciwa to dwa cienkie walce o nazwach `string0`
- * i `string1`, które `three/archery.ts` rozciąga między końcówką a nasadą. Przód łuku to −Z.
+ * Kształt z referencji: recurve o długości 1,64 m, majdan grubszy od ramion, oś ramienia wygięta
+ * w S (środek wybrzuszony do celu, ramiona odchodzą do strzelca, końcówki zahaczone z powrotem).
+ * Listwa jest **płaska**: szeroką stroną do strzelca, więc składamy ją z łańcucha pudełek
+ * o malejącej szerokości i grubości, a nie z rurki o stałym promieniu.
+ * Łuk leży w płaszczyźnie YZ, przód (cel) to −Z, strzelec jest po stronie +Z.
  */
+
+/** Oś ramienia od środka majdanu do końcówki: (y, z) w metrach. */
+const LIMB_PATH: [number, number][] = [
+  [0, -0.035],
+  [0.1, -0.033],
+  [0.18, -0.012],
+  [0.27, 0.028],
+  [0.38, 0.086],
+  [0.5, 0.148],
+  [0.6, 0.192],
+  [0.68, 0.214],
+  [0.745, 0.212],
+  [0.79, 0.192],
+  [0.82, 0.163],
+];
+
+/** Miejsce, w którym cięciwa odchodzi od ramienia (koniec podparcia na recurve). */
+export const BOW_STRING_ANCHOR: [number, number] = [0.68, 0.214];
+/** Nasada cięciwy w spoczynku: wysokość napięcia mierzona od czoła majdanu. */
+export const BOW_BRACE = 0.185;
+
+const lerp = (a: number, b: number, t: number) => a + (b - a) * Math.min(Math.max(t, 0), 1);
+
+/** Szerokość (X) i grubość (Z) listwy w danej odległości od środka. */
+function limbSection(y: number): [number, number] {
+  const t = Math.abs(y) / 0.82;
+  const w = t < 0.12 ? 0.056 : t < 0.32 ? lerp(0.052, 0.042, (t - 0.12) / 0.2) : lerp(0.042, 0.013, (t - 0.32) / 0.68);
+  const th = t < 0.1 ? 0.072 : t < 0.3 ? lerp(0.066, 0.023, (t - 0.1) / 0.2) : lerp(0.023, 0.009, (t - 0.3) / 0.7);
+  return [w, th];
+}
+
+/**
+ * Gięta płaska listwa: prostokątny przekrój o zmiennej szerokości i grubości przesunięty po krzywej
+ * w płaszczyźnie YZ. `TubeGeometry` ma stały promień i okrągły przekrój, a łańcuch pudełek zostawia
+ * na stykach widoczne schodki — stąd własna wstęga.
+ */
+function taperedRibbon(pts: THREE.Vector3[], section: (y: number) => [number, number]): THREE.BufferGeometry {
+  const n = pts.length;
+  const rings: THREE.Vector3[][] = [];
+  const tan = new THREE.Vector3();
+  for (let i = 0; i < n; i++) {
+    if (i === 0) tan.subVectors(pts[1], pts[0]);
+    else if (i === n - 1) tan.subVectors(pts[n - 1], pts[n - 2]);
+    else tan.subVectors(pts[i + 1], pts[i - 1]);
+    tan.normalize();
+    const [w, th] = section(pts[i].y);
+    const across = new THREE.Vector3(w / 2, 0, 0);
+    const deep = new THREE.Vector3(0, -tan.z, tan.y).normalize().multiplyScalar(th / 2);
+    rings.push([
+      pts[i].clone().sub(across).sub(deep),
+      pts[i].clone().add(across).sub(deep),
+      pts[i].clone().add(across).add(deep),
+      pts[i].clone().sub(across).add(deep),
+    ]);
+  }
+  const pos: number[] = [];
+  const tri = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3) => pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+  for (let i = 0; i < n - 1; i++) {
+    for (let k = 0; k < 4; k++) {
+      const k2 = (k + 1) % 4;
+      tri(rings[i][k], rings[i + 1][k], rings[i + 1][k2]);
+      tri(rings[i][k], rings[i + 1][k2], rings[i][k2]);
+    }
+  }
+  for (const cap of [rings[0], rings[n - 1]]) {
+    tri(cap[0], cap[1], cap[2]);
+    tri(cap[0], cap[2], cap[3]);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
 export function buildBow(): THREE.Group {
   const g = new THREE.Group();
-  const curve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0, -0.52, 0.07),
-    new THREE.Vector3(0, -0.42, -0.06),
-    new THREE.Vector3(0, -0.26, -0.16),
-    new THREE.Vector3(0, -0.1, -0.07),
-    new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(0, 0.1, -0.07),
-    new THREE.Vector3(0, 0.26, -0.16),
-    new THREE.Vector3(0, 0.42, -0.06),
-    new THREE.Vector3(0, 0.52, 0.07),
-  ]);
-  add(g, new THREE.TubeGeometry(curve, 30, 0.015, 5, false), woodMat(C.woodDark));
-  // rękojeść z półką na strzałę i okienkiem celowniczym — to ona odróżnia łuk od kija
-  add(g, box(0.042, 0.19, 0.06), mat(C.velvet, { roughness: 1 }), 0, -0.01, 0.015);
-  add(g, box(0.03, 0.075, 0.05), woodMat(C.wood), 0.026, 0.085, 0.01);
-  add(g, box(0.058, 0.014, 0.032), woodMat(C.wood), 0.03, 0.052, 0.008);
+  // cała listwa od dolnej do górnej końcówki jako jedna wstęga — dwustronna, bo zwrot ścianek
+  // przy zmiennym przekroju łatwo obrócić na lewą stronę
+  const half = LIMB_PATH.map(([y, z]) => new THREE.Vector3(0, y, z));
+  const spine = [...half.slice(1).reverse().map((p) => new THREE.Vector3(0, -p.y, p.z)), ...half];
+  const curve = new THREE.CatmullRomCurve3(spine);
+  const pts = curve.getPoints(56);
+  const stave = new THREE.Mesh(taperedRibbon(pts, limbSection), woodMat(C.woodDark, { double: true }));
+  stave.castShadow = false;
+  stave.receiveShadow = false;
+  g.add(stave);
+
+  // skórzane owinięcie chwytu z obrzeżami i nitem — na referencji to ono odróżnia majdan od ramion
+  const grip = mat(C.wood, { roughness: 1 });
+  add(g, box(0.066, 0.15, 0.086), grip, 0, 0, -0.035).castShadow = false;
+  for (const y of [-0.078, 0.078]) add(g, box(0.07, 0.012, 0.09), mat(C.woodDark, { roughness: 1 }), 0, y, -0.035).castShadow = false;
+  add(g, cyl(0.008, 0.008, 0.072, 8), mat(C.metal, { metalness: 0.5, roughness: 0.5 }), 0, 0, -0.035, [0, 0, Math.PI / 2]).castShadow = false;
+
+  // jasne nakładki końcówek z nacięciem na cięciwę
+  for (const side of [1, -1]) {
+    const tip = add(g, cyl(0.011, 0.014, 0.055, 6), mat(C.linen, { roughness: 0.8 }), 0, side * 0.805, 0.168, [side * 0.7, 0, 0]);
+    tip.castShadow = false;
+  }
 
   for (const name of ['string0', 'string1']) {
-    const m = new THREE.Mesh(cyl(0.003, 0.003, 1, 4), mat(C.linen, { roughness: 0.9 }));
+    const m = new THREE.Mesh(cyl(0.0025, 0.0025, 1, 4), mat(C.linen, { roughness: 0.9 }));
     m.name = name;
     m.castShadow = false;
     g.add(m);
@@ -954,26 +1037,72 @@ export function buildBow(): THREE.Group {
 }
 
 /**
- * Strzała: grot siedzi w punkcie zaczepienia grupy, a drzewce ciągnie się w +Z. Dzięki temu przód to −Z
- * (jak u łuku), wbita strzała obraca się wokół grotu, a drganie po wbiciu rusza samym ogonem.
- * Cienia nie rzuca — przy trzydziestu strzałach w tarczy to trzydzieści rysowań mapy cienia za nic.
+ * Dłoń w rękawicy z przedramieniem: pięść w punkcie zaczepienia grupy, przedramię idzie w −Y
+ * i wychodzi za kadr — postaci w Mneme nie ma, więc ramię nie kończy się nigdzie widocznym.
+ * Moduł łucznictwa obraca całą grupę tak, żeby przedramię celowało w bark, a palce w cięciwę.
  */
-export function buildArrow(): THREE.Group {
+export function buildGlovedHand(kind: 'bow' | 'draw'): THREE.Group {
   const g = new THREE.Group();
-  add(g, cone(0.011, 0.055, 6), mat(C.metal, { metalness: 0.4, roughness: 0.45 }), 0, 0, 0.0275, [-Math.PI / 2, 0, 0]);
-  add(g, cyl(0.008, 0.008, 0.62, 6), woodMat(C.wood), 0, 0, 0.365, [Math.PI / 2, 0, 0]);
-  add(g, cyl(0.009, 0.009, 0.03, 6), mat(C.dark), 0, 0, 0.69, [Math.PI / 2, 0, 0]);
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2;
-    // lotki są trochę większe od prawdziwych: strzała oglądana od tyłu (z miejsca strzelca) to przy
-    // dwudziestu metrach kilka pikseli, a po nich rozpoznaje się, że w tarczy stoi strzała
-    add(g, box(0.002, 0.05, 0.11), mat(i === 0 ? C.linen : C.velvet), -Math.sin(a) * 0.018, Math.cos(a) * 0.018, 0.6, [0, 0, a]);
+  const leather = mat(C.soil, { roughness: 1 });
+  const cuffMat = mat(C.woodDark, { roughness: 1 });
+  const cloth = mat(C.cypress, { roughness: 1 });
+  // grzbiet dłoni, potem palce jako walce poprzeczne: dłoń łucznicza obejmuje majdan pełną garścią,
+  // dłoń cięciwy hakuje ją trzema palcami, więc ma ich mniej i są wysunięte
+  add(g, box(0.07, 0.09, 0.052), leather, 0, 0, -0.016);
+  const fingers = kind === 'bow' ? 4 : 3;
+  for (let i = 0; i < fingers; i++) {
+    const len = 0.066 - i * 0.005;
+    add(g, cyl(0.0135, 0.0125, len, 6), leather, 0, 0.03 - i * 0.023, 0.022, [0, 0, Math.PI / 2]);
   }
+  if (kind === 'bow') add(g, cyl(0.0155, 0.014, 0.055, 6), leather, 0.028, -0.036, 0.012, [0.35, 0, 1.15]);
+  add(g, cyl(0.05, 0.046, 0.05, 10), cuffMat, 0, -0.07, 0);
+  add(g, cyl(0.042, 0.055, 0.3, 10), cloth, 0, -0.24, 0);
   g.traverse((c) => {
     c.castShadow = false;
   });
+  mergeByMaterial(g);
   return g;
 }
+
+/** Odległość od grotu do nasady strzały — po niej moduł łucznictwa osadza strzałę na cięciwie. */
+export const ARROW_NOCK = 0.74;
+
+/**
+ * Strzała z referencji: liściowy grot na tulejce, drewniane drzewce z ciemnym pierścieniem cresting
+ * i trzy jasne lotki z naturalnego pióra. Grot siedzi w punkcie zaczepienia grupy, a drzewce ciągnie
+ * się w +Z — dzięki temu przód to −Z (jak u łuku), a wbita strzała obraca się i drga wokół grotu.
+ * Cienia nie rzuca: przy trzydziestu strzałach w tarczy to trzydzieści rysowań mapy cienia za nic.
+ * Na koniec scalamy siatki po materiale — inaczej każda strzała to czternaście wywołań rysowania.
+ */
+export function buildArrow(): THREE.Group {
+  const g = new THREE.Group();
+  const shaftMat = woodMat(C.wood);
+  const feather = mat(C.linen, { roughness: 0.95 });
+
+  // grot: czterościenny stożek spłaszczony w osi X czyta się jak dwusieczne ostrze liściowe
+  const head = add(g, cone(0.02, 0.078, 4), mat(C.metal, { metalness: 0.45, roughness: 0.4 }), 0, 0, 0.039, [-Math.PI / 2, 0, 0]);
+  head.scale.x = 0.2;
+  add(g, cyl(0.008, 0.0075, 0.024, 8), mat(C.metal, { metalness: 0.4, roughness: 0.5 }), 0, 0, 0.087);
+  add(g, cyl(0.0048, 0.0048, 0.62, 6), shaftMat, 0, 0, 0.39, [Math.PI / 2, 0, 0]);
+  add(g, cyl(0.0056, 0.0056, 0.028, 6), mat(C.book2, { roughness: 0.9 }), 0, 0, 0.588, [Math.PI / 2, 0, 0]);
+  add(g, cyl(0.0062, 0.0058, 0.026, 6), mat(C.linen, { roughness: 0.8 }), 0, 0, 0.727, [Math.PI / 2, 0, 0]);
+
+  // trzy lotki: pasek przy drzewcu i wyższy grzbiet w środku dają sylwetkę pióra bez krzywych
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    const ux = -Math.sin(a);
+    const uy = Math.cos(a);
+    add(g, box(0.0026, 0.016, 0.115), feather, ux * 0.012, uy * 0.012, 0.662, [0, 0, a]);
+    add(g, box(0.0026, 0.03, 0.072), feather, ux * 0.027, uy * 0.027, 0.646, [0, 0, a]);
+  }
+
+  g.traverse((c) => {
+    c.castShadow = false;
+  });
+  mergeByMaterial(g);
+  return g;
+}
+
 
 /**
  * Mały samolot z otwartym kokpitem: nos w stronę −Z (jak kierunek marszu przy obrocie obiektu),
