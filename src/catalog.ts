@@ -49,6 +49,7 @@ export const CATALOG: CatalogItem[] = [
   { id: 'chest', name: 'Skrzynia', category: 'object', emoji: '🧰', description: 'Skrzynia na sekrety.', footprint: 0.6 },
   { id: 'signpost', name: 'Drogowskaz', category: 'object', emoji: '🪧', description: 'Wskazuje kierunek historii.', footprint: 0.4, outdoorOnly: true },
   { id: 'billboard', name: 'Ekran reklamowy', category: 'object', emoji: '📺', description: 'Wielki świecący ekran na dwóch słupach — hologramowa reklama nad ulicą.', footprint: 2.0, collider: 'box' },
+  { id: 'archery_target', name: 'Tarcza łucznicza', category: 'object', emoji: '🎯', description: 'Snop słomy na trójnogu z pięcioma pierścieniami. W spacerze naciśnij B, żeby wziąć łuk — strzały zostają w tarczy.', footprint: 0.8, collider: 'trimesh' },
   { id: 'well', name: 'Studnia', category: 'object', emoji: '🪣', description: 'Głębokie skojarzenia.', footprint: 0.8, collider: 'trimesh', outdoorOnly: true },
   // Pojazdy i wierzchowce — w spacerze F wsiada, sterowanie i wysiadka w `lib/ride.ts`
   { id: 'plane', name: 'Samolot', category: 'vehicle', emoji: '✈️', description: 'Mały samolot z otwartym kokpitem. W spacerze podejdź i naciśnij F, żeby wsiąść i polecieć.', footprint: 2.4, maxScale: 2, collider: 'trimesh', outdoorOnly: true },
